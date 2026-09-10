@@ -9,14 +9,23 @@
 /* Begin PBXFileReference section */
 		1A00000000000000000000A3 /* Musicfin.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Musicfin.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		1A00000000000000000000C1 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		1A00000000000000000000D2 /* MusicfinUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MusicfinUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		1A00000000000000000000A6 /* Musicfin */ = {isa = PBXFileSystemSynchronizedRootGroup; path = Musicfin; sourceTree = "<group>"; };
+		1A00000000000000000000D3 /* MusicfinUITests */ = {isa = PBXFileSystemSynchronizedRootGroup; path = MusicfinUITests; sourceTree = "<group>"; };
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		1A00000000000000000000A8 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		1A00000000000000000000D5 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -30,6 +39,7 @@
 			isa = PBXGroup;
 			children = (
 				1A00000000000000000000A6 /* Musicfin */,
+				1A00000000000000000000D3 /* MusicfinUITests */,
 				1A00000000000000000000C0 /* Config */,
 				1A00000000000000000000A5 /* Products */,
 			);
@@ -39,6 +49,7 @@
 			isa = PBXGroup;
 			children = (
 				1A00000000000000000000A3 /* Musicfin.app */,
+				1A00000000000000000000D2 /* MusicfinUITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -74,7 +85,46 @@
 			productReference = 1A00000000000000000000A3 /* Musicfin.app */;
 			productType = "com.apple.product-type.application";
 		};
+		1A00000000000000000000D1 /* MusicfinUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 1A00000000000000000000D7 /* Build configuration list for PBXNativeTarget "MusicfinUITests" */;
+			buildPhases = (
+				1A00000000000000000000D4 /* Sources */,
+				1A00000000000000000000D5 /* Frameworks */,
+				1A00000000000000000000D6 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				1A00000000000000000000DA /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				1A00000000000000000000D3 /* MusicfinUITests */,
+			);
+			name = MusicfinUITests;
+			productName = MusicfinUITests;
+			productReference = 1A00000000000000000000D2 /* MusicfinUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
 /* End PBXNativeTarget section */
+
+/* Begin PBXTargetDependency section */
+		1A00000000000000000000DA /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 1A00000000000000000000A2 /* Musicfin */;
+			targetProxy = 1A00000000000000000000DB /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin PBXContainerItemProxy section */
+		1A00000000000000000000DB /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 1A00000000000000000000A1 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 1A00000000000000000000A2;
+			remoteInfo = Musicfin;
+		};
+/* End PBXContainerItemProxy section */
 
 /* Begin PBXProject section */
 		1A00000000000000000000A1 /* Project object */ = {
@@ -105,6 +155,7 @@
 			projectRoot = "";
 			targets = (
 				1A00000000000000000000A2 /* Musicfin */,
+				1A00000000000000000000D1 /* MusicfinUITests */,
 			);
 		};
 /* End PBXProject section */
@@ -117,10 +168,24 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		1A00000000000000000000D6 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		1A00000000000000000000A7 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		1A00000000000000000000D4 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -251,6 +316,42 @@
 			};
 			name = Release;
 		};
+		1A00000000000000000000D8 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = am.nasawake.MusicfinUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_DEFAULT_ACTOR_ISOLATION = nonisolated;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = Musicfin;
+			};
+			name = Debug;
+		};
+		1A00000000000000000000D9 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = am.nasawake.MusicfinUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_DEFAULT_ACTOR_ISOLATION = nonisolated;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = Musicfin;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -268,6 +369,15 @@
 			buildConfigurations = (
 				1A00000000000000000000B5 /* Debug */,
 				1A00000000000000000000B6 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		1A00000000000000000000D7 /* Build configuration list for PBXNativeTarget "MusicfinUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				1A00000000000000000000D8 /* Debug */,
+				1A00000000000000000000D9 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
