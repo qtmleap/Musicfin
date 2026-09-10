@@ -56,22 +56,26 @@ xcrun xcresulttool export attachments --path "$RESULT" --output-path "$STAGE" >/
 
 # manifest.json が添付名と実ファイル名の対応を持っている。
 python3 - "$STAGE" "$OUT" <<'PY'
-import json, pathlib, shutil, sys
+import json, pathlib, re, shutil, sys
 
 stage, out = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
-manifests = list(stage.rglob("manifest.json"))
-copied = 0
-for manifest in manifests:
+# 添付名には Xcode が付けた連番と UUID が入るので落とす。
+suffix = re.compile(r"_\d+_[0-9A-Fa-f-]{36}$")
+# テストが名前を付けた画面だけを残す（UI 階層ダンプや画面収録は除く）。
+wanted = re.compile(r"^\d{2}-")
+
+copied = []
+for manifest in stage.rglob("manifest.json"):
     for entry in json.loads(manifest.read_text()):
         for att in entry.get("attachments", []):
-            name = att.get("suggestedHumanReadableName") or att.get("exportedFileName")
+            name = att.get("suggestedHumanReadableName") or att.get("exportedFileName") or ""
+            stem = suffix.sub("", pathlib.Path(name).stem)
             src = manifest.parent / att["exportedFileName"]
-            if not src.exists() or not name:
+            if not wanted.match(stem) or not src.exists():
                 continue
-            stem = pathlib.Path(name).stem
             shutil.copy2(src, out / f"{stem}.png")
-            copied += 1
-print(f"  {copied} 枚を {out} へ出力")
+            copied.append(stem)
+print(f"  {len(copied)} 枚を {out} へ出力")
 PY
 
 ls -1 "$OUT" | sed 's/^/    /'

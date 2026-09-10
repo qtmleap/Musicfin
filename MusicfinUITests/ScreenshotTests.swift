@@ -87,10 +87,26 @@ final class ScreenshotTests: XCTestCase {
         add(attachment)
     }
 
+    /// 画面内に実体を持つ要素だけを返す。
+    ///
+    /// スクロールで画面外に出た要素に `isHittable` を問い合わせると
+    /// 「Activation point invalid」で例外になるため、先に矩形で絞り込む。
+    private func visibleElements(_ query: XCUIElementQuery) -> [XCUIElement] {
+        let bounds = app.frame
+        return query.allElementsBoundByIndex.filter { element in
+            guard element.exists else { return false }
+            let frame = element.frame
+            return frame.width > 1 && frame.height > 1 && bounds.intersects(frame)
+        }
+    }
+
+    /// 中心座標をタップする。`isHittable` を経由しないので画面外判定で落ちない。
     @discardableResult
     private func tap(_ element: XCUIElement) -> Bool {
-        guard element.waitForExistence(timeout: 5), element.isHittable else { return false }
-        element.tap()
+        guard element.waitForExistence(timeout: 5) else { return false }
+        let frame = element.frame
+        guard frame.width > 1, frame.height > 1, app.frame.intersects(frame) else { return false }
+        element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         return true
     }
 
@@ -103,24 +119,22 @@ final class ScreenshotTests: XCTestCase {
     /// ボタン → セル → 画像 の順に当たりを探す。
     private func tapFirstAlbum() -> Bool {
         for query in [app.buttons, app.cells, app.images] {
-            let candidates = query.allElementsBoundByIndex.filter { $0.isHittable }
             // タブバーのボタンを避けるため、画面上部 3/4 にあるものだけを対象にする。
-            if let target = candidates.first(where: { $0.frame.midY < app.frame.height * 0.75 }) {
-                target.tap()
-                return true
-            }
+            let candidates = visibleElements(query)
+                .filter { $0.frame.midY < app.frame.height * 0.75 && $0.frame.minY > 0 }
+                .sorted { $0.frame.minY < $1.frame.minY }
+            if let target = candidates.first, tap(target) { return true }
         }
         return false
     }
 
     private func tapMiniPlayer() -> Bool {
-        // ミニプレイヤーはタブバーのすぐ上にある。画面下端付近で最も広いものを選ぶ。
+        // ミニプレイヤーはタブバーのすぐ上にある。画面下端付近で最も横幅の広いものを選ぶ。
         let bottom = app.frame.height * 0.78
-        let candidates = app.buttons.allElementsBoundByIndex
-            .filter { $0.isHittable && $0.frame.midY > bottom }
+        let candidates = visibleElements(app.buttons)
+            .filter { $0.frame.midY > bottom }
             .sorted { $0.frame.width > $1.frame.width }
         guard let target = candidates.first else { return false }
-        target.tap()
-        return true
+        return tap(target)
     }
 }
