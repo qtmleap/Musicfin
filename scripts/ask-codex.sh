@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# dev-session.sh で立てた tmux セッションの codex ペインへプロンプトを送り、
+# start-agents.sh で立てた tmux セッションの codex ペインへプロンプトを送り、
 # 応答をそのまま読み取れるようにする。
 #
 # 使い方:
@@ -44,7 +44,7 @@ done
 
 command -v tmux >/dev/null 2>&1 || die "tmux が見つかりません。"
 tmux has-session -t "=$SESSION" 2>/dev/null \
-  || die "セッション '$SESSION' がありません。先に ./scripts/dev-session.sh を実行してください。"
+  || die "セッション '$SESSION' がありません。先に ./scripts/start-agents.sh を実行してください。"
 
 # codex ペインを特定する。TUI は起動後に pane_title を自分で書き換えてしまうため、
 # 実行中のコマンド名を第一の手がかりにする。
