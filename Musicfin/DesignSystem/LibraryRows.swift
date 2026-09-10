@@ -116,7 +116,9 @@ struct CarouselSection<Content: View>: View {
                     .font(.title2.bold())
                 Spacer()
                 if let destination {
-                    NavigationLink { destination() } label: {
+                    NavigationLink {
+                        destination()
+                    } label: {
                         Text("すべて表示").font(.subheadline)
                     }
                 }

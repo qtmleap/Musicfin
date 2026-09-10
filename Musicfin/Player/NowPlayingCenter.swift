@@ -62,10 +62,11 @@ final class NowPlayingCenter {
         // 音楽アプリではスキップ（早送り）よりトラック送りを優先する。
         center.skipForwardCommand.isEnabled = false
         center.skipBackwardCommand.isEnabled = false
-        for command in [center.playCommand, center.pauseCommand, center.togglePlayPauseCommand,
-                        center.nextTrackCommand, center.previousTrackCommand,
-                        center.changePlaybackPositionCommand]
-        {
+        for command in [
+            center.playCommand, center.pauseCommand, center.togglePlayPauseCommand,
+            center.nextTrackCommand, center.previousTrackCommand,
+            center.changePlaybackPositionCommand,
+        ] {
             command.isEnabled = true
         }
     }
@@ -93,7 +94,7 @@ final class NowPlayingCenter {
 
         // 既存のアートワークは引き継ぎ、曲が変わったときだけ取り直す。
         if artworkItemID == item.id,
-           let existing = MPNowPlayingInfoCenter.default().nowPlayingInfo?[MPMediaItemPropertyArtwork]
+            let existing = MPNowPlayingInfoCenter.default().nowPlayingInfo?[MPMediaItemPropertyArtwork]
         {
             info[MPMediaItemPropertyArtwork] = existing
         }

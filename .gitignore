@@ -1,11 +1,36 @@
-# Xcode
+## Xcode
 .build/
 DerivedData/
+build/
 *.xcuserstate
+*.xcuserdatad/
 xcuserdata/
 *.xcworkspace/xcuserdata/
-.DS_Store
+*.moved-aside
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
 
-# 秘密情報
+## Swift Package Manager
+.swiftpm/
+Packages/
+Package.resolved
+
+## 署名情報・秘密情報
 *.p12
+*.cer
+*.certSigningRequest
 *.mobileprovision
+*.provisionprofile
+.env
+.env.local
+
+## CI のローカル実行 (act)
+build.log
+
+## Node (commitlint をローカルで動かす場合)
+node_modules/
+
+## macOS
+.DS_Store

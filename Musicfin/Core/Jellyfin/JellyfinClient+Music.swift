@@ -71,64 +71,76 @@ nonisolated extension JellyfinClient {
         sortBy: String = "SortName",
         sortOrder: String = "Ascending"
     ) async throws -> QueryResult<MediaItem> {
-        try await get("/Items", query: itemsQuery(extra: [
-            "includeItemTypes": "MusicAlbum",
-            "recursive": "true",
-            "sortBy": sortBy,
-            "sortOrder": sortOrder,
-            "startIndex": String(startIndex),
-            "limit": String(limit),
-        ]))
+        try await get(
+            "/Items",
+            query: itemsQuery(extra: [
+                "includeItemTypes": "MusicAlbum",
+                "recursive": "true",
+                "sortBy": sortBy,
+                "sortOrder": sortOrder,
+                "startIndex": String(startIndex),
+                "limit": String(limit),
+            ]))
     }
 
     /// アルバムアーティスト一覧。/Artists は userId を受け取る専用エンドポイント。
     func fetchAlbumArtists(startIndex: Int = 0, limit: Int = 200) async throws -> QueryResult<MediaItem> {
-        try await get("/Artists/AlbumArtists", query: itemsQuery(extra: [
-            "sortBy": "SortName",
-            "sortOrder": "Ascending",
-            "startIndex": String(startIndex),
-            "limit": String(limit),
-        ]))
+        try await get(
+            "/Artists/AlbumArtists",
+            query: itemsQuery(extra: [
+                "sortBy": "SortName",
+                "sortOrder": "Ascending",
+                "startIndex": String(startIndex),
+                "limit": String(limit),
+            ]))
     }
 
     func fetchPlaylists(limit: Int = 200) async throws -> QueryResult<MediaItem> {
-        try await get("/Items", query: itemsQuery(extra: [
-            "includeItemTypes": "Playlist",
-            "recursive": "true",
-            "sortBy": "SortName",
-            "limit": String(limit),
-        ]))
+        try await get(
+            "/Items",
+            query: itemsQuery(extra: [
+                "includeItemTypes": "Playlist",
+                "recursive": "true",
+                "sortBy": "SortName",
+                "limit": String(limit),
+            ]))
     }
 
     /// アルバム内のトラック。ディスク番号 → トラック番号の順で並べる。
     func fetchTracks(inAlbum albumID: String) async throws -> QueryResult<MediaItem> {
-        try await get("/Items", query: itemsQuery(extra: [
-            "parentId": albumID,
-            "includeItemTypes": "Audio",
-            "sortBy": "ParentIndexNumber,IndexNumber,SortName",
-            "limit": "500",
-        ]))
+        try await get(
+            "/Items",
+            query: itemsQuery(extra: [
+                "parentId": albumID,
+                "includeItemTypes": "Audio",
+                "sortBy": "ParentIndexNumber,IndexNumber,SortName",
+                "limit": "500",
+            ]))
     }
 
     /// プレイリスト内のトラック。並び順はプレイリストの定義に従う。
     func fetchTracks(inPlaylist playlistID: String) async throws -> QueryResult<MediaItem> {
         guard let userID else { throw JellyfinError.missingCredentials }
-        return try await get("/Playlists/\(playlistID)/Items", query: [
-            "userId": userID,
-            "fields": Self.listFields,
-            "limit": "1000",
-        ])
+        return try await get(
+            "/Playlists/\(playlistID)/Items",
+            query: [
+                "userId": userID,
+                "fields": Self.listFields,
+                "limit": "1000",
+            ])
     }
 
     func fetchAlbums(byArtist artistID: String) async throws -> QueryResult<MediaItem> {
-        try await get("/Items", query: itemsQuery(extra: [
-            "albumArtistIds": artistID,
-            "includeItemTypes": "MusicAlbum",
-            "recursive": "true",
-            "sortBy": "PremiereDate,ProductionYear,SortName",
-            "sortOrder": "Descending",
-            "limit": "200",
-        ]))
+        try await get(
+            "/Items",
+            query: itemsQuery(extra: [
+                "albumArtistIds": artistID,
+                "includeItemTypes": "MusicAlbum",
+                "recursive": "true",
+                "sortBy": "PremiereDate,ProductionYear,SortName",
+                "sortOrder": "Descending",
+                "limit": "200",
+            ]))
     }
 
     func fetchItem(id: String) async throws -> MediaItem {
@@ -143,47 +155,55 @@ nonisolated extension JellyfinClient {
     }
 
     func fetchFrequentlyPlayed(limit: Int = 20) async throws -> [MediaItem] {
-        let result: QueryResult<MediaItem> = try await get("/Items", query: itemsQuery(extra: [
-            "includeItemTypes": "MusicAlbum",
-            "recursive": "true",
-            "sortBy": "PlayCount",
-            "sortOrder": "Descending",
-            "filters": "IsPlayed",
-            "limit": String(limit),
-        ]))
+        let result: QueryResult<MediaItem> = try await get(
+            "/Items",
+            query: itemsQuery(extra: [
+                "includeItemTypes": "MusicAlbum",
+                "recursive": "true",
+                "sortBy": "PlayCount",
+                "sortOrder": "Descending",
+                "filters": "IsPlayed",
+                "limit": String(limit),
+            ]))
         return result.items
     }
 
     func fetchFavoriteTracks(limit: Int = 200) async throws -> [MediaItem] {
-        let result: QueryResult<MediaItem> = try await get("/Items", query: itemsQuery(extra: [
-            "includeItemTypes": "Audio",
-            "recursive": "true",
-            "filters": "IsFavorite",
-            "sortBy": "SortName",
-            "limit": String(limit),
-        ]))
+        let result: QueryResult<MediaItem> = try await get(
+            "/Items",
+            query: itemsQuery(extra: [
+                "includeItemTypes": "Audio",
+                "recursive": "true",
+                "filters": "IsFavorite",
+                "sortBy": "SortName",
+                "limit": String(limit),
+            ]))
         return result.items
     }
 
     // MARK: 検索
 
     func search(term: String, limit: Int = 40) async throws -> QueryResult<MediaItem> {
-        try await get("/Items", query: itemsQuery(extra: [
-            "searchTerm": term,
-            "includeItemTypes": "Audio,MusicAlbum,MusicArtist,Playlist",
-            "recursive": "true",
-            "limit": String(limit),
-        ]))
+        try await get(
+            "/Items",
+            query: itemsQuery(extra: [
+                "searchTerm": term,
+                "includeItemTypes": "Audio,MusicAlbum,MusicArtist,Playlist",
+                "recursive": "true",
+                "limit": String(limit),
+            ]))
     }
 
     /// 指定トラックを起点にした自動生成プレイリスト。
     func fetchInstantMix(from itemID: String, limit: Int = 100) async throws -> [MediaItem] {
         guard let userID else { throw JellyfinError.missingCredentials }
-        let result: QueryResult<MediaItem> = try await get("/Items/\(itemID)/InstantMix", query: [
-            "userId": userID,
-            "fields": Self.listFields,
-            "limit": String(limit),
-        ])
+        let result: QueryResult<MediaItem> = try await get(
+            "/Items/\(itemID)/InstantMix",
+            query: [
+                "userId": userID,
+                "fields": Self.listFields,
+                "limit": String(limit),
+            ])
         return result.items
     }
 

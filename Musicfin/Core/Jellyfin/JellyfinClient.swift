@@ -15,11 +15,11 @@ nonisolated enum JellyfinError: LocalizedError, Sendable {
             "サーバーの URL が正しくありません。"
         case .unauthorized:
             "認証に失敗しました。再度ログインしてください。"
-        case let .http(status, body):
+        case .http(let status, let body):
             "サーバーがエラーを返しました (HTTP \(status))。\(body.map { "\n\($0)" } ?? "")"
-        case let .decoding(underlying):
+        case .decoding(let underlying):
             "サーバーの応答を解釈できませんでした。\n\(underlying)"
-        case let .transport(underlying):
+        case .transport(let underlying):
             "サーバーに接続できませんでした。\n\(underlying)"
         case .missingCredentials:
             "サーバーへのログインが必要です。"
@@ -73,9 +73,9 @@ nonisolated struct JellyfinClient: Sendable, Equatable {
 
     private static var deviceName: String {
         #if targetEnvironment(simulator)
-            "iOS Simulator"
+        "iOS Simulator"
         #else
-            "iPhone"
+        "iPhone"
         #endif
     }
 
@@ -149,7 +149,8 @@ nonisolated struct JellyfinClient: Sendable, Equatable {
         do {
             return try JellyfinCoding.decoder.decode(Response.self, from: data)
         } catch {
-            Self.logger.error("デコード失敗 \(request.url?.path ?? "?", privacy: .public): \(String(describing: error), privacy: .public)")
+            Self.logger.error(
+                "デコード失敗 \(request.url?.path ?? "?", privacy: .public): \(String(describing: error), privacy: .public)")
             throw JellyfinError.decoding(underlying: String(describing: error))
         }
     }
@@ -167,7 +168,7 @@ nonisolated struct JellyfinClient: Sendable, Equatable {
             throw JellyfinError.transport(underlying: "HTTP 応答ではありません。")
         }
         switch http.statusCode {
-        case 200 ..< 300:
+        case 200..<300:
             return data
         case 401, 403:
             throw JellyfinError.unauthorized

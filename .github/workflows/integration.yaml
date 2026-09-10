@@ -1,0 +1,144 @@
+name: Integration
+on:
+  push:
+    branches-ignore:
+      - main
+      - master
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: integration-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PROJECT: Musicfin.xcodeproj
+  SCHEME: Musicfin
+
+jobs:
+  commitlint:
+    name: Commit Lint
+    runs-on: ubuntu-latest
+    if: github.event.action != 'closed' || github.event.pull_request.merged != true
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # commitlint --from HEAD~N needs prior commits in the working tree.
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - name: Cache Bun install
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('**/bun.lock', '**/package.json') }}
+          restore-keys: |
+            bun-${{ runner.os }}-
+      - name: Install commitlint
+        run: |
+          bun install conventional-changelog-conventionalcommits
+          bun install @commitlint/config-conventional@latest
+          bun install commitlint@latest
+      - name: Validate PR commits
+        if: github.event_name == 'pull_request'
+        run: |
+          bunx commitlint \
+            --from ${{ github.event.pull_request.head.sha }}~${{ github.event.pull_request.commits }} \
+            --to ${{ github.event.pull_request.head.sha }} \
+            --verbose
+      - name: Validate last commit
+        if: github.event_name == 'push'
+        run: bunx commitlint --last --verbose
+
+  shellcheck:
+    name: ShellCheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Lint shell scripts
+        run: |
+          shopt -s nullglob
+          scripts=(scripts/*.sh)
+          if [ ${#scripts[@]} -eq 0 ]; then
+            echo "対象のスクリプトがありません。"
+            exit 0
+          fi
+          shellcheck --severity=warning "${scripts[@]}"
+
+  format:
+    name: swift-format
+    # swift-format は Xcode のツールチェーンに同梱されているため、macOS ランナーなら追加導入が要らない。
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v5
+      - name: Show toolchain
+        run: |
+          xcodebuild -version
+          xcrun swift-format --version
+      - name: swift-format lint
+        run: |
+          xcrun swift-format lint \
+            --recursive --strict \
+            --configuration .swift-format \
+            Musicfin
+
+  build:
+    name: Build
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Show toolchain
+        run: |
+          xcodebuild -version
+          xcodebuild -showsdks | grep -i "iOS"
+
+      - name: Build for iOS Simulator
+        # 具体的な端末名ではなく generic 宛にビルドする。実機やシミュレータのランタイム構成に
+        # 依存しないため、ランナーイメージが更新されても壊れない。
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -project "$PROJECT" \
+            -scheme "$SCHEME" \
+            -configuration Debug \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath .build \
+            CODE_SIGNING_ALLOWED=NO \
+            | tee build.log
+
+      - name: Summarize warnings
+        if: always()
+        run: |
+          # appintentsmetadataprocessor は AppIntents 未使用時に必ず出る無害な警告なので数えない。
+          warnings=$(grep "warning:" build.log \
+            | grep -v "appintentsmetadataprocessor" \
+            | sort -u || true)
+          count=$(printf '%s' "$warnings" | grep -c . || true)
+          echo "警告: ${count} 件"
+          [ "${count}" -gt 0 ] && printf '%s\n' "$warnings" | head -50
+          {
+            echo "### ビルド警告"
+            echo
+            if [ "${count}" -eq 0 ]; then
+              echo "なし"
+            else
+              echo '```'
+              printf '%s\n' "$warnings" | head -50
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit 0
+
+      - name: Upload build log
+        if: failure() && env.ACT != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log-${{ github.sha }}
+          path: build.log
+          if-no-files-found: warn
+          retention-days: 14

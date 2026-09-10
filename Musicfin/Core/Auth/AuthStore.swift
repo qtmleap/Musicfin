@@ -50,9 +50,9 @@ final class AuthStore {
     /// 前回のログイン情報があれば復元する。アプリ起動時に呼ぶ。
     func restoreSession() {
         guard let urlString = UserDefaults.standard.string(forKey: Defaults.serverURL),
-              let url = URL(string: urlString),
-              let userID = UserDefaults.standard.string(forKey: Defaults.userID),
-              let token = Keychain.get(KeychainKey.accessToken)
+            let url = URL(string: urlString),
+            let userID = UserDefaults.standard.string(forKey: Defaults.userID),
+            let token = Keychain.get(KeychainKey.accessToken)
         else { return }
 
         client = JellyfinClient(serverURL: url, deviceID: Self.deviceID, accessToken: token, userID: userID)

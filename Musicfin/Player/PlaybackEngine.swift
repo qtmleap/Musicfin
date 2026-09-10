@@ -95,14 +95,15 @@ final class PlaybackEngine {
         }
         reporter = PlaybackReporter(client: client)
         if nowPlaying == nil {
-            nowPlaying = NowPlayingCenter(commands: .init(
-                play: { [weak self] in self?.play() },
-                pause: { [weak self] in self?.pause() },
-                toggle: { [weak self] in self?.toggle() },
-                next: { [weak self] in self?.playNext() },
-                previous: { [weak self] in self?.playPrevious() },
-                seek: { [weak self] time in self?.seek(to: time) }
-            ))
+            nowPlaying = NowPlayingCenter(
+                commands: .init(
+                    play: { [weak self] in self?.play() },
+                    pause: { [weak self] in self?.pause() },
+                    toggle: { [weak self] in self?.toggle() },
+                    next: { [weak self] in self?.playNext() },
+                    previous: { [weak self] in self?.playPrevious() },
+                    seek: { [weak self] time in self?.seek(to: time) }
+                ))
         }
         nowPlaying?.updateClient(client)
     }
@@ -212,7 +213,8 @@ final class PlaybackEngine {
     func seek(to time: TimeInterval) {
         let clamped = min(max(time, 0), max(duration, 0))
         currentTime = clamped
-        player.seek(to: CMTime(seconds: clamped, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
+        player.seek(
+            to: CMTime(seconds: clamped, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
         nowPlaying?.update(item: currentItem, isPlaying: isPlaying, position: clamped, duration: duration)
         reporter?.progress(itemID: currentItem?.id, position: clamped, isPaused: !isPlaying)
     }

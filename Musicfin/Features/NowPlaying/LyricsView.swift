@@ -98,8 +98,8 @@ struct LyricsView: View {
     private func load() async {
         state = .loading
         guard let client = auth.client,
-              let fetched = try? await client.fetchLyrics(itemID: track.id),
-              !fetched.isEmpty
+            let fetched = try? await client.fetchLyrics(itemID: track.id),
+            !fetched.isEmpty
         else {
             state = .unavailable
             return
