@@ -1,0 +1,11 @@
+# Xcode
+.build/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+*.xcworkspace/xcuserdata/
+.DS_Store
+
+# 秘密情報
+*.p12
+*.mobileprovision
