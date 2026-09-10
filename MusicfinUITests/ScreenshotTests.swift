@@ -115,14 +115,25 @@ final class ScreenshotTests: XCTestCase {
         settle(seconds: 1)
     }
 
-    /// ホームの最初のアルバムカードを開く。カードの構造は実装によって違うので、
+    /// ホームの最初のアルバムカードを開く。
+    ///
+    /// 「すべて表示」のような小さなリンクを掴まないよう、カード相当の大きさを持つ
+    /// 正方形に近い要素だけを候補にする。カードの構造は実装によって違うので、
     /// ボタン → セル → 画像 の順に当たりを探す。
     private func tapFirstAlbum() -> Bool {
+        let bounds = app.frame
         for query in [app.buttons, app.cells, app.images] {
-            // タブバーのボタンを避けるため、画面上部 3/4 にあるものだけを対象にする。
-            let candidates = visibleElements(query)
-                .filter { $0.frame.midY < app.frame.height * 0.75 && $0.frame.minY > 0 }
-                .sorted { $0.frame.minY < $1.frame.minY }
+            let candidates = visibleElements(query).filter { element in
+                let frame = element.frame
+                guard frame.width >= 100, frame.height >= 100 else { return false }
+                // タブバーとその周辺を避ける。
+                guard frame.minY > 0, frame.midY < bounds.height * 0.75 else { return false }
+                // アートワークは正方形。極端に横長・縦長のものは見出しや行なので除く。
+                let ratio = frame.width / frame.height
+                return ratio > 0.5 && ratio < 2.0
+            }
+            .sorted { ($0.frame.minY, $0.frame.minX) < ($1.frame.minY, $1.frame.minX) }
+
             if let target = candidates.first, tap(target) { return true }
         }
         return false
