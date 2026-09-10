@@ -40,24 +40,38 @@ nonisolated extension JellyfinClient {
     private static let directPlayContainers = "mp3,aac,m4a|aac,m4b|aac,alac,m4a|alac,flac,wav,aiff"
 
     /// AVPlayer に渡すストリーム URL。
-    /// - Note: AVPlayer は Authorization ヘッダーを付けにくいため、Jellyfin が公式に対応している
-    ///         `api_key` クエリパラメータで認証する。
-    func audioStreamURL(itemID: String, maxBitrate: Int = 320_000) -> URL? {
-        guard let accessToken, let userID else { return nil }
+    ///
+    /// - Important: Jellyfin 12 で `api_key` クエリパラメータによる認証は廃止され、
+    ///   このエンドポイントは 401 を返すようになった。認証は `streamRequestHeaders` を
+    ///   `AVURLAsset` に渡して行う。
+    /// - Note: ビットレート上限を既定で付けない。上限を付けると可逆音源（FLAC は
+    ///   700kbps を超えることが珍しくない）が常に変換対象になり、無変換配信の利点も
+    ///   音質も失われる。AVFoundation は FLAC も ALAC もそのまま再生できる。
+    func audioStreamURL(itemID: String, maxBitrate: Int? = nil) -> URL? {
+        guard let userID else { return nil }
         return url(
             "/Audio/\(itemID)/universal",
             query: [
                 "userId": userID,
                 "deviceId": deviceID,
-                "api_key": accessToken,
                 "container": Self.directPlayContainers,
                 "transcodingContainer": "ts",
                 "transcodingProtocol": "hls",
                 "audioCodec": "aac",
-                "maxStreamingBitrate": String(maxBitrate),
+                "maxStreamingBitrate": maxBitrate.map(String.init),
                 "startTimeTicks": "0",
                 "enableRedirection": "true",
                 "enableRemoteMedia": "false",
             ])
+    }
+
+    /// ストリーム取得時に付与すべき HTTP ヘッダー。
+    ///
+    /// `AVURLAsset(url:options:)` の `AVURLAssetHTTPHeaderFieldsKey` に渡す。このキーは
+    /// 公開ヘッダーに定義が無いが、AVFoundation が長く受け付けている実質的な標準手段で、
+    /// 他に AVPlayer へ認証ヘッダーを渡す方法が `AVAssetResourceLoaderDelegate` を
+    /// 自前実装する以外に無い。
+    var streamRequestHeaders: [String: String] {
+        ["Authorization": authorizationHeader]
     }
 }

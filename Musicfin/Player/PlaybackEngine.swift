@@ -251,11 +251,13 @@ final class PlaybackEngine {
     }
 
     private func makePlayerItem(for item: MediaItem) -> AVPlayerItem? {
-        guard let url = client?.audioStreamURL(itemID: item.id) else {
+        guard let client, let url = client.audioStreamURL(itemID: item.id) else {
             logger.error("ストリーム URL を作れませんでした: \(item.id, privacy: .public)")
             return nil
         }
-        let playerItem = AVPlayerItem(asset: AVURLAsset(url: url))
+        // Jellyfin 12 はストリームの認証をヘッダーでしか受け付けない。
+        let asset = AVURLAsset(url: url, options: ["AVURLAssetHTTPHeaderFieldsKey": client.streamRequestHeaders])
+        let playerItem = AVPlayerItem(asset: asset)
         // 曲間で途切れないよう十分にバッファする。
         playerItem.preferredForwardBufferDuration = 10
         trackIDByPlayerItem[ObjectIdentifier(playerItem)] = item.id
