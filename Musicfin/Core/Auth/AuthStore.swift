@@ -49,6 +49,10 @@ final class AuthStore {
 
     /// 前回のログイン情報があれば復元する。アプリ起動時に呼ぶ。
     func restoreSession() {
+        #if DEBUG
+        // UI をシミュレータで検証するときは、毎回ログイン画面を手で通さずに済ませたい。
+        if signInFromLaunchArguments() { return }
+        #endif
         guard let urlString = UserDefaults.standard.string(forKey: Defaults.serverURL),
             let url = URL(string: urlString),
             let userID = UserDefaults.standard.string(forKey: Defaults.userID),
@@ -58,6 +62,27 @@ final class AuthStore {
         client = JellyfinClient(serverURL: url, deviceID: Self.deviceID, accessToken: token, userID: userID)
         state = .signedIn(user: UserDefaults.standard.string(forKey: Defaults.userName) ?? "")
     }
+
+    #if DEBUG
+    /// 起動引数によるログイン。UI の目視確認やスクリーンショット取得のために使う。
+    ///
+    ///     -MusicfinServer https://demo.jellyfin.org/stable -MusicfinUser demo
+    ///
+    /// `-Key value` 形式の起動引数は UserDefaults がそのまま解釈する。
+    /// - Returns: 起動引数が指定されていて、ログインを開始した場合に true。
+    private func signInFromLaunchArguments() -> Bool {
+        let defaults = UserDefaults.standard
+        guard let server = defaults.string(forKey: "MusicfinServer"),
+            let user = defaults.string(forKey: "MusicfinUser")
+        else { return false }
+
+        Task {
+            guard await connect(to: server) else { return }
+            await signIn(username: user, password: defaults.string(forKey: "MusicfinPassword") ?? "")
+        }
+        return true
+    }
+    #endif
 
     // MARK: - サーバー接続
 
