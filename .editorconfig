@@ -1,0 +1,40 @@
+# https://editorconfig.org
+root = true
+
+###############################
+# Core EditorConfig Options   #
+###############################
+[*]
+indent_style = space
+indent_size = 4
+charset = utf-8
+trim_trailing_whitespace = true
+insert_final_newline = true
+end_of_line = lf
+max_line_length = 120
+
+# YAML indentation
+[*.{yml,yaml}]
+indent_size = 2
+
+# JSON indentation
+[*.{json,jsonc}]
+indent_size = 2
+
+# Shell scripts
+[*.sh]
+indent_size = 2
+
+# Xcode が生成するファイルは触らない
+[*.pbxproj]
+indent_style = tab
+trim_trailing_whitespace = false
+insert_final_newline = false
+
+[*.{xcscheme,xcworkspacedata}]
+indent_size = 3
+trim_trailing_whitespace = false
+
+# Markdown は行末の 2 スペースが改行を意味する
+[*.md]
+trim_trailing_whitespace = false
