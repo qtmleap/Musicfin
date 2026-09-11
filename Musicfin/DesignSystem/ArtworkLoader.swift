@@ -51,9 +51,11 @@ actor ArtworkLoader {
         return image
     }
 }
+nonisolated
 
-private nonisolated extension UIImage {
-    var estimatedBytes: Int {
+    extension UIImage
+{
+    fileprivate var estimatedBytes: Int {
         guard let cgImage else { return 1 }
         return cgImage.bytesPerRow * cgImage.height
     }

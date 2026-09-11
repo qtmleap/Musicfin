@@ -49,13 +49,15 @@ nonisolated enum JellyfinCoding {
         return encoder
     }()
 }
+nonisolated
 
-private nonisolated extension ISO8601DateFormatter {
-    nonisolated(unsafe) static let jellyfinFractional: ISO8601DateFormatter = {
+    extension ISO8601DateFormatter
+{
+    fileprivate nonisolated(unsafe) static let jellyfinFractional: ISO8601DateFormatter = {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return formatter
     }()
 
-    nonisolated(unsafe) static let jellyfinPlain = ISO8601DateFormatter()
+    fileprivate nonisolated(unsafe) static let jellyfinPlain = ISO8601DateFormatter()
 }
