@@ -50,7 +50,7 @@ struct ArtworkView: View {
 
     private func load() async {
         guard let item, let client = auth.client,
-              let url = client.artworkURL(for: item, maxSize: Int(size))
+            let url = client.artworkURL(for: item, maxSize: Int(size))
         else { return }
 
         let loaded = await ArtworkLoader.shared.image(for: url)
