@@ -1,7 +1,8 @@
 import SwiftUI
 
-/// 時間同期歌詞。現在の行を強調し、再生に合わせて自動スクロールする。
-struct LyricsView: View {
+/// Fable 版の歌詞領域。現在行をピンクで強調して追従し、読んでいる最中は追従を止める（`docs/ui-spec.md` 5 章）。
+/// 取得経路は共通の `LyricsView` と同じ `client.fetchLyrics`。
+struct FableLyricsView: View {
     let track: MediaItem
 
     @Environment(AuthStore.self) private var auth
@@ -9,15 +10,14 @@ struct LyricsView: View {
 
     @State private var lines: [LyricLine] = []
     @State private var state: LoadState = .loading
-    /// 読んでいる行を勝手に移動させないよう、明示的に戻るまで追従を止める。
+    /// 読んでいる行を勝手に動かさないよう、「現在位置へ」で明示的に戻るまで追従を止める。
     @State private var isUserScrolling = false
 
     private enum LoadState { case loading, ready, unavailable }
 
-    /// 同期歌詞かどうか。時間情報が無い場合は単なるテキスト表示にする。
+    /// 同期歌詞かどうか。時間情報が無ければ追従もシークもしない、ただのテキストとして出す。
     private var isSynced: Bool { lines.contains { $0.startSeconds != nil } }
 
-    /// 現在再生位置に対応する行の番号。
     private var activeIndex: Int? {
         guard isSynced else { return nil }
         let position = player.currentTime
@@ -45,19 +45,18 @@ struct LyricsView: View {
     private var lyricsList: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 18) {
+                LazyVStack(alignment: .leading, spacing: 16) {
                     ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
                         lineView(line, isActive: index == activeIndex)
                             .id(index)
                             .onTapGesture {
-                                // 行タップでその位置へシーク（同期歌詞のときだけ）。
                                 guard let start = line.startSeconds else { return }
                                 player.seek(to: start)
                             }
                     }
                 }
-                .padding(.horizontal, 24)
-                .padding(.vertical, 40)
+                .padding(.horizontal, 20)
+                .padding(.vertical, 32)
             }
             .scrollIndicators(.hidden)
             .onScrollPhaseChange { _, phase in
@@ -72,7 +71,7 @@ struct LyricsView: View {
             }
             .overlay(alignment: .bottom) {
                 if isSynced, isUserScrolling {
-                    Button("現在位置へ") {
+                    Button("現在位置へ", systemImage: "arrow.down.to.line") {
                         isUserScrolling = false
                         if let index = activeIndex {
                             withAnimation(.easeInOut(duration: 0.35)) {
@@ -80,9 +79,10 @@ struct LyricsView: View {
                             }
                         }
                     }
-                    .buttonStyle(.glass)
+                    .buttonStyle(.glassProminent)
+                    .foregroundStyle(.white)
                     .frame(minHeight: 44)
-                    .padding(.bottom, 8)
+                    .padding(.bottom, 12)
                 }
             }
         }
@@ -91,7 +91,8 @@ struct LyricsView: View {
     private func lineView(_ line: LyricLine, isActive: Bool) -> some View {
         Text(line.text.isEmpty ? " " : line.text)
             .font(.title3.weight(isActive ? .bold : .semibold))
-            .foregroundStyle(isActive ? AnyShapeStyle(.primary) : AnyShapeStyle(.tertiary))
+            // 現在行だけをピンクにして、周りの行は薄くして視線を集める。
+            .foregroundStyle(isActive ? AnyShapeStyle(.pink) : AnyShapeStyle(.tertiary))
             .scaleEffect(isActive ? 1.0 : 0.96, anchor: .leading)
             .animation(.easeOut(duration: 0.25), value: isActive)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -111,4 +112,10 @@ struct LyricsView: View {
         lines = fetched
         state = .ready
     }
+}
+
+#Preview {
+    FableLyricsView(track: MediaItem(id: "preview", name: "Preview", type: .audio))
+        .environment(AuthStore())
+        .environment(PlaybackEngine())
 }
