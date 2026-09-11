@@ -59,6 +59,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+      - name: Install shellcheck (act only)
+        # GitHub のランナーには同梱されているが、act のコンテナには無い。
+        if: env.ACT == 'true'
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
       - name: Lint shell scripts
         run: |
           shopt -s nullglob
@@ -84,7 +88,7 @@ jobs:
           xcrun swift-format lint \
             --recursive --strict \
             --configuration .swift-format \
-            Musicfin
+            Musicfin MusicfinUITests Tests
 
   build:
     name: Build
@@ -102,7 +106,7 @@ jobs:
         # 依存しないため、ランナーイメージが更新されても壊れない。
         run: |
           set -o pipefail
-          xcodebuild build \
+          xcodebuild build-for-testing \
             -project "$PROJECT" \
             -scheme "$SCHEME" \
             -configuration Debug \
@@ -142,3 +146,18 @@ jobs:
           path: build.log
           if-no-files-found: warn
           retention-days: 14
+
+  unit-tests:
+    name: Unit Tests
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v5
+      - name: Run unit tests
+        run: ./scripts/run-unit-tests.sh
+
+  actionlint:
+    name: actionlint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: raven-actions/actionlint@v2

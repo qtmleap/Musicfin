@@ -1,0 +1,53 @@
+name: Deployment
+on:
+  workflow_dispatch:
+    inputs:
+      lane:
+        description: Distribution lane
+        type: choice
+        options: [beta, release]
+        default: beta
+        required: true
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+# 署名と配信の処理が重ならないよう、タグと手動実行で同じグループを共有する。
+concurrency:
+  group: musicfin-deployment
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: macos-26
+    timeout-minutes: 45
+    env:
+      ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+      ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+      ASC_KEY_CONTENT: ${{ secrets.ASC_KEY_CONTENT }}
+      MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.3'
+          bundler-cache: true
+      - name: Prepare signing repository authorization
+        env:
+          MATCH_GIT_TOKEN: ${{ secrets.MATCH_GIT_TOKEN }}
+        run: |
+          set -euo pipefail
+          : "${MATCH_GIT_TOKEN:?MATCH_GIT_TOKEN is required}"
+          authorization=$(printf 'x-access-token:%s' "$MATCH_GIT_TOKEN" | base64 | tr -d '\r\n')
+          echo "::add-mask::$authorization"
+          printf 'MATCH_GIT_BASIC_AUTHORIZATION=%s\n' "$authorization" >> "$GITHUB_ENV"
+      - name: Deploy
+        env:
+          LANE: ${{ github.event_name == 'push' && 'release' || inputs.lane }}
+        run: |
+          case "$LANE" in
+            beta|release) bundle exec fastlane "$LANE" ;;
+            *) echo "Unsupported lane" >&2; exit 1 ;;
+          esac
