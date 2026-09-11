@@ -9,7 +9,7 @@ final class AudioSessionManager {
     /// イヤホンが外されたなど、直ちに一時停止すべきときに呼ばれる。
     var onShouldPause: (() -> Void)?
 
-    private let logger = Logger(subsystem: "am.nasawake.Musicfin", category: "AudioSession")
+    private let logger = Logger(subsystem: "jp.qleap.musicfin", category: "AudioSession")
     private let cleanup = CleanupBox()
     private var didRegisterObservers = false
 

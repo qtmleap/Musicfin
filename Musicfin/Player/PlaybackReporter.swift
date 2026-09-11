@@ -5,7 +5,7 @@ import os
 @MainActor
 final class PlaybackReporter {
     private let client: JellyfinClient
-    private let logger = Logger(subsystem: "am.nasawake.Musicfin", category: "PlaybackReporter")
+    private let logger = Logger(subsystem: "jp.qleap.musicfin", category: "PlaybackReporter")
 
     /// サーバーが 1 回の再生を識別するための ID。曲が変わるたびに作り直す。
     private var playSessionID = UUID().uuidString

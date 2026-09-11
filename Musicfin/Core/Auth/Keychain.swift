@@ -3,7 +3,7 @@ import Security
 
 /// アクセストークンのようなに秘匿すべき値を Keychain に保存する薄いラッパー。
 nonisolated enum Keychain {
-    private static let service = "am.nasawake.Musicfin"
+    private static let service = "jp.qleap.musicfin"
 
     static func set(_ value: String?, for account: String) {
         guard let value, let data = value.data(using: .utf8) else {

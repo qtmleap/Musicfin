@@ -1,4 +1,4 @@
-APP_IDENTIFIER = "am.nasawake.Musicfin"
+APP_IDENTIFIER = "jp.qleap.musicfin"
 APP_NAME       = "Musicfin"
 XCODEPROJ      = "Musicfin.xcodeproj"
 SCHEME         = "Musicfin"

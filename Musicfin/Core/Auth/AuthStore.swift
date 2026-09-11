@@ -20,7 +20,7 @@ final class AuthStore {
     /// Quick Connect でユーザーに提示する 6 桁コード。
     private(set) var quickConnectCode: String?
 
-    private let logger = Logger(subsystem: "am.nasawake.Musicfin", category: "AuthStore")
+    private let logger = Logger(subsystem: "jp.qleap.musicfin", category: "AuthStore")
     private var quickConnectTask: Task<Void, Never>?
 
     private enum Defaults {

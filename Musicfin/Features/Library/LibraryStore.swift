@@ -27,7 +27,7 @@ final class LibraryStore {
     private(set) var tracksByContainer: [String: [MediaItem]] = [:]
 
     private var client: JellyfinClient?
-    private let logger = Logger(subsystem: "am.nasawake.Musicfin", category: "LibraryStore")
+    private let logger = Logger(subsystem: "jp.qleap.musicfin", category: "LibraryStore")
 
     /// 全アルバムを取得しきったかどうか。無限スクロールの終端判定に使う。
     private var albumsExhausted = false
