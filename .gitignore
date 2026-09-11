@@ -1,11 +1,45 @@
-# Xcode
+## Xcode
 .build/
 DerivedData/
+build/
 *.xcuserstate
+*.xcuserdatad/
 xcuserdata/
 *.xcworkspace/xcuserdata/
+*.moved-aside
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+## Swift Package Manager
+.swiftpm/
+Packages/
+Package.resolved
+
+## 署名情報・秘密情報
+*.p12
+*.cer
+*.certSigningRequest
+*.mobileprovision
+*.provisionprofile
+.env
+.env.local
+
+## CI のローカル実行 (act)
+build.log
+
+## Node (commitlint をローカルで動かす場合)
+node_modules/
+
+## macOS
 .DS_Store
 
-# 秘密情報
-*.p12
-*.mobileprovision
+## Claude Code のローカル設定・worktree
+.claude/settings.local.json
+.claude/worktrees/
+
+## スクリーンショット（scripts/capture-screens.sh が生成する）
+docs/screenshots/light/
+docs/screenshots/dark/
+docs/screenshots/manifest.json
