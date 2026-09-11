@@ -23,7 +23,8 @@ xcodebuild -project Musicfin.xcodeproj -scheme Musicfin -configuration Debug \
 ```
 
 - スクリーンショット: `./scripts/capture-screens.sh`（UI テストが主要画面を撮る）
-- 単体検証: `Tests/README.md`
+- 単体検証: `./scripts/run-unit-tests.sh`（詳細は `Tests/README.md`）
+- CI のローカル検証: `./scripts/act.sh`（macOS ジョブは `--host <job>`）
 
 ## 3 エージェント体制（`./scripts/start-agents.sh`）
 

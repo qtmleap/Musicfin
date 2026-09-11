@@ -1,3 +1,8 @@
 -P ubuntu-22.04=catthehacker/ubuntu:act-22.04
 -P ubuntu-latest=catthehacker/ubuntu:act-latest
 --container-architecture linux/arm64
+
+-P macos-26=-self-hosted
+# ローカル専用の秘密情報は、追跡対象に入れず必要なときだけ読み込む。
+# --secret-file .secrets
+# --env-file .env
