@@ -54,6 +54,19 @@ def asc_api_key
   )
 end
 
+# SSH 越しのヘッドレス Mac では keychain のダイアログを出せず、match の `security import` が
+# "User interaction is not allowed" で落ちる。match 自身は import 前にアンロックしないので、
+# MATCH_KEYCHAIN_PASSWORD があるときだけ先にアンロックする（GUI セッションや CI では不要）。
+def unlock_login_keychain
+  password = ENV["MATCH_KEYCHAIN_PASSWORD"].to_s
+  return if password.strip.empty?
+  unlock_keychain(
+    path: File.expand_path("~/Library/Keychains/login.keychain-db"),
+    password: password,
+    set_default: false
+  )
+end
+
 # App Store Connect を真実の源にする。pbxproj の CURRENT_PROJECT_VERSION は
 # VERSIONING_SYSTEM 未設定で agvtool が使えないため触らず、xcargs で注入する。
 def next_build_number(api_key)
@@ -76,6 +89,7 @@ end
 # PROVISIONING_PROFILE_SPECIFIER 等の残留を綺麗にしないので、ファイル単位で
 # 巻き戻すのが確実 (build がクラッシュしても pbxproj が汚れない)。
 def build_for_appstore(api_key:, build_number:)
+  unlock_login_keychain
   match(
     api_key: api_key,
     type: "appstore",
@@ -170,6 +184,7 @@ lane :setup_profiles do
 
   # 他アプリの署名資産と同居しているリポジトリなので、書き込みはこの lane だけに限る。
   UI.important("match リポジトリに書き込む。既存の署名資産のバックアップを取ってから実行すること")
+  unlock_login_keychain
   match(
     api_key: api_key,
     type: "appstore",
