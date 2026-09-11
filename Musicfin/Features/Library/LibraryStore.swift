@@ -82,7 +82,10 @@ final class LibraryStore {
         guard let client else { return }
         if case .loading = albumsState { return }
         if case .loaded = albumsState, !force { return }
-        if force { albums = []; albumsExhausted = false }
+        if force {
+            albums = []
+            albumsExhausted = false
+        }
         albumsState = .loading
 
         do {
@@ -100,7 +103,7 @@ final class LibraryStore {
         guard !albumsExhausted, case .loaded = albumsState else { return }
         // 末尾から 10 件以内に入ったら次のページを取りに行く。
         guard let index = albums.firstIndex(where: { $0.id == item.id }),
-              index >= albums.count - 10
+            index >= albums.count - 10
         else { return }
         await loadAlbums()
     }
@@ -131,7 +134,8 @@ final class LibraryStore {
         if let cached = tracksByContainer[container.id] { return cached }
         guard let client else { return [] }
         do {
-            let result = container.type == .playlist
+            let result =
+                container.type == .playlist
                 ? try await client.fetchTracks(inPlaylist: container.id)
                 : try await client.fetchTracks(inAlbum: container.id)
             tracksByContainer[container.id] = result.items

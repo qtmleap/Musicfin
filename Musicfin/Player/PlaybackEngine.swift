@@ -1,4 +1,5 @@
 import AVFoundation
+import Network
 import Observation
 import os
 
@@ -66,8 +67,13 @@ final class PlaybackEngine {
     private let logger = Logger(subsystem: "am.nasawake.Musicfin", category: "PlaybackEngine")
 
     private var client: JellyfinClient?
+    private var settings: PlaybackSettings?
     private var nowPlaying: NowPlayingCenter?
     private var reporter: PlaybackReporter?
+
+    /// 経路がモバイル回線かどうか。音質の選択にだけ使うので、変化しても再生中の曲は差し替えない。
+    private var isOnCellular = false
+    private let pathMonitor = NWPathMonitor()
 
     /// シャッフル解除時に元の並びへ戻すための控え。
     private var unshuffledQueue: [MediaItem] = []
@@ -76,12 +82,36 @@ final class PlaybackEngine {
     private let cleanup = CleanupBox()
     private var statusObservation: NSKeyValueObservation?
 
+    /// ストリーム URL の解決は非同期なので、解決中に曲が切り替わった古い結果を捨てるための世代番号。
+    private var loadGeneration = 0
+    private var lookaheadTask: Task<Void, Never>?
+
     init() {
         player.automaticallyWaitsToMinimizeStalling = true
         player.actionAtItemEnd = .advance
         setUpObservers()
         audioSession.onShouldPause = { [weak self] in self?.pause() }
         audioSession.onShouldResume = { [weak self] in self?.play() }
+        startPathMonitor()
+    }
+
+    /// 音質設定を差し替える。次に作る AVPlayerItem から反映される。
+    func configure(settings: PlaybackSettings) {
+        self.settings = settings
+    }
+
+    private func startPathMonitor() {
+        pathMonitor.pathUpdateHandler = { [weak self] path in
+            let cellular = path.usesInterfaceType(.cellular)
+            Task { @MainActor [weak self] in self?.isOnCellular = cellular }
+        }
+        pathMonitor.start(queue: DispatchQueue(label: "am.nasawake.Musicfin.pathMonitor"))
+    }
+
+    /// 現在の経路に応じた音質。設定が未注入なら高音質で再生する。
+    private var streamQuality: StreamQuality {
+        guard let settings else { return .high }
+        return isOnCellular ? settings.cellularQuality : settings.wifiQuality
     }
 
     /// ログイン状態が変わったときに呼ぶ。未ログインなら再生を止める。
@@ -95,14 +125,15 @@ final class PlaybackEngine {
         }
         reporter = PlaybackReporter(client: client)
         if nowPlaying == nil {
-            nowPlaying = NowPlayingCenter(commands: .init(
-                play: { [weak self] in self?.play() },
-                pause: { [weak self] in self?.pause() },
-                toggle: { [weak self] in self?.toggle() },
-                next: { [weak self] in self?.playNext() },
-                previous: { [weak self] in self?.playPrevious() },
-                seek: { [weak self] time in self?.seek(to: time) }
-            ))
+            nowPlaying = NowPlayingCenter(
+                commands: .init(
+                    play: { [weak self] in self?.play() },
+                    pause: { [weak self] in self?.pause() },
+                    toggle: { [weak self] in self?.toggle() },
+                    next: { [weak self] in self?.playNext() },
+                    previous: { [weak self] in self?.playPrevious() },
+                    seek: { [weak self] time in self?.seek(to: time) }
+                ))
         }
         nowPlaying?.updateClient(client)
     }
@@ -162,6 +193,7 @@ final class PlaybackEngine {
 
     func stop() {
         reportStopIfNeeded()
+        invalidatePendingLoads()
         player.pause()
         player.removeAllItems()
         trackIDByPlayerItem.removeAll()
@@ -212,7 +244,8 @@ final class PlaybackEngine {
     func seek(to time: TimeInterval) {
         let clamped = min(max(time, 0), max(duration, 0))
         currentTime = clamped
-        player.seek(to: CMTime(seconds: clamped, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
+        player.seek(
+            to: CMTime(seconds: clamped, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
         nowPlaying?.update(item: currentItem, isPlaying: isPlaying, position: clamped, duration: duration)
         reporter?.progress(itemID: currentItem?.id, position: clamped, isPaused: !isPlaying)
     }
@@ -248,31 +281,64 @@ final class PlaybackEngine {
         currentIndex = 0
     }
 
-    private func makePlayerItem(for item: MediaItem) -> AVPlayerItem? {
-        guard let url = client?.audioStreamURL(itemID: item.id) else {
+    /// マスタープレイリストの補正のためサーバーへ 1 往復するので非同期。対応表への登録は積むときに行う。
+    private func makePlayerItem(for item: MediaItem) async -> AVPlayerItem? {
+        guard let client else {
+            logger.error("ストリーム URL を作れませんでした: \(item.id, privacy: .public)")
+            return nil
+        }
+        let url: URL
+        do {
+            url = try await client.resolvedAudioStreamURL(itemID: item.id, quality: streamQuality)
+        } catch {
             logger.error("ストリーム URL を作れませんでした: \(item.id, privacy: .public)")
             return nil
         }
         let playerItem = AVPlayerItem(asset: AVURLAsset(url: url))
         // 曲間で途切れないよう十分にバッファする。
         playerItem.preferredForwardBufferDuration = 10
-        trackIDByPlayerItem[ObjectIdentifier(playerItem)] = item.id
         return playerItem
+    }
+
+    private func enqueue(_ playerItem: AVPlayerItem, for item: MediaItem, after: AVPlayerItem?) {
+        trackIDByPlayerItem[ObjectIdentifier(playerItem)] = item.id
+        player.insert(playerItem, after: after)
+    }
+
+    /// 解決中の URL があっても、その結果をキューへ積ませない。
+    private func invalidatePendingLoads() {
+        loadGeneration += 1
+        lookaheadTask?.cancel()
+        lookaheadTask = nil
     }
 
     private func loadCurrentTrack(autoPlay: Bool) {
         reportStopIfNeeded()
+        invalidatePendingLoads()
         player.removeAllItems()
         trackIDByPlayerItem.removeAll()
         currentTime = 0
 
-        guard let item = currentItem, let playerItem = makePlayerItem(for: item) else { return }
-        player.insert(playerItem, after: nil)
-        observeStatus(of: playerItem)
-        refillLookahead()
-
+        guard let item = currentItem else { return }
+        // URL の解決を待つ間も UI には選んだ曲を出しておく。
+        isBuffering = true
         nowPlaying?.update(item: item, isPlaying: autoPlay, position: 0, duration: duration)
-        if autoPlay { play() }
+
+        let generation = loadGeneration
+        Task { [weak self] in
+            guard let self else { return }
+            let playerItem = await makePlayerItem(for: item)
+            // 解決中に別の曲へ切り替わっていたら、この結果は捨てる。
+            guard generation == loadGeneration else { return }
+            guard let playerItem else {
+                isBuffering = false
+                return
+            }
+            enqueue(playerItem, for: item, after: nil)
+            observeStatus(of: playerItem)
+            refillLookahead()
+            if autoPlay { play() }
+        }
     }
 
     /// 先読み用に次の 1 曲だけを AVQueuePlayer に積む。これがギャップレス再生の肝。
@@ -280,12 +346,26 @@ final class PlaybackEngine {
         guard repeatMode != .one else { return }
         guard player.items().count < 2 else { return }
         let nextIndex = currentIndex + 1
-        guard queue.indices.contains(nextIndex), let next = makePlayerItem(for: queue[nextIndex]) else { return }
-        player.insert(next, after: player.items().last)
+        guard queue.indices.contains(nextIndex) else { return }
+        let next = queue[nextIndex]
+
+        lookaheadTask?.cancel()
+        let generation = loadGeneration
+        lookaheadTask = Task { [weak self] in
+            guard let self else { return }
+            let playerItem = await makePlayerItem(for: next)
+            // 解決中に曲が進んだ・キューが変わった・別の先読みが積まれた場合は捨てる。
+            guard !Task.isCancelled, generation == loadGeneration, player.items().count < 2,
+                queue.indices.contains(currentIndex + 1), queue[currentIndex + 1].id == next.id,
+                let playerItem
+            else { return }
+            enqueue(playerItem, for: next, after: player.items().last)
+        }
     }
 
     /// 先読み分だけを積み直す（キュー編集・リピート変更時）。現在再生中の曲は触らない。
     private func rebuildLookahead() {
+        lookaheadTask?.cancel()
         let playing = player.currentItem
         for queued in player.items() where queued !== playing {
             trackIDByPlayerItem.removeValue(forKey: ObjectIdentifier(queued))
