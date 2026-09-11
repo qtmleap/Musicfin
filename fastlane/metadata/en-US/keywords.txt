@@ -1,0 +1,1 @@
+Jellyfin,music,player,streaming,home server,lyrics,album,self-hosted

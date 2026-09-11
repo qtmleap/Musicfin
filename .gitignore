@@ -43,3 +43,27 @@ node_modules/
 docs/screenshots/light/
 docs/screenshots/dark/
 docs/screenshots/manifest.json
+
+## fastlane（README.md は毎回自動生成される。手順書は fastlane/SETUP.md）
+fastlane/README.md
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots/**/*.png
+fastlane/test_output
+fastlane/.env.*
+!fastlane/.env.example
+# 審査担当者の個人連絡先。deliver は無くても他の metadata を送れる
+fastlane/metadata/review_information/first_name.txt
+fastlane/metadata/review_information/last_name.txt
+fastlane/metadata/review_information/phone_number.txt
+fastlane/metadata/review_information/email_address.txt
+
+## App Store Connect API Key
+*.p8
+
+## Ruby / Bundler
+/.bundle/
+/vendor/bundle
+
+## act のローカル秘密情報
+.secrets

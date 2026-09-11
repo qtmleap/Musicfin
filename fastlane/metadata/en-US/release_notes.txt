@@ -1,0 +1,7 @@
+The first release of Musicfin.
+
+- Stream the music on your Jellyfin server
+- Home, Library and Search tabs
+- Lyrics and an editable Up Next queue
+- Background playback with Lock Screen controls
+- Sign in with Quick Connect

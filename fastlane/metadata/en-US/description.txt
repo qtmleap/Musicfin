@@ -1,0 +1,20 @@
+Musicfin is a native music player for iPhone and iPad that streams the music on your Jellyfin server. Take the library on your home Jellyfin with you, with an interface that feels like Apple Music.
+
+■ Features
+
+- Home: recently added albums, most played tracks and favorites at a glance
+- Library: browse by album, artist, playlist and genre
+- Search across tracks, albums and artists
+- Full-screen player with lyrics and an editable Up Next queue
+- Background playback with Lock Screen and Control Center controls
+- Sign in with Quick Connect — no password typing
+- Selectable streaming quality
+
+■ Requirements
+
+- iOS 26.0 or later
+- Jellyfin Server 10.9 or later
+
+■ Please note
+
+Musicfin is a client for music hosted on a Jellyfin Server. You need your own Jellyfin Server and an account on it to use this app. For more about the Jellyfin project, see https://jellyfin.org
