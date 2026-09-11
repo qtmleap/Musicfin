@@ -1,7 +1,9 @@
 import SwiftUI
 
+/// アプリのルート。3 タブ + ミニプレイヤー + フルプレイヤー sheet（`docs/ui-spec.md` 1・3・4・6 章）。
 struct RootView: View {
     private enum RootTab: Hashable { case home, library, search }
+
     @Environment(PlaybackEngine.self) private var player
     @State private var catalog = AlbumCatalog()
     @State private var selection: RootTab = .home
@@ -27,6 +29,8 @@ struct RootView: View {
                 NavigationStack(path: $searchPath) { SearchView() }
             }
         }
+        // ログイン・設定と同じピンクを操作色にして、リンク・選択中タブ・再生中表示まで統一する。
+        .tint(.pink)
         .environment(catalog)
         .tabBarMinimizeBehavior(.onScrollDown)
         .tabViewBottomAccessory {
@@ -44,4 +48,12 @@ struct RootView: View {
             if id == nil { showsPlayer = false }
         }
     }
+}
+
+#Preview {
+    RootView()
+        .environment(AuthStore())
+        .environment(LibraryStore())
+        .environment(PlaybackEngine())
+        .environment(PlaybackSettings())
 }

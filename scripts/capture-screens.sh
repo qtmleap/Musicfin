@@ -1,12 +1,11 @@
 #!/usr/bin/env bash
-# 主要画面を UI テストで撮影し、docs/screenshots/<appearance>/<variant>-<screen>.png と
+# 主要画面を UI テストで撮影し、docs/screenshots/<appearance>/<screen>.png と
 # docs/screenshots/manifest.json（index.html が読む）を生成する。
 #
-#   ./scripts/capture-screens.sh                              # light/dark × fable/astra
-#   ./scripts/capture-screens.sh --appearance dark --variant astra
+#   ./scripts/capture-screens.sh                    # light と dark
+#   ./scripts/capture-screens.sh --appearance dark
 #
-# --appearance / --variant は複数回指定できる。保存先のルートは MUSICFIN_SHOT_ROOT で上書きできる。
-# 変種ごとにログイン画面とログイン後の全画面を撮る（MUSICFIN_VARIANT で切り替わる）。
+# --appearance は複数回指定できる。保存先のルートは MUSICFIN_SHOT_ROOT で上書きできる。
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -15,7 +14,6 @@ device_name="iPhone 17 Pro"
 destination="platform=iOS Simulator,name=$device_name"
 shot_root="${MUSICFIN_SHOT_ROOT:-docs/screenshots}"
 appearances=()
-variants=()
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -23,12 +21,8 @@ while [ $# -gt 0 ]; do
         appearances+=("$2")
         shift 2
         ;;
-    --variant)
-        variants+=("$2")
-        shift 2
-        ;;
     -h | --help)
-        sed -n '2,9p' "$0"
+        sed -n '2,8p' "$0"
         exit 0
         ;;
     *)
@@ -38,22 +32,12 @@ while [ $# -gt 0 ]; do
     esac
 done
 [ ${#appearances[@]} -eq 0 ] && appearances=(light dark)
-[ ${#variants[@]} -eq 0 ] && variants=(fable astra)
 
 for appearance in "${appearances[@]}"; do
     case "$appearance" in
     light | dark) ;;
     *)
         echo "unknown appearance: $appearance (light / dark)" >&2
-        exit 2
-        ;;
-    esac
-done
-for variant in "${variants[@]}"; do
-    case "$variant" in
-    fable | astra) ;;
-    *)
-        echo "unknown variant: $variant (fable / astra)" >&2
         exit 2
         ;;
     esac
@@ -86,27 +70,22 @@ for appearance in "${appearances[@]}"; do
     shot_dir="$shot_root/$appearance"
     mkdir -p "$shot_dir"
     shot_dir="$(cd "$shot_dir" && pwd)"
-    # ログイン後の画面は変種ごとに撮るようになったので、共通だった頃の app-*.png は manifest に混ざらないよう消す。
-    rm -f "$shot_dir"/app-*.png
 
-    for variant in "${variants[@]}"; do
-        for test_method in testCaptureLoginScreens testCaptureAppScreens; do
-            echo "==> capture: $appearance / $variant / $test_method -> $shot_dir"
-            # 出力は要点だけに絞るが、テストの失敗は最後にまとめて exit code で返す。
-            # xcodebuild は TEST_RUNNER_ を前置した環境変数だけをテストランナーへ渡す。
-            if ! TEST_RUNNER_MUSICFIN_VARIANT="$variant" \
-                TEST_RUNNER_MUSICFIN_SHOT_DIR="$shot_dir" \
-                xcodebuild test \
-                -project Musicfin.xcodeproj \
-                -scheme Musicfin \
-                -only-testing:"MusicfinUITests/CaptureScreensUITests/$test_method" \
-                -destination "$destination" \
-                -derivedDataPath .build \
-                2>&1 | grep -E --line-buffered "error:|failed|Test Case|\*\* TEST"; then
-                echo "!! $appearance / $variant / $test_method: テストが失敗した（撮れた分は残っている）" >&2
-                status=1
-            fi
-        done
+    for test_method in testCaptureLoginScreens testCaptureAppScreens; do
+        echo "==> capture: $appearance / $test_method -> $shot_dir"
+        # 出力は要点だけに絞るが、テストの失敗は最後にまとめて exit code で返す。
+        # xcodebuild は TEST_RUNNER_ を前置した環境変数だけをテストランナーへ渡す。
+        if ! TEST_RUNNER_MUSICFIN_SHOT_DIR="$shot_dir" \
+            xcodebuild test \
+            -project Musicfin.xcodeproj \
+            -scheme Musicfin \
+            -only-testing:"MusicfinUITests/CaptureScreensUITests/$test_method" \
+            -destination "$destination" \
+            -derivedDataPath .build \
+            2>&1 | grep -E --line-buffered "error:|failed|Test Case|\*\* TEST"; then
+            echo "!! $appearance / $test_method: テストが失敗した（撮れた分は残っている）" >&2
+            status=1
+        fi
     done
 done
 
@@ -120,11 +99,9 @@ for png in sorted(root.glob("*/*.png")):
     appearance = png.parent.name
     if appearance not in ("light", "dark"):
         continue
-    variant, _, screen = png.stem.partition("-")
     shots.append({
         "appearance": appearance,
-        "variant": variant,
-        "screen": screen,
+        "screen": png.stem,
         "path": f"{appearance}/{png.name}",
     })
 shots.sort(key=lambda s: s["path"])

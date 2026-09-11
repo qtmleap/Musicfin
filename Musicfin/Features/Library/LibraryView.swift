@@ -4,15 +4,20 @@ enum LibraryRoute: Hashable {
     case albums, artists, playlists, favorites, genres
 }
 
+/// ライブラリの入口。iPod のメニューのように種類を縦に並べ、それぞれの一覧へ入れ子で進む。
 struct LibraryView: View {
     var body: some View {
         List {
-            NavigationLink(value: LibraryRoute.albums) { Label("アルバム", systemImage: "square.stack") }
-            NavigationLink(value: LibraryRoute.artists) { Label("アーティスト", systemImage: "music.mic") }
-            NavigationLink(value: LibraryRoute.playlists) { Label("プレイリスト", systemImage: "music.note.list") }
-            NavigationLink(value: LibraryRoute.favorites) { Label("お気に入りの曲", systemImage: "star") }
-            NavigationLink(value: LibraryRoute.genres) { Label("ジャンル", systemImage: "guitars") }
+            Section {
+                menuRow("アルバム", systemImage: "square.stack", route: .albums)
+                menuRow("アーティスト", systemImage: "music.mic", route: .artists)
+                menuRow("プレイリスト", systemImage: "music.note.list", route: .playlists)
+                menuRow("お気に入りの曲", systemImage: "heart", route: .favorites)
+                menuRow("ジャンル", systemImage: "guitars", route: .genres)
+            }
         }
+        .scrollContentBackground(.hidden)
+        .background(AppBackdrop())
         .navigationTitle("ライブラリ")
         .navigationDestination(for: LibraryRoute.self) { route in
             switch route {
@@ -24,28 +29,22 @@ struct LibraryView: View {
             }
         }
     }
-}
 
-/// 同じ幅の計算をホームと一覧で共有し、ウインドウのリサイズ時にも列を揃える。
-struct AlbumGridMetrics {
-    let columns: Int
-    let size: CGFloat
-
-    init(width: CGFloat) {
-        let available = max(1, width - 32)
-        if width < 360 {
-            columns = 1
-        } else if width < 600 {
-            columns = 2
-        } else {
-            columns = max(3, Int((available + 12) / 192))
+    private func menuRow(_ title: String, systemImage: String, route: LibraryRoute) -> some View {
+        NavigationLink(value: route) {
+            HStack(spacing: 14) {
+                MenuIcon(systemImage: systemImage)
+                Text(title)
+                    .font(.body.weight(.medium))
+            }
+            .padding(.vertical, 4)
         }
-        size = max(1, (available - CGFloat(columns - 1) * 12) / CGFloat(columns))
     }
-
-    var gridItems: [GridItem] { Array(repeating: GridItem(.fixed(size), spacing: 12), count: columns) }
 }
 
+// MARK: - アルバム一覧
+
+/// アルバムのグリッド。`albums` を渡せばその一覧を、渡さなければカタログ全体を無限スクロールで出す。
 struct AlbumGridView: View {
     let title: String
     var albums: [MediaItem]?
@@ -74,7 +73,7 @@ struct AlbumGridView: View {
 
                     if albums == nil {
                         if let message = catalog.errorMessage {
-                            LibraryLoadError(message: message) { await loadNext() }
+                            LoadErrorView(message: message) { await loadNext() }
                         } else if !catalog.isComplete {
                             ProgressView()
                                 .padding()
@@ -89,6 +88,7 @@ struct AlbumGridView: View {
                 }
             }
         }
+        .background(AppBackdrop())
         .navigationTitle(title)
     }
 
@@ -98,7 +98,10 @@ struct AlbumGridView: View {
     }
 }
 
-private struct GenreListView: View {
+// MARK: - ジャンル
+
+/// ジャンルは全アルバムを読み切ってから集約する（途中の分類を全件として見せない）。
+struct GenreListView: View {
     @Environment(AuthStore.self) private var auth
     @Environment(AlbumCatalog.self) private var catalog
 
@@ -112,17 +115,27 @@ private struct GenreListView: View {
                         NavigationLink {
                             AlbumGridView(title: genre, albums: catalog.albums(in: genre))
                         } label: {
-                            Text(genre)
+                            HStack(spacing: 14) {
+                                MenuIcon(systemImage: "guitars")
+                                Text(genre)
+                                Spacer()
+                                Text("\(catalog.albums(in: genre).count)")
+                                    .font(.footnote)
+                                    .monospacedDigit()
+                                    .foregroundStyle(.secondary)
+                            }
                         }
                     }
+                    .scrollContentBackground(.hidden)
                 }
             } else if let message = catalog.errorMessage {
-                LibraryLoadError(message: message) { await load() }
+                LoadErrorView(message: message) { await load() }
             } else {
                 ProgressView("すべてのアルバムを確認中…")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
+        .background(AppBackdrop())
         .navigationTitle("ジャンル")
         .task { await load() }
     }
@@ -133,9 +146,12 @@ private struct GenreListView: View {
     }
 }
 
-private struct LibraryCollectionView: View {
+// MARK: - アーティスト / プレイリスト
+
+struct LibraryCollectionView: View {
     enum Kind { case artists, playlists }
     let kind: Kind
+
     @Environment(LibraryStore.self) private var library
     @State private var isLoading = true
 
@@ -145,27 +161,28 @@ private struct LibraryCollectionView: View {
     var body: some View {
         List(items) { item in
             NavigationLink {
-                if kind == .artists { ArtistDetailView(artist: item) } else { AlbumDetailView(album: item) }
+                if kind == .artists {
+                    ArtistDetailView(artist: item)
+                } else {
+                    AlbumDetailView(album: item)
+                }
             } label: {
                 if kind == .artists {
                     ArtistRow(artist: item)
                 } else {
-                    HStack(spacing: 12) {
-                        ArtworkView(item: item, size: 52, cornerRadius: 6)
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(item.displayName)
-                            Text(item.albumSubtitle).font(.footnote).foregroundStyle(.secondary)
-                        }
-                    }
+                    ContainerRow(item: item)
                 }
             }
         }
+        .scrollContentBackground(.hidden)
+        .background(AppBackdrop())
         .navigationTitle(title)
         .overlay {
             if isLoading, items.isEmpty {
                 ProgressView()
             } else if items.isEmpty {
-                ContentUnavailableView("\(title)がありません", systemImage: "music.note.list")
+                ContentUnavailableView(
+                    "\(title)がありません", systemImage: kind == .artists ? "music.mic" : "music.note.list")
             }
         }
         .task { await load() }
@@ -178,6 +195,8 @@ private struct LibraryCollectionView: View {
         isLoading = false
     }
 }
+
+// MARK: - お気に入りの曲
 
 struct FavoriteTracksView: View {
     @Environment(LibraryStore.self) private var library
@@ -200,21 +219,23 @@ struct FavoriteTracksView: View {
                     Button {
                         Task { await library.toggleFavorite(track) }
                     } label: {
-                        Label("お気に入りから削除", systemImage: "star.slash")
+                        Label("お気に入りから削除", systemImage: "heart.slash")
                     }
-                    .tint(.yellow)
+                    .tint(.pink)
                 }
             }
         }
         .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .background(AppBackdrop())
         .navigationTitle("お気に入りの曲")
         .overlay {
             if tracks.isEmpty {
                 switch library.homeState {
                 case .idle, .loading: ProgressView()
                 case .failed(let message):
-                    LibraryLoadError(message: message) { await library.loadHome(force: true) }
-                case .loaded: ContentUnavailableView("お気に入りの曲がありません", systemImage: "star")
+                    LoadErrorView(message: message) { await library.loadHome(force: true) }
+                case .loaded: ContentUnavailableView("お気に入りの曲がありません", systemImage: "heart")
                 }
             }
         }
@@ -223,27 +244,12 @@ struct FavoriteTracksView: View {
     }
 }
 
-struct LibraryLoadError: View {
-    let message: String
-    let retry: () async -> Void
-    @State private var isRetrying = false
-
-    var body: some View {
-        VStack(spacing: 12) {
-            Text("読み込めませんでした").font(.headline)
-            Text(message).font(.footnote).foregroundStyle(.secondary)
-            Button("再試行") {
-                isRetrying = true
-                Task {
-                    await retry()
-                    isRetrying = false
-                }
-            }
-            .buttonStyle(.glass)
-            .disabled(isRetrying)
-        }
-        .multilineTextAlignment(.center)
-        .padding()
-        .frame(maxWidth: .infinity)
+#Preview {
+    NavigationStack {
+        LibraryView()
     }
+    .environment(AuthStore())
+    .environment(LibraryStore())
+    .environment(PlaybackEngine())
+    .environment(AlbumCatalog())
 }

@@ -11,9 +11,9 @@ struct MusicfinApp: App {
         WindowGroup {
             Group {
                 if auth.isSignedIn {
-                    DesignVariant.current.rootView
+                    RootView()
                 } else {
-                    DesignVariant.current.loginView
+                    LoginView()
                 }
             }
             .environment(auth)

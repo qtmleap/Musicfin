@@ -1,10 +1,10 @@
 import SwiftUI
 
-// Fable 版のブラウズ画面で共有する部品。ログイン・設定と同じ「ピンクの淡いグラデーション + ガラス」で揃える。
+// ブラウズ画面で共有する部品。ログイン・設定と同じ「ピンクの淡いグラデーション + ガラス」で揃える。
 
 /// 各画面の背景。タブを跨いでも同じ世界観に見えるよう、ログイン・設定と同じグラデーションを敷く。
 /// `List` に重ねるときは `.scrollContentBackground(.hidden)` を併用する。
-struct FableBackdrop: View {
+struct AppBackdrop: View {
     var body: some View {
         LinearGradient(
             colors: [Color.pink.opacity(0.14), Color(.systemBackground), Color(.systemBackground)],
@@ -16,7 +16,7 @@ struct FableBackdrop: View {
 }
 
 /// アルバム／プレイリストのカード。角を大きめに取り、淡い影で背景のグラデーションから浮かせる。
-struct FableAlbumCard: View {
+struct AlbumCard: View {
     let item: MediaItem
     var size: CGFloat = 160
     /// 省略時はアーティスト名。アーティスト詳細のように文脈で自明なときは別の文言（年など）に差し替える。
@@ -42,8 +42,8 @@ struct FableAlbumCard: View {
     }
 }
 
-/// 曲一覧の 1 行。再生中の曲は tint（Fable ではピンク）で示す。
-struct FableTrackRow: View {
+/// 曲一覧の 1 行。再生中の曲は tint（ピンク）で示す。
+struct TrackRow: View {
     let track: MediaItem
     /// アルバム内ではトラック番号を、横断的な一覧ではアートワークを出す。
     var showsArtwork = false
@@ -104,7 +104,7 @@ struct FableTrackRow: View {
 }
 
 /// アーティスト一覧の 1 行。円形のアートワークにピンクの細い縁を付けて、アルバムと見分けやすくする。
-struct FableArtistRow: View {
+struct ArtistRow: View {
     let artist: MediaItem
 
     var body: some View {
@@ -121,7 +121,7 @@ struct FableArtistRow: View {
 }
 
 /// アルバム／プレイリストなど「入れ物」の 1 行。
-struct FableContainerRow: View {
+struct ContainerRow: View {
     let item: MediaItem
 
     var body: some View {
@@ -141,7 +141,7 @@ struct FableContainerRow: View {
 }
 
 /// ライブラリのメニュー行に付けるアイコン。iPod のメニューのように種類ごとの色付きタイルで示す。
-struct FableMenuIcon: View {
+struct MenuIcon: View {
     let systemImage: String
 
     var body: some View {
@@ -158,7 +158,7 @@ struct FableMenuIcon: View {
 
 /// 見出しと「すべて表示」を備えた横スクロールのセクション。
 /// 「すべて表示」はテキストリンクではなくガラスのカプセルにして、押せることを分かりやすくする。
-struct FableCarousel<Content: View, Destination: View>: View {
+struct CarouselSection<Content: View, Destination: View>: View {
     let title: String
     @ViewBuilder var destination: Destination
     @ViewBuilder var content: Content
@@ -195,7 +195,7 @@ struct FableCarousel<Content: View, Destination: View>: View {
 
 /// ホームとアルバム一覧で同じ列幅を使い、ウインドウのリサイズ時にも列を揃える。
 /// 端末名ではなく利用可能幅で列数を決める（`docs/ui-spec.md` 6 章）。
-struct FableGridMetrics {
+struct AlbumGridMetrics {
     let columns: Int
     let size: CGFloat
 
@@ -215,7 +215,7 @@ struct FableGridMetrics {
 }
 
 /// 読み込み失敗時の案内。ガラスのカードに載せて背景と区別する。
-struct FableLoadError: View {
+struct LoadErrorView: View {
     let message: String
     let retry: () async -> Void
     @State private var isRetrying = false
