@@ -38,7 +38,7 @@ nonisolated struct JellyfinClient: Sendable, Equatable {
     static let clientName = "Musicfin"
     static let clientVersion = "0.1.0"
 
-    private static let logger = Logger(subsystem: "am.nasawake.Musicfin", category: "JellyfinClient")
+    private static let logger = Logger(subsystem: "jp.qleap.musicfin", category: "JellyfinClient")
 
     private static let session: URLSession = {
         let config = URLSessionConfiguration.default

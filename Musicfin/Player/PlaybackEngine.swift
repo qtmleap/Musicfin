@@ -64,7 +64,7 @@ final class PlaybackEngine {
 
     private let player = AVQueuePlayer()
     private let audioSession = AudioSessionManager()
-    private let logger = Logger(subsystem: "am.nasawake.Musicfin", category: "PlaybackEngine")
+    private let logger = Logger(subsystem: "jp.qleap.musicfin", category: "PlaybackEngine")
 
     private var client: JellyfinClient?
     private var settings: PlaybackSettings?
@@ -105,7 +105,7 @@ final class PlaybackEngine {
             let cellular = path.usesInterfaceType(.cellular)
             Task { @MainActor [weak self] in self?.isOnCellular = cellular }
         }
-        pathMonitor.start(queue: DispatchQueue(label: "am.nasawake.Musicfin.pathMonitor"))
+        pathMonitor.start(queue: DispatchQueue(label: "jp.qleap.musicfin.pathMonitor"))
     }
 
     /// 現在の経路に応じた音質。設定が未注入なら高音質で再生する。

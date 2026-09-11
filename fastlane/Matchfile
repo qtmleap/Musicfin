@@ -4,4 +4,9 @@ git_branch("master")
 
 type("appstore")
 platform("ios")
-app_identifier(["am.nasawake.Musicfin"])
+app_identifier(["jp.qleap.musicfin"])
+
+# match は一時ディレクトリに clone するためリポジトリ固有の git config が効かず、グローバルの
+# 私用メールでコミットして GitHub の GH007（private email）で push が拒否される。
+git_full_name("tkgstrator")
+git_user_email("29420801+tkgstrator@users.noreply.github.com")

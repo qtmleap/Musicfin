@@ -1,6 +1,6 @@
 # fastlane セットアップ手順
 
-iOS アプリ `am.nasawake.Musicfin`（iPhone / iPad）を App Store Connect に配信する。
+iOS アプリ `jp.qleap.musicfin`（iPhone / iPad）を App Store Connect に配信する。
 
 ```sh
 bundle install
@@ -79,11 +79,11 @@ bundle exec fastlane setup_profiles
 ```
 
 **生成後は必ず目視確認すること:**
-- `profiles/appstore/AppStore_am.nasawake.Musicfin.mobileprovision` が増えているか
+- `profiles/appstore/AppStore_jp.qleap.musicfin.mobileprovision` が増えているか
 - 既存の他アプリのプロファイル・証明書が上書き・削除されていないか
 
 アプリレコードの自動作成に失敗したときは App Store Connect の **マイ App → +** で
-**iOS / Musicfin / `am.nasawake.Musicfin`** を手動で作る。
+**iOS / Musicfin / `jp.qleap.musicfin`** を手動で作る。
 
 ### 4. 動作確認
 
