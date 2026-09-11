@@ -51,17 +51,13 @@ struct QueueView: View {
                         }
                         .buttonStyle(.plain)
                         .listRowInsets(EdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 0))
-                        .listRowBackground(Color.clear)
                     }
                 }
                 .listStyle(.plain)
                 .scrollContentBackground(.hidden)
             }
         }
-        // 外側のプレイヤーがガラスを敷くため、行を含めて背景は透過させる。
-        .padding(.horizontal, 16)
-        .frame(maxWidth: 560, maxHeight: .infinity, alignment: .top)
-        .background(Color.clear)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 
     private var repeatDescription: String {
