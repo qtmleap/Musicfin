@@ -6,12 +6,12 @@
 <title>Musicfin Screens</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap">
 <style>
-:root{color-scheme:light dark;--bg:#f8f5f6;--surface:#fff;--soft:#f0e9ec;--ink:#291f24;--muted:#776770;--line:#e6dce1;--accent:#e0344f;--fable:#e0344f;--astra:#2f6fd6;--frame:#261f23;--shadow:0 12px 32px #291f2414}
+:root{color-scheme:light dark;--bg:#f8f5f6;--surface:#fff;--soft:#f0e9ec;--ink:#291f24;--muted:#776770;--line:#e6dce1;--accent:#e0344f;--frame:#261f23;--shadow:0 12px 32px #291f2414}
 @media(prefers-color-scheme:dark){:root{--bg:#161215;--surface:#211b1f;--soft:#30262c;--ink:#f5eef2;--muted:#bcaab5;--line:#43343d;--accent:#ff7188;--frame:#080608;--shadow:0 12px 32px #0005}}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.6 "Zen Kaku Gothic New","Hiragino Sans",-apple-system,sans-serif}button,a{-webkit-tap-highlight-color:transparent}button{font:inherit;color:inherit;cursor:pointer}button,a{touch-action:manipulation}button:focus-visible,a:focus-visible{outline:3px solid var(--accent);outline-offset:3px}button{border:1px solid var(--line);border-radius:9px;background:var(--surface);padding:8px 14px;min-height:44px}button:hover,a:hover{background:var(--soft)}button[aria-pressed=true]{background:var(--ink);color:var(--bg);border-color:var(--ink)}[hidden]{display:none!important}h1,h2,h3,p{margin:0}code,.mono{font-family:"JetBrains Mono","Hiragino Sans",-apple-system,sans-serif;font-size:11px;overflow-wrap:anywhere}.muted{color:var(--muted)}
-header{display:flex;align-items:center;justify-content:space-between;gap:20px;padding:22px 28px;border-bottom:1px solid var(--line);background:var(--surface)}.brand{display:flex;align-items:center;gap:12px}.mark{display:grid;place-items:center;background:var(--fable);color:white;width:40px;height:40px;border-radius:12px;font-size:24px}h1{font-size:21px;letter-spacing:-.5px}.meta{font-size:12px;color:var(--muted)}.header-right{display:grid;gap:6px;text-align:right}.shell{display:grid;grid-template-columns:242px minmax(0,1fr);min-height:calc(100vh - 110px)}aside{border-right:1px solid var(--line);padding:24px 14px;background:var(--surface)}nav{position:sticky;top:24px}.nav-group+ .nav-group{margin-top:26px}.nav-group h2{font-size:11px;color:var(--muted);padding:0 10px 8px;letter-spacing:.06em}.nav-links{display:grid;gap:3px}nav a{color:var(--muted);text-decoration:none;padding:9px 12px;border-radius:8px;font-size:14px}nav a[aria-current=page]{background:var(--soft);color:var(--accent);font-weight:700}main{padding:28px clamp(16px,3vw,48px) 60px;min-width:0}.toolbar{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:16px;margin-bottom:26px}.toolbar h2{font-size:26px}.segments{display:flex;flex-wrap:wrap;gap:4px;background:var(--soft);padding:4px;border-radius:12px}.segments button{border-color:transparent;background:transparent;padding:6px 13px}.segments button[aria-pressed=true]{background:var(--surface);color:var(--ink);box-shadow:0 2px 6px #0001}.tag{display:inline-block;border-radius:6px;padding:2px 9px;font-size:12px;font-weight:700;background:var(--soft);color:var(--ink)}.tag.fable{background:var(--fable);color:#fff}.tag.astra{background:var(--astra);color:#fff}.row{max-width:820px;margin:0 auto 34px}.row h3{margin-bottom:14px;font-size:15px}.pair{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:clamp(12px,3vw,32px)}figure{margin:0;min-width:0}.appearance{font-size:12px;font-weight:700;color:var(--muted);margin-bottom:9px}.phone{display:block;width:100%;padding:0;overflow:hidden;aspect-ratio:1206/2622;border:4px solid var(--frame);border-radius:clamp(16px,3vw,38px);background:var(--soft);box-shadow:var(--shadow);position:relative;cursor:zoom-in}.phone img{display:block;width:100%;height:100%;object-fit:contain;aspect-ratio:1206/2622}.missing{display:grid;place-content:center;gap:5px;width:100%;height:100%;text-align:center;color:var(--muted);font-size:14px}.missing small{font-size:11px}figcaption{margin-top:10px;color:var(--muted);line-height:1.4}.overview{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:24px}.tile{padding:16px;border:1px solid var(--line);background:var(--surface);border-radius:16px;min-width:0}.tile-head{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px;margin-bottom:16px}.tile h3{font-size:16px}.tile .pair{gap:12px}.tile .phone{border-width:3px;border-radius:16px;cursor:pointer}.tile figcaption{display:none}.status{padding:28px;border:1px dashed var(--line);border-radius:16px;color:var(--muted);overflow-wrap:anywhere}.status button{margin-top:16px}dialog{position:fixed;inset:0;width:100%;height:100%;max-width:none;max-height:none;margin:0;border:0;padding:16px;background:var(--bg);color:var(--ink);overflow:hidden}dialog[open]{display:flex;flex-direction:column;gap:12px}dialog::backdrop{background:#000c}.viewer-bar{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}.viewer-bar h2{font-size:18px;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}#viewer-path{height:2.8em;flex-shrink:0;overflow:auto}.viewer-controls{display:flex;flex-wrap:wrap;gap:10px;align-items:center}.viewer-hint{font-size:12px;color:var(--muted)}.stage{flex:1;min-height:0;container-type:size;display:grid;place-items:center}.viewer-phone{height:min(100cqh,calc(100cqw * 2622 / 1206));width:auto;aspect-ratio:1206/2622;max-width:100%;border:4px solid var(--frame);border-radius:26px;overflow:hidden;background:var(--soft)}.viewer-phone img{display:block;width:100%;height:100%;object-fit:contain;aspect-ratio:1206/2622}body:has(dialog[open]){overflow:hidden}
+header{display:flex;align-items:center;justify-content:space-between;gap:20px;padding:22px 28px;border-bottom:1px solid var(--line);background:var(--surface)}.brand{display:flex;align-items:center;gap:12px}.mark{display:grid;place-items:center;background:var(--accent);color:white;width:40px;height:40px;border-radius:12px;font-size:24px}h1{font-size:21px;letter-spacing:-.5px}.meta{font-size:12px;color:var(--muted)}.header-right{display:grid;gap:6px;text-align:right}.shell{display:grid;grid-template-columns:242px minmax(0,1fr);min-height:calc(100vh - 110px)}aside{border-right:1px solid var(--line);padding:24px 14px;background:var(--surface)}nav{position:sticky;top:24px}.nav-group+ .nav-group{margin-top:26px}.nav-group h2{font-size:11px;color:var(--muted);padding:0 10px 8px;letter-spacing:.06em}.nav-links{display:grid;gap:3px}nav a{color:var(--muted);text-decoration:none;padding:9px 12px;border-radius:8px;font-size:14px}nav a[aria-current=page]{background:var(--soft);color:var(--accent);font-weight:700}main{padding:28px clamp(16px,3vw,48px) 60px;min-width:0}.toolbar{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:16px;margin-bottom:26px}.toolbar h2{font-size:26px}.segments{display:flex;flex-wrap:wrap;gap:4px;background:var(--soft);padding:4px;border-radius:12px}.segments button{border-color:transparent;background:transparent;padding:6px 13px}.segments button[aria-pressed=true]{background:var(--surface);color:var(--ink);box-shadow:0 2px 6px #0001}.tag{display:inline-block;border-radius:6px;padding:2px 9px;font-size:12px;font-weight:700;background:var(--soft);color:var(--ink)}.row{max-width:820px;margin:0 auto 34px}.row h3{margin-bottom:14px;font-size:15px}.pair{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:clamp(12px,3vw,32px)}figure{margin:0;min-width:0}.appearance{font-size:12px;font-weight:700;color:var(--muted);margin-bottom:9px}.phone{display:block;width:100%;padding:0;overflow:hidden;aspect-ratio:1206/2622;border:4px solid var(--frame);border-radius:clamp(16px,3vw,38px);background:var(--soft);box-shadow:var(--shadow);position:relative;cursor:zoom-in}.phone img{display:block;width:100%;height:100%;object-fit:contain;aspect-ratio:1206/2622}.missing{display:grid;place-content:center;gap:5px;width:100%;height:100%;text-align:center;color:var(--muted);font-size:14px}.missing small{font-size:11px}figcaption{margin-top:10px;color:var(--muted);line-height:1.4}.overview{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:24px}.tile{padding:16px;border:1px solid var(--line);background:var(--surface);border-radius:16px;min-width:0}.tile-head{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px;margin-bottom:16px}.tile h3{font-size:16px}.tile .pair{gap:12px}.tile .phone{border-width:3px;border-radius:16px;cursor:pointer}.tile figcaption{display:none}.status{padding:28px;border:1px dashed var(--line);border-radius:16px;color:var(--muted);overflow-wrap:anywhere}.status button{margin-top:16px}dialog{position:fixed;inset:0;width:100%;height:100%;max-width:none;max-height:none;margin:0;border:0;padding:16px;background:var(--bg);color:var(--ink);overflow:hidden}dialog[open]{display:flex;flex-direction:column;gap:12px}dialog::backdrop{background:#000c}.viewer-bar{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}.viewer-bar h2{font-size:18px;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}#viewer-path{height:2.8em;flex-shrink:0;overflow:auto}.viewer-controls{display:flex;flex-wrap:wrap;gap:10px;align-items:center}.viewer-hint{font-size:12px;color:var(--muted)}.stage{flex:1;min-height:0;container-type:size;display:grid;place-items:center}.viewer-phone{height:min(100cqh,calc(100cqw * 2622 / 1206));width:auto;aspect-ratio:1206/2622;max-width:100%;border:4px solid var(--frame);border-radius:26px;overflow:hidden;background:var(--soft)}.viewer-phone img{display:block;width:100%;height:100%;object-fit:contain;aspect-ratio:1206/2622}body:has(dialog[open]){overflow:hidden}
 @media(max-width:700px){header{padding:16px;align-items:flex-start;flex-direction:column;gap:12px}.header-right{text-align:left;width:100%;display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center}.shell{display:block}aside{padding:12px 16px;border-right:0;border-bottom:1px solid var(--line)}nav{position:static;display:flex;gap:22px;overflow-x:auto;padding:3px}.nav-group{flex-shrink:0}.nav-group+ .nav-group{margin:0}.nav-group h2{padding-left:8px}.nav-links{display:flex;gap:4px}nav a{white-space:nowrap}main{padding:22px 16px 40px}.toolbar h2{font-size:23px}.overview{grid-template-columns:repeat(auto-fill,minmax(220px,1fr))}dialog{padding:12px}.viewer-controls{gap:5px}.viewer-controls button{padding:6px 10px}.viewer-hint{font-size:11px}}
-.thumbnail-row + .thumbnail-row{margin-top:18px}.thumbnail-row h4{margin:0 0 8px;font-size:12px;color:var(--muted)}.tile .tag{font-size:10px;padding:2px 7px}nav{max-height:calc(100dvh - 48px);overflow-y:auto}@media(max-width:700px){nav{max-height:none}}
+.tile .tag{font-size:10px;padding:2px 7px}nav{max-height:calc(100dvh - 48px);overflow-y:auto}@media(max-width:700px){nav{max-height:none}}
 </style>
 </head>
 <body>
@@ -22,8 +22,8 @@ header{display:flex;align-items:center;justify-content:space-between;gap:20px;pa
 <div class="shell"><aside><nav id="navigation" aria-label="画面一覧"></nav></aside><main id="main"><p class="status" role="status">manifest.json を読み込み中…</p></main></div>
 <dialog id="viewer" aria-labelledby="viewer-title">
   <div class="viewer-bar"><h2 id="viewer-title"></h2><button id="close-viewer" autofocus>閉じる <span aria-hidden="true">×</span></button></div>
-  <div class="viewer-controls"><button id="previous-screen" aria-label="前の画面">←</button><button id="next-screen" aria-label="次の画面">→</button><div class="segments" id="viewer-variants" aria-label="実装"></div><div class="segments" id="viewer-appearances" aria-label="表示モード"></div></div>
-  <p class="viewer-hint">← →：前 / 次の画面　↑ ↓：ライト / ダーク　実装はボタンで切替　Esc：閉じる</p>
+  <div class="viewer-controls"><button id="previous-screen" aria-label="前の画面">←</button><button id="next-screen" aria-label="次の画面">→</button><div class="segments" id="viewer-appearances" aria-label="表示モード"></div></div>
+  <p class="viewer-hint">← →：前 / 次の画面　↑ ↓：ライト / ダーク　Esc：閉じる</p>
   <div class="stage"><div class="viewer-phone" id="viewer-image"></div></div>
   <p class="mono muted" id="viewer-path"></p>
 </dialog>
@@ -31,12 +31,11 @@ header{display:flex;align-items:center;justify-content:space-between;gap:20px;pa
 'use strict';
 const titles = new Map(Object.entries({'login-server':'サーバー入力','login-credentials':'認証','login-quickconnect':'Quick Connect',account:'アカウント',settings:'設定',home:'ホーム',library:'ライブラリ',albums:'アルバム一覧',album:'アルバム詳細',miniplayer:'ミニプレイヤー',nowplaying:'フルプレイヤー',lyrics:'歌詞',queue:'次に再生','search-idle':'検索・入力前',search:'検索'}));
 const screenOrder = ['login-server','login-credentials','login-quickconnect','settings','home','library','albums','album','miniplayer','nowplaying','lyrics','queue','search-idle','search'];
-const variants = ['fable','astra'];
 const appearances = ['light','dark'];
-const names = {light:'ライト',dark:'ダーク',fable:'Fable',astra:'Astra'};
+const names = {light:'ライト',dark:'ダーク'};
 const $ = id => document.getElementById(id);
 let shots = new Map(), screens = [], selected = 'login-server', overview = false, ready = false, zoom = null;
-const key = (screen, variant, appearance) => JSON.stringify([screen, variant, appearance]);
+const key = (screen, appearance) => JSON.stringify([screen, appearance]);
 const title = screen => titles.get(screen) || screen;
 function node(tag, className, text) {
   const element = document.createElement(tag);
@@ -51,22 +50,22 @@ function button(text, action) {
 function placeholder() {
   const element = node('span','missing'); element.append(node('span','','未撮影'),node('small','','画像がありません')); return element;
 }
-function shotImage(container, screen, v, appearance) {
-  const shot = shots.get(key(screen,v,appearance));
+function shotImage(container, screen, appearance) {
+  const shot = shots.get(key(screen,appearance));
   container.replaceChildren();
   if (!shot) { container.append(placeholder()); return; }
-  const img = node('img'); img.alt = `${title(screen)} · ${names[v]} · ${names[appearance]}`;
+  const img = node('img'); img.alt = `${title(screen)} · ${names[appearance]}`;
   img.loading = 'lazy'; img.width = 1206; img.height = 2622;
   img.addEventListener('error', () => { if (img.parentNode === container) container.replaceChildren(placeholder()); });
   img.src = shot.path; container.append(img);
 }
-function figure(screen, v, appearance, small) {
+function figure(screen, appearance, small) {
   const fig = node('figure');
-  fig.append(node('p',`appearance tag ${v}`,names[v]));
-  const frame = button('', () => small ? select(screen) : openViewer(screen,v,appearance));
-  frame.className = 'phone'; frame.setAttribute('aria-label', `${title(screen)} ${names[v]} ${names[appearance]}${small ? 'の詳細' : 'を拡大'}`);
-  shotImage(frame,screen,v,appearance); fig.append(frame);
-  fig.append(node('figcaption','mono',shots.get(key(screen,v,appearance))?.path || '未撮影'));
+  fig.append(node('p','appearance tag',names[appearance]));
+  const frame = button('', () => small ? select(screen) : openViewer(screen,appearance));
+  frame.className = 'phone'; frame.setAttribute('aria-label', `${title(screen)} ${names[appearance]}${small ? 'の詳細' : 'を拡大'}`);
+  shotImage(frame,screen,appearance); fig.append(frame);
+  fig.append(node('figcaption','mono',shots.get(key(screen,appearance))?.path || '未撮影'));
   return fig;
 }
 function segment(container, options, current, action) {
@@ -89,23 +88,19 @@ function renderNavigation() {
   nav.replaceChildren(group);
 }
 function comparison(screen, small) {
-  const content = node('div', small ? 'thumbnail-comparison' : 'comparison');
-  // すべての画面で列を実装、行を明暗に固定し、比較する視線の移動を揃える。
-  for (const appearance of appearances) {
-    const row = node('section',small ? 'thumbnail-row' : 'row');
-    const heading = node(small ? 'h4' : 'h3','',names[appearance]);
-    const pair = node('div','pair');
-    for (const v of variants) pair.append(figure(screen,v,appearance,small));
-    row.append(heading,pair); content.append(row);
-  }
-  return content;
+  // 1 つの画面につきライト / ダークを横に並べ、同じ画面の明暗差だけを見比べる。
+  const row = node('section', small ? 'thumbnail-row' : 'row');
+  const pair = node('div','pair');
+  for (const appearance of appearances) pair.append(figure(screen,appearance,small));
+  row.append(pair);
+  return row;
 }
 function render() {
   if (!ready) return;
   renderNavigation();
   $('overview-toggle').setAttribute('aria-pressed',String(overview));
   const main = $('main'), toolbar = node('div','toolbar'), heading = node('div');
-  heading.append(node('h2','',overview ? 'すべての画面' : title(selected)),node('p','meta',overview ? `${screens.length} screens · Fable / Astra · ライト / ダーク` : selected));
+  heading.append(node('h2','',overview ? 'すべての画面' : title(selected)),node('p','meta',overview ? `${screens.length} screens · ライト / ダーク` : selected));
   toolbar.append(heading); main.replaceChildren(toolbar);
   if (overview) {
     const grid = node('div','overview');
@@ -131,15 +126,14 @@ function readHash() {
   else { overview = false; selected = screens.includes(id) ? id : screens[0]; }
   render();
 }
-function openViewer(screen,v,appearance) {
-  zoom = {screen,v,appearance}; renderViewer(); $('viewer').showModal();
+function openViewer(screen,appearance) {
+  zoom = {screen,appearance}; renderViewer(); $('viewer').showModal();
 }
 function renderViewer() {
-  $('viewer-title').textContent = `${title(zoom.screen)} · ${names[zoom.v]} · ${names[zoom.appearance]}`;
-  segment($('viewer-variants'),variants,zoom.v,v => {zoom.v = v; renderViewer();});
+  $('viewer-title').textContent = `${title(zoom.screen)} · ${names[zoom.appearance]}`;
   segment($('viewer-appearances'),appearances,zoom.appearance,a => {zoom.appearance = a; renderViewer();});
-  shotImage($('viewer-image'),zoom.screen,zoom.v,zoom.appearance);
-  $('viewer-path').textContent = shots.get(key(zoom.screen,zoom.v,zoom.appearance))?.path || '未撮影';
+  shotImage($('viewer-image'),zoom.screen,zoom.appearance);
+  $('viewer-path').textContent = shots.get(key(zoom.screen,zoom.appearance))?.path || '未撮影';
 }
 function moveScreen(direction) {
   const index = screens.indexOf(zoom.screen);
@@ -171,12 +165,12 @@ async function load() {
     if (!Array.isArray(manifest.shots)) throw new Error('shots の形式が不正です');
     shots = new Map();
     for (const shot of manifest.shots) {
-      if (!shot || !appearances.includes(shot.appearance) || !variants.includes(shot.variant) || typeof shot.screen !== 'string' || typeof shot.path !== 'string') continue;
+      if (!shot || !appearances.includes(shot.appearance) || typeof shot.screen !== 'string' || typeof shot.path !== 'string') continue;
       // 同一配信元の相対画像だけを扱い、manifest の文字列を HTML として解釈しない。
       let url;
       try { url = new URL(shot.path,location.href); } catch { continue; }
       if (url.origin !== location.origin || !url.pathname.startsWith(new URL('.',location.href).pathname)) continue;
-      shots.set(key(shot.screen,shot.variant,shot.appearance),shot);
+      shots.set(key(shot.screen,shot.appearance),shot);
     }
     screens = [...new Set([...screenOrder,...[...shots.values()].map(s => s.screen)])];
     $('metadata').textContent = `${manifest.device || 'デバイス不明'} · 撮影日時 ${manifest.generatedAt || '不明'}`;

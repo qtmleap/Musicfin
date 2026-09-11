@@ -1,114 +1,149 @@
 import SwiftUI
 
-/// 時間同期歌詞。現在の行を強調し、再生に合わせて自動スクロールする。
+/// 読む位置を安定させるため、強調は文字の濃淡に留め、行の大きさを変えない。
 struct LyricsView: View {
     let track: MediaItem
-
     @Environment(AuthStore.self) private var auth
     @Environment(PlaybackEngine.self) private var player
-
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var lines: [LyricLine] = []
-    @State private var state: LoadState = .loading
-    /// 読んでいる行を勝手に移動させないよう、明示的に戻るまで追従を止める。
-    @State private var isUserScrolling = false
+    @State private var isLoading = true
+    @State private var isFollowing = true
+    @State private var errorMessage: String?
 
-    private enum LoadState { case loading, ready, unavailable }
-
-    /// 同期歌詞かどうか。時間情報が無い場合は単なるテキスト表示にする。
     private var isSynced: Bool { lines.contains { $0.startSeconds != nil } }
-
-    /// 現在再生位置に対応する行の番号。
     private var activeIndex: Int? {
-        guard isSynced else { return nil }
-        let position = player.currentTime
-        return lines.lastIndex { ($0.startSeconds ?? .infinity) <= position }
+        lines.lastIndex { ($0.startSeconds ?? .infinity) <= player.currentTime }
     }
 
     var body: some View {
         Group {
-            switch state {
-            case .loading:
-                ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
-            case .unavailable:
-                ContentUnavailableView(
-                    "歌詞がありません",
-                    systemImage: "quote.bubble",
-                    description: Text("この曲にはサーバー上に歌詞が登録されていません。")
-                )
-            case .ready:
+            if isLoading {
+                ProgressView("歌詞を読み込み中…")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if let errorMessage {
+                ScrollView {
+                    // 親のガラスパネルに重ねないよう、エラーも透明な内容だけで表示する。
+                    VStack(spacing: 12) {
+                        Text("読み込めませんでした").font(.headline)
+                        Text(errorMessage).font(.footnote).foregroundStyle(.secondary)
+                        Button("再試行") { Task { await load() } }
+                            .buttonStyle(.glass)
+                    }
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 24)
+                }
+            } else if lines.isEmpty {
+                ScrollView {
+                    VStack(spacing: 8) {
+                        Text("歌詞がありません").font(.headline)
+                        Text("この曲には歌詞が登録されていません。")
+                            .font(.subheadline).foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 24)
+                }
+            } else {
                 lyricsList
             }
         }
+        // ガラスとグラデーションは親パネルに任せ、歌詞の濃淡だけで現在行を示す。
+        .padding(.horizontal, 16)
+        .frame(maxWidth: 560)
+        .background(Color.clear)
         .task(id: track.id) { await load() }
     }
 
     private var lyricsList: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 18) {
+                LazyVStack(alignment: .leading, spacing: 12) {
                     ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
-                        lineView(line, isActive: index == activeIndex)
-                            .id(index)
-                            .onTapGesture {
-                                // 行タップでその位置へシーク（同期歌詞のときだけ）。
-                                guard let start = line.startSeconds else { return }
-                                player.seek(to: start)
+                        Group {
+                            if let start = line.startSeconds {
+                                Button {
+                                    player.seek(to: start)
+                                } label: {
+                                    lineText(line, active: index == activeIndex)
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityHint("この行の再生位置へ移動")
+                                .accessibilityAddTraits(index == activeIndex ? .isSelected : [])
+                            } else {
+                                lineText(line, active: !isSynced)
                             }
+                        }
+                        .id(index)
                     }
                 }
-                .padding(.horizontal, 24)
-                .padding(.vertical, 40)
+                .padding(.vertical, 24)
+                .padding(.horizontal, 4)
             }
             .scrollIndicators(.hidden)
             .onScrollPhaseChange { _, phase in
-                guard phase == .interacting else { return }
-                isUserScrolling = true
+                // 自動追従のアニメーションでは止めず、ユーザーが触れた時点で読む位置を尊重する。
+                if phase == .tracking || phase == .interacting { isFollowing = false }
             }
             .onChange(of: activeIndex, initial: true) { _, index in
-                guard let index, !isUserScrolling else { return }
-                withAnimation(.easeInOut(duration: 0.35)) {
-                    proxy.scrollTo(index, anchor: .center)
-                }
+                guard isFollowing, let index else { return }
+                scroll(to: index, proxy: proxy)
             }
-            .overlay(alignment: .bottom) {
-                if isSynced, isUserScrolling {
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                if isSynced, !isFollowing {
                     Button("現在位置へ") {
-                        isUserScrolling = false
-                        if let index = activeIndex {
-                            withAnimation(.easeInOut(duration: 0.35)) {
-                                proxy.scrollTo(index, anchor: .center)
-                            }
-                        }
+                        isFollowing = true
+                        scroll(to: activeIndex ?? 0, proxy: proxy)
                     }
                     .buttonStyle(.glass)
                     .frame(minHeight: 44)
-                    .padding(.bottom, 8)
+                    .padding(.vertical, 4)
                 }
             }
         }
     }
 
-    private func lineView(_ line: LyricLine, isActive: Bool) -> some View {
+    private func lineText(_ line: LyricLine, active: Bool) -> some View {
         Text(line.text.isEmpty ? " " : line.text)
-            .font(.title3.weight(isActive ? .bold : .semibold))
-            .foregroundStyle(isActive ? AnyShapeStyle(.primary) : AnyShapeStyle(.tertiary))
-            .scaleEffect(isActive ? 1.0 : 0.96, anchor: .leading)
-            .animation(.easeOut(duration: 0.25), value: isActive)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .font(.title3.weight(.semibold))
+            .foregroundStyle(active && isSynced ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary))
+            .opacity(active ? 1 : 0.6)
+            .multilineTextAlignment(.leading)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
             .contentShape(.rect)
     }
 
+    private func scroll(to index: Int, proxy: ScrollViewProxy) {
+        withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.3)) {
+            proxy.scrollTo(index, anchor: .center)
+        }
+    }
+
     private func load() async {
-        isUserScrolling = false
-        state = .loading
-        guard let client = auth.client,
-            let fetched = try? await client.fetchLyrics(itemID: track.id),
-            !fetched.isEmpty
-        else {
-            state = .unavailable
+        isLoading = true
+        isFollowing = true
+        errorMessage = nil
+        lines = []
+        defer { if !Task.isCancelled { isLoading = false } }
+        guard let client = auth.client else {
+            errorMessage = "サーバーに接続してから、もう一度お試しください。"
             return
         }
-        lines = fetched
-        state = .ready
+        do {
+            let fetched = try await client.fetchLyrics(itemID: track.id) ?? []
+            try Task.checkCancellation()
+            lines = fetched.contains { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty } ? fetched : []
+        } catch {
+            if !Task.isCancelled { errorMessage = error.localizedDescription }
+        }
     }
+}
+
+#Preview {
+    LyricsView(track: MediaItem(id: "preview-track", name: "夜の散歩", type: .audio))
+        .environment(AuthStore())
+        .environment(PlaybackEngine())
+        .frame(height: 320)
+        .padding()
 }

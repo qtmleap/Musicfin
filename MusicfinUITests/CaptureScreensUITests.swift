@@ -1,7 +1,7 @@
 import XCTest
 
 /// 主要画面を同じ手順で撮影し、`docs/screenshots/manifest.json`（スクリプトが生成）経由で比較できるようにする。
-/// 実装候補（Fable / Astra / legacy）は `MUSICFIN_VARIANT`、保存先は `MUSICFIN_SHOT_DIR` で受け取る。
+/// 保存先は `MUSICFIN_SHOT_DIR` で受け取る。
 /// アプリ本体に `accessibilityIdentifier` を足さず、表示ラベルだけで操作する。
 final class CaptureScreensUITests: XCTestCase {
     private static let demoServerURL = "https://demo.jellyfin.org/stable"
@@ -10,7 +10,6 @@ final class CaptureScreensUITests: XCTestCase {
     // XCUIApplication は MainActor 隔離なので、テスト本体と補助メソッドを MainActor に置く。
     // クラス自体を MainActor にすると XCTestCase の nonisolated な override と衝突する。
     private var app: XCUIApplication!
-    private var variant = "fable"
     private var shotDirectory: URL?
     private var capturedNames: Set<String> = []
     private var skippedScreens: [String] = []
@@ -20,7 +19,6 @@ final class CaptureScreensUITests: XCTestCase {
         continueAfterFailure = true
 
         let environment = ProcessInfo.processInfo.environment
-        variant = environment["MUSICFIN_VARIANT"] ?? "fable"
         if let directory = environment["MUSICFIN_SHOT_DIR"], !directory.isEmpty {
             shotDirectory = URL(fileURLWithPath: directory, isDirectory: true)
         }
@@ -29,12 +27,11 @@ final class CaptureScreensUITests: XCTestCase {
     @MainActor
     private func launchApp() {
         app = XCUIApplication()
-        app.launchEnvironment["MUSICFIN_VARIANT"] = variant
         app.launchEnvironment["MUSICFIN_SHOT_DIR"] = shotDirectory?.path ?? ""
         app.launch()
     }
 
-    // MARK: - ログイン画面（fable / astra / legacy）
+    // MARK: - ログイン画面
 
     @MainActor
     func testCaptureLoginScreens() throws {
@@ -173,7 +170,7 @@ final class CaptureScreensUITests: XCTestCase {
         tapScrollingIntoView(signIn)
     }
 
-    // MARK: - ログイン後の画面（変種ごと）
+    // MARK: - ログイン後の画面
 
     @MainActor
     func testCaptureAppScreens() throws {
@@ -309,6 +306,7 @@ final class CaptureScreensUITests: XCTestCase {
             for: [expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: close)], timeout: 5)
     }
 
+    @MainActor
     private var isRunning: Bool { app.state == .runningForeground }
 
     /// 再生中にアプリが落ちた場合でも残りの画面を撮れるよう、立ち上げ直してホームまで戻す。
@@ -385,11 +383,11 @@ final class CaptureScreensUITests: XCTestCase {
         RunLoop.current.run(until: Date(timeIntervalSinceNow: 1.0))
     }
 
-    /// 結果バンドルへの添付と、比較しやすいようファイルへの書き出しを両方行う。ファイル名は `<変種>-<画面>.png`。
+    /// 結果バンドルへの添付と、比較しやすいようファイルへの書き出しを両方行う。ファイル名は `<画面>.png`。
     @MainActor
     private func capture(_ screen: String) {
         let screenshot = XCUIScreen.main.screenshot()
-        let fileName = "\(variant)-\(screen).png"
+        let fileName = "\(screen).png"
 
         let attachment = XCTAttachment(screenshot: screenshot)
         attachment.name = fileName
