@@ -23,16 +23,7 @@ struct LyricsView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if let errorMessage {
                 ScrollView {
-                    // 親のガラスパネルに重ねないよう、エラーも透明な内容だけで表示する。
-                    VStack(spacing: 12) {
-                        Text("読み込めませんでした").font(.headline)
-                        Text(errorMessage).font(.footnote).foregroundStyle(.secondary)
-                        Button("再試行") { Task { await load() } }
-                            .buttonStyle(.glass)
-                    }
-                    .multilineTextAlignment(.center)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 24)
+                    LoadErrorView(message: errorMessage) { await load() }
                 }
             } else if lines.isEmpty {
                 ScrollView {
@@ -48,10 +39,6 @@ struct LyricsView: View {
                 lyricsList
             }
         }
-        // ガラスとグラデーションは親パネルに任せ、歌詞の濃淡だけで現在行を示す。
-        .padding(.horizontal, 16)
-        .frame(maxWidth: 560)
-        .background(Color.clear)
         .task(id: track.id) { await load() }
     }
 
@@ -106,8 +93,7 @@ struct LyricsView: View {
     private func lineText(_ line: LyricLine, active: Bool) -> some View {
         Text(line.text.isEmpty ? " " : line.text)
             .font(.title3.weight(.semibold))
-            .foregroundStyle(active && isSynced ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary))
-            .opacity(active ? 1 : 0.6)
+            .foregroundStyle(active ? .primary : .secondary)
             .multilineTextAlignment(.leading)
             .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)

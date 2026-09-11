@@ -8,14 +8,13 @@ enum LibraryRoute: Hashable {
 struct LibraryView: View {
     var body: some View {
         List {
-            Section {
-                menuRow("アルバム", systemImage: "square.stack", route: .albums)
-                menuRow("アーティスト", systemImage: "music.mic", route: .artists)
-                menuRow("プレイリスト", systemImage: "music.note.list", route: .playlists)
-                menuRow("お気に入りの曲", systemImage: "heart", route: .favorites)
-                menuRow("ジャンル", systemImage: "guitars", route: .genres)
-            }
+            NavigationLink(value: LibraryRoute.albums) { Label("アルバム", systemImage: "square.stack") }
+            NavigationLink(value: LibraryRoute.artists) { Label("アーティスト", systemImage: "music.mic") }
+            NavigationLink(value: LibraryRoute.playlists) { Label("プレイリスト", systemImage: "music.note.list") }
+            NavigationLink(value: LibraryRoute.favorites) { Label("お気に入りの曲", systemImage: "star") }
+            NavigationLink(value: LibraryRoute.genres) { Label("ジャンル", systemImage: "guitars") }
         }
+        .listStyle(.plain)
         .scrollContentBackground(.hidden)
         .background(AppBackdrop())
         .navigationTitle("ライブラリ")
@@ -30,16 +29,6 @@ struct LibraryView: View {
         }
     }
 
-    private func menuRow(_ title: String, systemImage: String, route: LibraryRoute) -> some View {
-        NavigationLink(value: route) {
-            HStack(spacing: 14) {
-                MenuIcon(systemImage: systemImage)
-                Text(title)
-                    .font(.body.weight(.medium))
-            }
-            .padding(.vertical, 4)
-        }
-    }
 }
 
 // MARK: - アルバム一覧

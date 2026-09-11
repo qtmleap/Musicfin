@@ -102,23 +102,12 @@ struct NowPlayingView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         case .lyrics:
             if let track = player.currentItem {
-                panel {
-                    LyricsView(track: track)
-                        .id(track.id)
-                }
+                LyricsView(track: track)
+                    .id(track.id)
             }
         case .queue:
-            panel { QueueView() }
+            QueueView()
         }
-    }
-
-    /// 歌詞・キューはアートワークと同じ枠に収まるガラスのカードに載せ、背景のグラデーションと切り分ける。
-    private func panel<Content: View>(@ViewBuilder content: () -> Content) -> some View {
-        content()
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .clipShape(.rect(cornerRadius: 24, style: .continuous))
-            .glassEffect(.regular, in: .rect(cornerRadius: 24, style: .continuous))
-            .padding(.vertical, 12)
     }
 
     // MARK: - タイトル行
