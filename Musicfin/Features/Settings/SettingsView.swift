@@ -1,8 +1,8 @@
 import SwiftUI
 
 /// アカウント確認・音質の選択・ログアウトをまとめた設定画面。`sheet` で表示する前提。
-/// Fable 版ログインと同じく、グループ化リストの上にピンクの淡いグラデーションを敷いて統一感を出す。
-struct FableSettingsView: View {
+/// ログイン画面と同じく、グループ化リストの上にピンクの淡いグラデーションを敷いて統一感を出す。
+struct SettingsView: View {
     @Environment(AuthStore.self) private var auth
     @Environment(PlaybackSettings.self) private var settings
     @Environment(\.dismiss) private var dismiss
@@ -20,12 +20,12 @@ struct FableSettingsView: View {
             List {
                 accountSection
                 Section {
-                    FableQualityPicker(
+                    QualityPicker(
                         title: "Wi-Fi",
                         systemImage: "wifi",
                         selection: $settings.wifiQuality
                     )
-                    FableQualityPicker(
+                    QualityPicker(
                         title: "モバイル通信",
                         systemImage: "antenna.radiowaves.left.and.right",
                         selection: $settings.cellularQuality
@@ -38,7 +38,7 @@ struct FableSettingsView: View {
                 signOutSection
             }
             .scrollContentBackground(.hidden)
-            .background(FableSettingsBackdrop())
+            .background(SettingsBackdrop())
             .navigationTitle("設定")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -110,7 +110,7 @@ struct FableSettingsView: View {
 
 /// 接続種別ごとに 3 択を並べる。Picker の `navigationLink` だと「今どれか」が一覧で見えないので、
 /// iPod の設定画面のように同じ画面内で切り替えられるようにした。
-private struct FableQualityPicker: View {
+private struct QualityPicker: View {
     let title: String
     let systemImage: String
     @Binding var selection: StreamQuality
@@ -118,7 +118,7 @@ private struct FableQualityPicker: View {
     var body: some View {
         DisclosureGroup {
             ForEach(StreamQuality.allCases) { quality in
-                FableQualityRow(network: title, quality: quality, isSelected: quality == selection) {
+                QualityRow(network: title, quality: quality, isSelected: quality == selection) {
                     selection = quality
                 }
             }
@@ -133,7 +133,7 @@ private struct FableQualityPicker: View {
     }
 }
 
-private struct FableQualityRow: View {
+private struct QualityRow: View {
     let network: String
     let quality: StreamQuality
     let isSelected: Bool
@@ -167,7 +167,7 @@ private struct FableQualityRow: View {
 
 // MARK: - 背景
 
-private struct FableSettingsBackdrop: View {
+private struct SettingsBackdrop: View {
     var body: some View {
         LinearGradient(
             colors: [Color.pink.opacity(0.14), Color(.systemGroupedBackground), Color(.systemGroupedBackground)],
@@ -179,7 +179,7 @@ private struct FableSettingsBackdrop: View {
 }
 
 #Preview {
-    FableSettingsView()
+    SettingsView()
         .environment(AuthStore())
         .environment(PlaybackSettings())
 }

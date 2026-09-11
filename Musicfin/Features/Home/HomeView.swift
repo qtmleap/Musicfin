@@ -1,5 +1,6 @@
 import SwiftUI
 
+/// ホーム。最近追加・よく聴く・お気に入り・アルバム一覧を縦に並べる（`docs/ui-spec.md` 2 章）。
 struct HomeView: View {
     let showAlbums: () -> Void
     @Environment(AuthStore.self) private var auth
@@ -27,10 +28,10 @@ struct HomeView: View {
                     if !favorites.isEmpty { favoriteCarousel }
                     if !catalog.items.isEmpty { exploreAlbums(width: geometry.size.width) }
                     if case .failed(let message) = library.homeState {
-                        LibraryLoadError(message: message) { await library.loadHome(force: true) }
+                        LoadErrorView(message: message) { await library.loadHome(force: true) }
                     }
                     if let message = catalog.errorMessage {
-                        LibraryLoadError(message: message) { await loadAlbums(force: true) }
+                        LoadErrorView(message: message) { await loadAlbums(force: true) }
                     }
                 }
                 .padding(.vertical, 16)
@@ -38,19 +39,21 @@ struct HomeView: View {
             .overlay { emptyState }
             .refreshable { await load(force: true) }
         }
+        .background(AppBackdrop())
+        .tint(.pink)
         .navigationTitle("ホーム")
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button("設定", systemImage: "gearshape") { showsSettings = true }
             }
         }
-        .sheet(isPresented: $showsSettings) { DesignVariant.current.settingsView }
+        .sheet(isPresented: $showsSettings) { SettingsView() }
         .task { await load() }
     }
 
     private func albumCarousel(_ title: String, items: [MediaItem], size: CGFloat) -> some View {
         CarouselSection(
-            title: title, destination: { AnyView(AlbumGridView(title: title, albums: items)) },
+            title: title, destination: { AlbumGridView(title: title, albums: items) },
             content: {
                 ForEach(items) { album in
                     NavigationLink {
@@ -65,7 +68,7 @@ struct HomeView: View {
 
     private var favoriteCarousel: some View {
         CarouselSection(
-            title: "お気に入りの曲", destination: { AnyView(FavoriteTracksView()) },
+            title: "お気に入りの曲", destination: { FavoriteTracksView() },
             content: {
                 ForEach(Array(stride(from: 0, to: favorites.count, by: 3)), id: \.self) { start in
                     VStack(spacing: 0) {
@@ -91,11 +94,16 @@ struct HomeView: View {
     private func exploreAlbums(width: CGFloat) -> some View {
         let metrics = AlbumGridMetrics(width: width)
         return VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .firstTextBaseline) {
-                Text("アルバムを探す").font(.title2.bold())
-                Spacer(minLength: 8)
-                Button("すべて表示", action: showAlbums).font(.subheadline)
-                    .frame(minHeight: 44)
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .firstTextBaseline) {
+                    exploreTitle
+                    Spacer(minLength: 16)
+                    exploreLink
+                }
+                VStack(alignment: .leading, spacing: 4) {
+                    exploreTitle
+                    exploreLink
+                }
             }
             LazyVGrid(columns: metrics.gridItems, alignment: .leading, spacing: 24) {
                 ForEach(catalog.items.prefix(6)) { album in
@@ -109,6 +117,19 @@ struct HomeView: View {
             }
         }
         .padding(.horizontal, 16)
+    }
+
+    private var exploreTitle: some View {
+        Text("アルバムを探す")
+            .font(.title2.weight(.semibold))
+            .accessibilityAddTraits(.isHeader)
+    }
+
+    private var exploreLink: some View {
+        Button("すべて表示", action: showAlbums)
+            .font(.subheadline)
+            .frame(minHeight: 44)
+            .accessibilityLabel("アルバムを探す、すべて表示")
     }
 
     @ViewBuilder
@@ -142,4 +163,13 @@ struct HomeView: View {
             await catalog.loadNext { try await client.fetchAlbums(startIndex: $0) }
         }
     }
+}
+
+#Preview {
+    NavigationStack { HomeView {} }
+        .environment(AuthStore())
+        .environment(LibraryStore())
+        .environment(PlaybackEngine())
+        .environment(PlaybackSettings())
+        .environment(AlbumCatalog())
 }
