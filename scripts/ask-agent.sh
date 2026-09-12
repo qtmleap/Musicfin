@@ -1,28 +1,29 @@
 #!/usr/bin/env bash
 #
-# start-agents.sh で立てた tmux セッションの指定ペインへプロンプトを送り、
-# 応答をそのまま読み取れるようにする。
+# Send a prompt to one pane of the tmux session built by start-agents.sh and read
+# the answer back.
 #
-# 使い方:
-#   ./scripts/ask-agent.sh agent "この画面を実装して"       引数の文字列を送る
-#   ./scripts/ask-agent.sh codex -f docs/ui-consult-prompt.md  ファイルの中身を送る
-#   cat notes.md | ./scripts/ask-agent.sh orchestrator -    標準入力から送る
-#   ./scripts/ask-agent.sh agent --read                     送らずに現在の内容だけ読む
+# Usage:
+#   ./scripts/ask-agent.sh agent "implement this screen"        send a string
+#   ./scripts/ask-agent.sh codex -f docs/ui-consult-prompt.md   send a file
+#   cat notes.md | ./scripts/ask-agent.sh orchestrator -        send stdin
+#   ./scripts/ask-agent.sh agent --read                         read without sending
 #
-# 送信先: orchestrator | agent | codex
+# Target: orchestrator | agent | codex
 #
-# オプション:
-#   -f, --file FILE   FILE の内容を送る
-#   -r, --read        送信せずペインの内容を出力する
-#   -w, --wait SEC    送信後 SEC 秒待ってからペインの内容を出力する (既定: 0 = 待たない)
-#   -n, --lines N     読み取る行数 (既定: 200)
+# Options:
+#   -f, --file FILE   send the contents of FILE
+#   -r, --read        print the pane contents instead of sending
+#   -w, --wait SEC    print the pane contents SEC seconds after sending (default: 0, no wait)
+#   -n, --lines N     how many lines to read (default: 200)
 #
-# 複数行のプロンプトは tmux のバッファ経由で「貼り付け」として送る。
-# 1 行ずつ send-keys すると改行のたびに送信が確定してしまうため。
+# Multi-line prompts go through a tmux buffer as a paste. Sending them with
+# send-keys line by line would submit the prompt at every newline.
 
 set -euo pipefail
 
-SESSION="${MUSICFIN_TMUX_SESSION:-musicfin}"
+. "$(dirname "${BASH_SOURCE[0]}")/lib/agent-session.sh"
+SESSION="$AGENT_SESSION"
 WAIT=0
 LINES=200
 MODE="send"
@@ -33,32 +34,32 @@ die() { printf '\033[31merror:\033[0m %s\n' "$1" >&2; exit 1; }
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    -f|--file)  [[ -r "${2:-}" ]] || die "ファイルを読めません: ${2:-（未指定）}"
+    -f|--file)  [[ -r "${2:-}" ]] || die "cannot read file: ${2:-(missing)}"
                 PROMPT="$(cat "$2")"; shift 2 ;;
     -r|--read)  MODE="read"; shift ;;
     -w|--wait)  WAIT="${2:?}"; shift 2 ;;
     -n|--lines) LINES="${2:?}"; shift 2 ;;
     -)          PROMPT="$(cat)"; shift ;;
-    -h|--help)  sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help)  sed -n '2,21p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     orchestrator|agent|codex)
-                [[ -z "$ROLE" ]] || die "送信先は 1 つだけ指定してください。"
+                [[ -z "$ROLE" ]] || die "give exactly one target."
                 ROLE="$1"; shift ;;
     *)          PROMPT="$1"; shift ;;
   esac
 done
 
-[[ -n "$ROLE" ]] || die "送信先 (orchestrator | agent | codex) を指定してください。"
-command -v tmux >/dev/null 2>&1 || die "tmux が見つかりません。"
+[[ -n "$ROLE" ]] || die "give a target (orchestrator | agent | codex)."
+command -v tmux >/dev/null 2>&1 || die "tmux not found."
 tmux has-session -t "=$SESSION" 2>/dev/null \
-  || die "セッション '$SESSION' がありません。先に ./scripts/start-agents.sh を実行してください。"
+  || die "no session '$SESSION'. Run ./scripts/start-agents.sh first."
 
-# start-agents.sh がペインに付けた @role で送信先を決める。
-# TUI は pane_title を自分で書き換えるので、タイトルは当てにしない。
+# Route on the @role that start-agents.sh set on each pane. The TUIs rewrite
+# pane_title themselves, so the title cannot be trusted.
 TARGET="$(tmux list-panes -t "=$SESSION" -F '#{pane_id} #{@role}' \
   | awk -v r="$ROLE" '$2 == r { print $1; exit }')"
-[[ -n "$TARGET" ]] || die "'$ROLE' のペインが見つかりません。tmux list-panes -a -F '#{pane_id} #{@role}' で確認してください。"
+[[ -n "$TARGET" ]] || die "no pane for '$ROLE'. Check with: tmux list-panes -a -F '#{pane_id} #{@role}'"
 
-BUFFER="musicfin-ask-$ROLE"
+BUFFER="$SESSION-ask-$ROLE"
 
 read_pane() {
   tmux capture-pane -p -J -t "$TARGET" -S "-${LINES}"
@@ -69,18 +70,18 @@ if [[ "$MODE" == "read" ]]; then
   exit 0
 fi
 
-[[ -n "$PROMPT" ]] || die "送信する内容がありません。文字列か -f FILE を指定してください。"
+[[ -n "$PROMPT" ]] || die "nothing to send. Give a string or -f FILE."
 
-# bracketed paste (-p) で貼り付けると、改行を含んでいても 1 回の入力として扱われる。
+# Bracketed paste (-p) keeps a multi-line prompt as a single input event.
 printf '%s' "$PROMPT" | tmux load-buffer -b "$BUFFER" -
 tmux paste-buffer -b "$BUFFER" -t "$TARGET" -p -d
 sleep 0.3
 tmux send-keys -t "$TARGET" Enter
 
-echo "$ROLE ペイン ($TARGET) に送信しました。" >&2
+echo "sent to the $ROLE pane ($TARGET)." >&2
 
 if [[ "$WAIT" != "0" ]]; then
   sleep "$WAIT"
-  echo "--- $ROLE ペインの内容 ---" >&2
+  echo "--- $ROLE pane ---" >&2
   read_pane
 fi

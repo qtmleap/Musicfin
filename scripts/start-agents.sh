@@ -1,62 +1,116 @@
 #!/usr/bin/env bash
 #
-# orchestrator / agent / codex の 3 エージェントを 1 画面に並べた tmux セッションを起動する。
+# Bring up orchestrator / agent / codex side by side in one tmux session.
 #
 #   ┌──────────────┬──────────────┐
-#   │              │ agent        │  Claude Code（実装担当, .claude/agents/implementer.md）
+#   │              │ agent        │  Claude Code (implementer, .claude/agents/implementer.md)
 #   │ orchestrator ├──────────────┤
-#   │              │ codex        │  Codex gpt-6-astra（AGENTS.md を読む）
+#   │              │ codex        │  Codex gpt-6-astra (reads AGENTS.md)
 #   └──────────────┴──────────────┘
-#     Claude Code（司令塔, .claude/agents/orchestrator.md）
+#     Claude Code (runs the show, .claude/agents/orchestrator.md)
 #
-# すでに同名のセッションがあれば、作り直さずにアタッチする。
+# An existing session with the same name is attached to rather than rebuilt.
 #
-# 環境変数:
-#   MUSICFIN_TMUX_SESSION   セッション名                     (既定: musicfin)
-#   ORCHESTRATOR_MODEL      orchestrator の claude モデル     (既定: エージェント定義に従う)
-#   AGENT_MODEL             agent の claude モデル            (既定: エージェント定義に従う)
-#   CODEX_MODEL             codex に渡すモデル                (既定: gpt-6-astra)
-#   CODEX_ARGS              codex に渡す引数                  (既定: --dangerously-bypass-approvals-and-sandbox)
-#   CLAUDE_ARGS             両方の claude に渡す引数          (既定: --dangerously-skip-permissions)
+# Environment:
+#   AGENT_TMUX_SESSION      session name                      (default: repository directory name)
+#   ORCHESTRATOR_MODEL      claude model for orchestrator     (default: whatever the agent definition says)
+#   AGENT_MODEL             claude model for agent            (default: whatever the agent definition says)
+#   CODEX_MODEL             model passed to codex             (default: gpt-6-astra)
+#   CODEX_ARGS              arguments passed to codex         (default: --dangerously-bypass-approvals-and-sandbox)
+#   CLAUDE_ARGS             arguments passed to both claudes  (default: --dangerously-skip-permissions)
 #
-# 承認プロンプトを出さないよう、既定で claude / codex とも権限チェックを全て外している。
-# 外したくないときは CLAUDE_ARGS= / CODEX_ARGS= のように空を渡す（${VAR-default} なので
-# 「未設定」のときだけ既定が入る）。
+# Options:
+#   --detached              build the session but do not attach
+#   --open                  switch the client if inside tmux, otherwise open a terminal and attach
+#   -h, --help              print usage
+#
+# Approval checks are off by default for both claude and codex so nothing stops
+# to ask. To keep them, pass an empty value (CLAUDE_ARGS= / CODEX_ARGS=): these
+# are read as ${VAR-default}, so only an unset variable gets the default.
 
 set -euo pipefail
 
-SESSION="${MUSICFIN_TMUX_SESSION:-musicfin}"
+MODE="attach"
+
+usage() {
+  cat <<'USAGE'
+Usage: ./scripts/start-agents.sh [--detached | --open]
+
+  --detached    build the session but do not attach
+  --open        switch the client if inside tmux, otherwise open a terminal and attach
+  -h, --help    print usage
+USAGE
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --detached) MODE="detached"; shift ;;
+    --open)     MODE="open"; shift ;;
+    -h|--help)  usage; exit 0 ;;
+    *)          printf '\033[31merror:\033[0m unknown option: %s\n' "$1" >&2
+                usage >&2
+                exit 1 ;;
+  esac
+done
+
+. "$(dirname "${BASH_SOURCE[0]}")/lib/agent-session.sh"
+SESSION="$AGENT_SESSION"
+ROOT="$AGENT_ROOT"
 CODEX_MODEL="${CODEX_MODEL:-gpt-6-astra}"
 CODEX_ARGS="${CODEX_ARGS---dangerously-bypass-approvals-and-sandbox}"
 CLAUDE_ARGS="${CLAUDE_ARGS---dangerously-skip-permissions}"
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 die() { printf '\033[31merror:\033[0m %s\n' "$1" >&2; exit 1; }
 
-command -v tmux   >/dev/null 2>&1 || die "tmux が見つかりません。'brew install tmux' でインストールしてください。"
-command -v claude >/dev/null 2>&1 || die "claude が見つかりません。"
-command -v codex  >/dev/null 2>&1 || die "codex が見つかりません。"
+open_session() {
+  if [[ -n "${TMUX:-}" ]]; then
+    tmux switch-client -t "=$SESSION"
+    return
+  fi
+
+  command -v osascript >/dev/null 2>&1 \
+    || die "attaching from outside tmux needs macOS osascript."
+
+  # There is no interactive TTY here, so hand the attach to Terminal.app.
+  local command escaped
+  printf -v command 'tmux attach-session -t %q' "=$SESSION"
+  escaped="${command//\\/\\\\}"
+  escaped="${escaped//\"/\\\"}"
+  osascript \
+    -e 'tell application "Terminal"' \
+    -e 'activate' \
+    -e "do script \"$escaped\"" \
+    -e 'end tell' >/dev/null
+}
+
+command -v tmux   >/dev/null 2>&1 || die "tmux not found. Install it with 'brew install tmux'."
+command -v claude >/dev/null 2>&1 || die "claude not found."
+command -v codex  >/dev/null 2>&1 || die "codex not found."
 [[ -f "$ROOT/.claude/agents/orchestrator.md" && -f "$ROOT/.claude/agents/implementer.md" ]] \
-  || die ".claude/agents/ にエージェント定義がありません。"
+  || die "no agent definitions under .claude/agents/."
 
 if tmux has-session -t "=$SESSION" 2>/dev/null; then
-  echo "既存のセッション '$SESSION' にアタッチします。"
-  exec tmux attach-session -t "=$SESSION"
+  echo "tmux session '$SESSION' is already running."
+  case "$MODE" in
+    detached) exit 0 ;;
+    open)     open_session; exit 0 ;;
+    attach)   exec tmux attach-session -t "=$SESSION" ;;
+  esac
 fi
 
-# ─── 各ペインで実行するコマンド ────────────────────────────────────────
+# ─── Commands for each pane ───────────────────────────────────────────
 model_flag() { [[ -n "${1:-}" ]] && printf -- '--model %q ' "$1"; return 0; }
 ORCH_CMD="claude --agent orchestrator --name orchestrator $(model_flag "${ORCHESTRATOR_MODEL:-}")${CLAUDE_ARGS}"
 AGENT_CMD="claude --agent implementer --name agent $(model_flag "${AGENT_MODEL:-}")${CLAUDE_ARGS}"
 CODEX_CMD="codex --model ${CODEX_MODEL} ${CODEX_ARGS}"
 
-# ─── セッションを組み立てる ────────────────────────────────────────────
+# ─── Build the session ────────────────────────────────────────────────
 tmux new-session -d -s "$SESSION" -c "$ROOT" -n dev
-tmux split-window -h -t "$SESSION:dev" -c "$ROOT"      # 右列
-tmux split-window -v -t "$SESSION:dev.1" -c "$ROOT"    # 右列を上下に
+tmux split-window -h -t "$SESSION:dev" -c "$ROOT"      # right column
+tmux split-window -v -t "$SESSION:dev.1" -c "$ROOT"    # split the right column
 
-# TUI が pane_title を書き換えても役割を引けるよう、ペイン変数に役割を持たせる。
-# ask-agent.sh はこの @role で送信先を決める。
+# Keep the role in a pane option: the TUIs rewrite pane_title, so the title is
+# not a reliable way to find a pane. ask-agent.sh routes on this @role.
 i=0
 for role in orchestrator agent codex; do
   tmux set-option -p -t "$SESSION:dev.$i" @role "$role"
@@ -66,7 +120,7 @@ done
 
 tmux set-option -t "$SESSION" -g pane-border-status top
 tmux set-option -t "$SESSION" -g pane-border-format ' #{@role} '
-# ask-agent.sh が過去の応答を読み取れるよう、スクロールバックを厚めに取る。
+# Deep scrollback so ask-agent.sh can read back a long answer.
 tmux set-option -t "$SESSION" -g history-limit 50000
 tmux set-option -t "$SESSION" -g mouse on
 
@@ -77,21 +131,25 @@ tmux send-keys -t "$SESSION:dev.2" "$CODEX_CMD" C-m
 tmux select-pane -t "$SESSION:dev.0"
 
 cat <<MSG
-tmux セッション '$SESSION' を起動しました。
+Started tmux session '$SESSION'.
 
-  左   : orchestrator  $ORCH_CMD
-  右上 : agent         $AGENT_CMD
-  右下 : codex         $CODEX_CMD
+  left        : orchestrator  $ORCH_CMD
+  top right   : agent         $AGENT_CMD
+  bottom right: codex         $CODEX_CMD
 
-  ペイン移動      Ctrl-b → 矢印
-  デタッチ        Ctrl-b → d
-  再アタッチ      tmux attach -t $SESSION
-  終了            tmux kill-session -t $SESSION
+  move pane   Ctrl-b then an arrow key
+  detach      Ctrl-b then d
+  re-attach   tmux attach -t $SESSION
+  kill        tmux kill-session -t $SESSION
 
-  ペインへ指示を送る:
-    ./scripts/ask-agent.sh agent "実装して" 
+  Send a prompt to a pane:
+    ./scripts/ask-agent.sh agent "implement this"
     ./scripts/ask-agent.sh codex -f docs/ui-consult-prompt.md -w 120
     ./scripts/ask-agent.sh agent --read
 MSG
 
-exec tmux attach-session -t "=$SESSION"
+case "$MODE" in
+  detached) exit 0 ;;
+  open)     open_session; exit 0 ;;
+  attach)   exec tmux attach-session -t "=$SESSION" ;;
+esac

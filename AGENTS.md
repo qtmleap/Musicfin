@@ -1,20 +1,23 @@
-# Musicfin — エージェント共通ルール
+# Musicfin — shared agent rules
 
-Jellyfin サーバー上の音楽を再生する iPhone / iPad 専用アプリ。「Apple Music 風」を目指す。
-SwiftUI、iOS 26 専用（Liquid Glass を分岐なしで使う）、Swift 6.2、
-`SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`。
+An iPhone / iPad-only app that plays the music on a Jellyfin server, aiming to
+feel like Apple Music. SwiftUI, iOS 26 only (Liquid Glass, used without version
+branches), Swift 6.2, `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`.
 
-## 決まりごと
+## Rules
 
-- UI の仕様は `docs/ui-spec.md` が正。設計の再検討はせず、仕様通りに作る。
-- `Musicfin/Core/` と `Musicfin/Player/` は指示がない限り変更しない。
-- `#available` による分岐は書かない（iOS 26 のみ）。
-- コメントは日本語。**何をしているか**ではなく**なぜそうしたか**を書く。既存ファイルと同じ密度で。
-- ファイルスコープの `extension` は必要なら `nonisolated` を付ける。
-- コミットメッセージは Conventional Commits（`.commitlintrc.yaml`）。本文は日本語。
-- 整形は `.swift-format`（`swift-format lint --strict` が通ること）。
+- `docs/ui-spec.md` is the authority on UI. Build what it says; do not revisit
+  the design.
+- Do not change `Musicfin/Core/` or `Musicfin/Player/` unless told to.
+- Never branch on `#available` (iOS 26 only).
+- **Comments are written in Japanese.** Say **why**, not **what**, and match the
+  density of the surrounding file.
+- Add `nonisolated` to file-scope `extension`s where it is needed.
+- Commit messages follow Conventional Commits (`.commitlintrc.yaml`); **the body
+  is written in Japanese.**
+- Formatting is `.swift-format` — `swift-format lint --strict` must pass.
 
-## ビルド・検証
+## Build and verify
 
 ```
 xcodebuild -project Musicfin.xcodeproj -scheme Musicfin -configuration Debug \
@@ -22,23 +25,28 @@ xcodebuild -project Musicfin.xcodeproj -scheme Musicfin -configuration Debug \
   -derivedDataPath .build build
 ```
 
-- スクリーンショット: `./scripts/capture-screens.sh`（UI テストが主要画面を撮る）
-- 単体検証: `./scripts/run-unit-tests.sh`（詳細は `Tests/README.md`）
-- CI のローカル検証: `./scripts/act.sh`（macOS ジョブは `--host <job>`）
+- Screenshots: `./scripts/capture-screens.sh` (UI tests capture the main screens)
+- Viewer to compare what was captured: `./scripts/launch.py`
+  (http://127.0.0.1:18755/, stays in the foreground; Ctrl+C to stop)
+- Unit tests: `./scripts/run-unit-tests.sh` (details in `Tests/README.md`)
+- CI locally: `./scripts/act.sh` (`--host <job>` for the macOS jobs)
 
-## 3 エージェント体制（`./scripts/start-agents.sh`）
+## The three agents (`./scripts/start-agents.sh`)
 
-| ペイン | 担当 | 役割 |
+| Pane | Who | Role |
 |---|---|---|
-| `orchestrator` | Claude Code | 作業の分解・割り当て・レビュー・ユーザーへの報告 |
-| `agent` | Claude Code | orchestrator から受けた実装タスクを完遂する |
-| `codex` | Codex (gpt-6-astra) | 設計相談・レビュー・第二の実装者 |
+| `orchestrator` | Claude Code | Splits the work, assigns it, verifies it, reports to the user |
+| `agent` | Claude Code | Carries the implementation tasks it gets from the orchestrator through to done |
+| `codex` | Codex (gpt-6-astra) | Design questions, review, second implementer |
 
-ペイン間のやり取りは `./scripts/ask-agent.sh <orchestrator|agent|codex> "..."`。
-応答は `--wait SEC` か `--read` で読み取る。
+Panes talk through `./scripts/ask-agent.sh <orchestrator|agent|codex> "..."`.
+Read the answer back with `--wait SEC` or `--read`.
 
-## Codex（このファイルを読んでいるあなた）へ
+## For Codex (you, reading this file)
 
-- 基本は **orchestrator からの相談・レビュー依頼に答える**。実装を頼まれたときだけコードを書く。
-- 設計判断は「〜もあり得る」ではなく「こうする」と断定して返す。根拠は iOS 26 の API と `docs/ui-spec.md`。
-- 実装したら必ず上のビルドコマンドを通し、変更ファイルと設計判断を 5 行以内で報告する。
+- Your job is mostly to **answer the orchestrator's design questions and review
+  requests**. Write code only when implementation is what was asked for.
+- Give design answers as decisions ("do this"), not as options ("you could also
+  …"). Ground them in the iOS 26 APIs and `docs/ui-spec.md`.
+- After implementing, always run the build command above, then report the
+  changed files and your design decisions in five lines or fewer.
