@@ -1,32 +1,42 @@
 {
   "files.exclude": {
+    "**/*.hmap": true,
+    "**/*.xcuserstate": true,
     "**/.DS_Store": true,
     "**/.git": true,
+    "**/.venv": true,
     "**/xcuserdata": true,
-    "**/*.xcuserstate": true,
-    "**/*.hmap": true,
     ".build": true,
+    ".claude/settings.local.json": true,
+    ".claude/worktrees": true,
+    ".swiftpm": true,
     "DerivedData": true,
+    "Package.resolved": true,
     "build": true,
     "build.log": true,
-    "out": true,
     "node_modules": true,
-    ".swiftpm": true,
-    "Package.resolved": true,
-    ".claude/settings.local.json": true,
-    ".claude/worktrees": true
+    "out": true,
+    "vendor": true,
   },
   "search.exclude": {
+    "**/.venv": true,
     ".build": true,
     "DerivedData": true,
+    "node_modules": true,
     "out": true,
-    "node_modules": true
+    "vendor": true
   },
   "files.watcherExclude": {
     "**/.build/**": true,
+    "**/.venv": true,
     "**/DerivedData/**": true,
-    "**/out/**": true
+    "**/out/**": true,
+    "vendor": true
   },
+  // tasks.json cannot say where its terminal opens, so the start-agents task
+  // lands wherever this points. The editor area gives the three tmux panes room.
+  // Move a single terminal back with Terminal: Move Terminal into Panel.
+  "terminal.integrated.defaultLocation": "editor",
   "[swift]": {
     "editor.formatOnSave": true,
     "editor.defaultFormatter": "vknabel.vscode-apple-swift-format"
