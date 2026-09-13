@@ -29,7 +29,9 @@ struct MiniPlayerView: View {
                                     .foregroundStyle(.secondary)
                             }
                         }
+                        // 入らない分は末尾を省略する。フルプレイヤーと同じ扱いに揃える（仕様 3 章・4 章）。
                         .lineLimit(1)
+                        .truncationMode(.tail)
                         .frame(maxWidth: .infinity, alignment: .leading)
                     }
                     .frame(minWidth: 44, minHeight: 44)

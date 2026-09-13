@@ -227,12 +227,17 @@ struct NowPlayingView: View {
     /// 全幅のアートワーク状態と、アートワーク・お気に入りを除いた狭い歌詞状態とが寸法を取り合って、
     /// 文字の塊ごと横に伸び縮みして飛んで見えるため。
     /// 付ける先を外側ではなく各 `Text` にするのも同じ理由で、幅を決める `frame` の内側であれば
-    /// 幅・揃え・改行はそれぞれの状態のレイアウトに委ねたまま、位置だけが連続する。
+    /// 幅・揃えはそれぞれの状態のレイアウトに委ねたまま、位置だけが連続する。
+    /// **曲名・アーティストはどちらも 1 行で、入らない分は末尾を省略する**（仕様 4 章）。
+    /// Apple Music が長い曲名を折り返さないためで、**あちらの横スクロールを実測して真似たものではない**。
+    /// 縮小して詰め込むと隣の状態と字の大きさが食い違うので `minimumScaleFactor` は足さない。
+    /// 文字列は切らずに `Text` へ省略させる。読み上げには省略前の全文が残る。
     private func songInfo(compact: Bool) -> some View {
         VStack(alignment: .leading, spacing: compact ? 2 : 4) {
             Text(player.currentItem?.displayName ?? String(localized: "再生していません"))
                 .font(compact ? .headline : .title2.bold())
-                .lineLimit(compact ? 1 : 2)
+                .lineLimit(1)
+                .truncationMode(.tail)
                 .matchedGeometryEffect(id: "songTitle", in: transition, properties: .position, anchor: .center)
             if let artist = player.currentItem?.displayArtist {
                 // アーティスト名はアクセント色にしない（仕様 4 章）。曲名に近い大きさの secondary。
@@ -240,6 +245,7 @@ struct NowPlayingView: View {
                     .font(compact ? .subheadline : .title3)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
+                    .truncationMode(.tail)
                     .matchedGeometryEffect(id: "songArtist", in: transition, properties: .position, anchor: .center)
             }
         }
