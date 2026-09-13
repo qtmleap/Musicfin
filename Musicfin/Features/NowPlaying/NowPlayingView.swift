@@ -31,6 +31,9 @@ struct NowPlayingView: View {
     /// 新しい遷移の途中で待ちを解いてしまうのを防ぐ。
     @State private var transitionGeneration = 0
     @State private var scrubTime = 0.0
+    /// 確定させたシーク先。指を離した直後は 0.2 秒間隔の時刻監視がまだ**古い再生位置**を流してくるので、
+    /// 実際の再生位置がここへ追いつくまでは表示側を正とする。`Player/` を触らずに吸収するための状態。
+    @State private var pendingSeekTime: TimeInterval?
     /// キュー内の `MediaItem` はお気に入りの変更を追わないので、サーバーの確定値をここに持つ。
     @State private var favoriteTrack: MediaItem?
     @State private var isUpdatingFavorite = false
@@ -117,8 +120,22 @@ struct NowPlayingView: View {
         // 閉じるボタンは置かない方針（仕様 4 章）なので、下スワイプの届かない VoiceOver へ
         // エスケープ操作だけは自前で用意する（仕様 4.1 章）。
         .accessibilityAction(.escape) { close() }
+        // 再生位置が目標へ追いついたら、表示の優先を再生側へ返す。
+        .onChange(of: player.currentTime) { _, time in
+            guard let pending = pendingSeekTime, abs(time - pending) <= Self.seekSettleTolerance else { return }
+            pendingSeekTime = nil
+        }
+        // 着地しなかったときの保険。これが無いと、追いつきを待ち続けて表示が止まったままになる。
+        .task(id: pendingSeekTime) {
+            guard pendingSeekTime != nil else { return }
+            try? await Task.sleep(for: Self.seekSettleTimeout)
+            guard !Task.isCancelled else { return }
+            pendingSeekTime = nil
+        }
         .task(id: player.currentItem?.id) {
             isScrubbing = false
+            // 曲が替わると目標は意味を失う。持ち越すと新しい曲の先頭で古い位置を表示してしまう。
+            pendingSeekTime = nil
             favoriteTrack = player.currentItem
             guard let id = player.currentItem?.id, let client = auth.client else { return }
             if let item = try? await client.fetchItem(id: id), !Task.isCancelled {
@@ -310,7 +327,25 @@ struct NowPlayingView: View {
 
     // MARK: - シーク
 
-    private var displayedTime: TimeInterval { isScrubbing ? scrubTime : player.currentTime }
+    /// 追いついたと見なす差。時刻監視が 0.2 秒間隔なので、着地の遅れを足しても普通はこの内に収まる。
+    /// これより細かいずれは 4 分の曲で 1 pt 未満の位置差にしかならず、表示としては区別が付かない。
+    private static let seekSettleTolerance: TimeInterval = 0.5
+    /// 追いつきを待つ上限。回線や HLS の都合でシークが着地しないときの保険で、待ち時間ではなく上限。
+    private static let seekSettleTimeout: Duration = .seconds(3)
+
+    /// 指の位置 → 確定したシーク先 → 実際の再生位置、の順に優先する。
+    private var displayedTime: TimeInterval {
+        if isScrubbing { return scrubTime }
+        return pendingSeekTime ?? player.currentTime
+    }
+
+    /// シークを確定させ、再生位置が追いつくまでの表示を引き受ける。`player.seek(to:)` と同じ切り詰めを
+    /// ここでもするのは、尺の外を指したときに目標へ永遠に届かず表示が固まるのを避けるため。
+    private func commitSeek(to time: TimeInterval) {
+        let clamped = min(max(time, 0), max(player.duration, 0))
+        pendingSeekTime = clamped
+        player.seek(to: clamped)
+    }
 
     private var seekControls: some View {
         // バーの当たり判定 44 pt は 6 pt の線の下に 19 pt の透明な余白を残すので、時刻がその分だけ落ちる。
@@ -327,11 +362,12 @@ struct NowPlayingView: View {
                 onEnded: { value in
                     scrubTime = value
                     isScrubbing = false
-                    player.seek(to: value)
+                    commitSeek(to: value)
                 },
                 // システムに取り消されたら、掴んだ値は捨てて現在の再生位置の表示へ戻す（仕様 4.2 章）。
                 onCancelled: { isScrubbing = false },
-                adjust: { offset in player.seek(to: player.currentTime + offset) }
+                // 連続して調整したときに差分が積み上がるよう、起点は再生位置ではなく表示している位置にする。
+                adjust: { offset in commitSeek(to: displayedTime + offset) }
             )
             HStack {
                 Text(displayedTime.timeLabel)
