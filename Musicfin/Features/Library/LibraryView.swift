@@ -565,7 +565,10 @@ struct SongsView: View {
         // 見出し側の上余白 8 pt を削っても足りず、削れば見出しの字が行に貼り付く。
         // カプセル側（`TrackListActions`）はアルバム一覧と共用で、そちらは Apple と一致しているので触れない。
         // 10 pt は目標 34.3 pt から、カプセル下 12 pt・見出し上 8 pt・17 pt 太字の行内の余白約 4.3 pt を引いた残り（仕様 1.1 章）。
-        .listSectionSpacing(10)
+        // その後の実測でカプセル下端から先頭の画像の上端までが 58.33 pt と、Apple の 60.33 pt より 2 pt 狭かったので 12 pt にした。
+        // 行送り・画像・罫線は一致しているので触っていない。なおこの値は頭文字の区分どうしの間隔でもあり、
+        // そちらが Apple と合っているかは測っていない。
+        .listSectionSpacing(12)
         .scrollContentBackground(.hidden)
         .refreshable { await library.loadTracks(force: true) }
     }
