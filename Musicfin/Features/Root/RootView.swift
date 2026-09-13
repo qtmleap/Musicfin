@@ -1,11 +1,13 @@
 import SwiftUI
+import UIKit
 
 /// アプリのルート。3 タブ + ミニプレイヤー + フルプレイヤー sheet（`docs/ui-spec.md` 1・3・4・6 章）。
 struct RootView: View {
     private enum RootTab: Hashable { case home, library, search }
 
+    @Environment(AuthStore.self) private var auth
+    @Environment(LibraryStore.self) private var library
     @Environment(PlaybackEngine.self) private var player
-    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var catalog = AlbumCatalog()
     @State private var selection: RootTab = .home
     @State private var homePath = NavigationPath()
@@ -13,7 +15,9 @@ struct RootView: View {
     @State private var searchPath = NavigationPath()
     @State private var searchQuery = ""
     @State private var showsPlayer = false
-    /// シーク中だけ sheet の対話的な終了を止める（仕様 4.1 章）。状態は `NowPlayingView` が更新する。
+    /// シーク中だけ iPad の sheet の対話的な終了を止める（仕様 4.1 章）。状態は `NowPlayingView` が更新する。
+    /// iPhone 側はこの値では止めない。カスタム提示の終了 pan がシーク認識器の失敗を待つ形に替えた
+    /// ので、成立後に `isEnabled` を切り替える必要が無くなった（仕様 4.1.1 章）。
     @State private var isScrubbing = false
     /// 一度でも再生が始まったか。`currentItem` は「キューに追加」「次に再生」で積んだだけでも
     /// 埋まるので、これを併せないとミニプレイヤーが再生前から出る（仕様 3 章）。
@@ -50,7 +54,10 @@ struct RootView: View {
                 MiniPlayerView { showsPlayer = true }
             }
         }
-        .sheet(isPresented: $showsPlayer) { playerSheet }
+        // iPhone は UIKit のカスタム提示、iPad は中央 sheet（仕様 4.1.1 章・6 章）。
+        // 端末で経路そのものが替わるので、同じ `showsPlayer` を二つの入口へ振り分ける。
+        .sheet(isPresented: sheetPlayerPresented) { playerSheet }
+        .playerPresentation(isPresented: customPlayerPresented) { customPlayerContent }
         // `initial: true` が要る。この画面が作り直されたときに既に再生中だと、値が真のまま変化せず
         // 通知が来ないので、再生中なのにミニプレイヤーが出ないまま取り残される。
         .onChange(of: player.isPlaying, initial: true) { _, isPlaying in
@@ -65,28 +72,41 @@ struct RootView: View {
         }
     }
 
-    /// 狭い幅のときだけ `.large` の detent を与える（仕様 4.1 章）。
-    /// 広い幅で外しているのは 6 章の中央 sheet を意図してのことだが、
-    /// `presentationSizing(.fitted)` と `presentationDetents` を併せたときどちらが勝つかは確かめていない。
-    /// 広い幅でも付けて構わないかは、実機で大きさを見るまで分からない。
-    @ViewBuilder
-    private var playerSheet: some View {
-        if horizontalSizeClass == .compact {
-            playerContent.presentationDetents([.large])
-        } else {
-            playerContent
-        }
+    /// iPhone は UIKit のカスタム提示へ振る。`.large` detent が上端に 62 pt 空けるのを
+    /// 修飾子では塞げないと結論が出ているため（仕様 4.1.1 章）。
+    /// **幅の級では分けない。**Split View で狭くなった iPad が compact になるので、
+    /// 幅で分けると仕様 4.1.1 章が「現状維持」と書いた iPad の中央 sheet までこちらへ来てしまう。
+    /// 表示中に幅が変わっても経路が替わらないことにも意味があり、替わると一方の終了と他方の提示が
+    /// 同時に走って、二つの Binding が `showsPlayer` へ false を書き戻し合う。
+    private var isPhonePlayer: Bool { UIDevice.current.userInterfaceIdiom == .phone }
+
+    private var sheetPlayerPresented: Binding<Bool> {
+        Binding(get: { showsPlayer && !isPhonePlayer }, set: { showsPlayer = $0 })
+    }
+
+    private var customPlayerPresented: Binding<Bool> {
+        Binding(get: { showsPlayer && isPhonePlayer }, set: { showsPlayer = $0 })
     }
 
     private var playerContent: some View {
-        NowPlayingView(isScrubbing: $isScrubbing)
+        NowPlayingView(isScrubbing: $isScrubbing) { showsPlayer = false }
+    }
+
+    /// UIKit のカスタム提示は SwiftUI の環境を継がないので、本文が読む分を明示的に渡す。
+    /// 今読んでいるのはこの 3 つだけで、増えたらここへ足す。**漏らすと実行時に落ちる**。
+    private var customPlayerContent: some View {
+        playerContent
+            .environment(auth)
+            .environment(library)
+            .environment(player)
+    }
+
+    /// iPad の中央 sheet（仕様 6 章）。狭い幅で効かせていた detent・角丸・適応の指定は
+    /// カスタム提示側の仕事になったので、ここには残さない（仕様 4.1.1 章）。
+    private var playerSheet: some View {
+        playerContent
             // 幅の広い画面では 560 pt を目安にした中央の sheet（仕様 6 章）。
             .presentationSizing(.fitted)
-            // 狭い幅でも全画面へ適応させない。上部の角丸と、指に追従する下スワイプを
-            // システムから受け取るため（仕様 4.1 章 第 2 版）。
-            .presentationCompactAdaptation(.none)
-            // 角丸の値は自分で決めず、システム既定に委ねる（仕様 4.1 章）。
-            .presentationCornerRadius(nil)
             // 提示領域そのものの地。`NowPlayingView` 側の背景が届かない外周まで塞ぐ。
             // 既定のままだと外周だけ黒へ戻るので、同じ帯・同じ曲から同じ色を引く（仕様 1.2 章）。
             // 色を `NowPlayingView` から受け取らず、ここでもう一度取り出しているのは、
@@ -101,13 +121,9 @@ struct RootView: View {
                     Color.clear
                 }
             }
-            // システムの指示子は 36 pt 幅で、Apple 実機の 60 pt より 24 pt 細いことが実測で分かった。
-            // 幅だけを合わせる手段が無いので指示子は消し、`NowPlayingView` 側で同じ寸法を描く。
-            // 消すのは描画だけで、指に追従する終了はシステムのまま残る（仕様 4 章・4.1 章 第 3 版）。
+            // 指示子は `NowPlayingView` が 60×5 pt を自分で描くので、システムのものは出さない（仕様 4 章）。
             .presentationDragIndicator(.hidden)
-            // 本文のスクロールを提示サイズの変更より優先する（仕様 4.1 章）。
-            .presentationContentInteraction(.scrolls)
-            // 終了を止めるのはシークが成立している間だけ。それ以外は指に追従する終了へ任せる。
+            // 終了を止めるのはシークが成立している間だけ。それ以外はシステムの終了へ任せる。
             .interactiveDismissDisabled(isScrubbing)
     }
 }
