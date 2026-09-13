@@ -51,7 +51,9 @@ struct RootView: View {
             }
         }
         .sheet(isPresented: $showsPlayer) { playerSheet }
-        .onChange(of: player.isPlaying) { _, isPlaying in
+        // `initial: true` が要る。この画面が作り直されたときに既に再生中だと、値が真のまま変化せず
+        // 通知が来ないので、再生中なのにミニプレイヤーが出ないまま取り残される。
+        .onChange(of: player.isPlaying, initial: true) { _, isPlaying in
             if isPlaying { hasStartedPlayback = true }
         }
         // 待ち行列が空になったら忘れる（仕様 3 章）。次に積んだだけの曲でまた出てしまわないように。
@@ -64,7 +66,9 @@ struct RootView: View {
     }
 
     /// 狭い幅のときだけ `.large` の detent を与える（仕様 4.1 章）。
-    /// 広い幅は 6 章の中央 sheet なので、`presentationSizing(.fitted)` の決めた大きさを detent で潰さない。
+    /// 広い幅で外しているのは 6 章の中央 sheet を意図してのことだが、
+    /// `presentationSizing(.fitted)` と `presentationDetents` を併せたときどちらが勝つかは確かめていない。
+    /// 広い幅でも付けて構わないかは、実機で大きさを見るまで分からない。
     @ViewBuilder
     private var playerSheet: some View {
         if horizontalSizeClass == .compact {
