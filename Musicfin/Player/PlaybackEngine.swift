@@ -431,7 +431,7 @@ final class PlaybackEngine {
     private func observeStatus(of playerItem: AVPlayerItem) {
         statusObservation = playerItem.observe(\.status, options: [.new]) { [weak self] observed, _ in
             guard observed.status == .failed else { return }
-            let message = observed.error?.localizedDescription ?? "不明なエラー"
+            let message = observed.error?.localizedDescription ?? String(localized: "不明なエラー")
             Task { @MainActor in self?.handlePlaybackFailure(message) }
         }
     }

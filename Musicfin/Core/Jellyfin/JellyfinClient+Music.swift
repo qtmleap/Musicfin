@@ -107,6 +107,20 @@ nonisolated extension JellyfinClient {
             ]))
     }
 
+    /// ライブラリ内の全曲。件数が多くても画面を先に出せるよう、ページ単位で取得する。
+    func fetchTracks(startIndex: Int = 0, limit: Int = 100) async throws -> QueryResult<MediaItem> {
+        try await get(
+            "/Items",
+            query: itemsQuery(extra: [
+                "includeItemTypes": "Audio",
+                "recursive": "true",
+                "sortBy": "SortName",
+                "sortOrder": "Ascending",
+                "startIndex": String(startIndex),
+                "limit": String(limit),
+            ]))
+    }
+
     /// アルバム内のトラック。ディスク番号 → トラック番号の順で並べる。
     func fetchTracks(inAlbum albumID: String) async throws -> QueryResult<MediaItem> {
         try await get(

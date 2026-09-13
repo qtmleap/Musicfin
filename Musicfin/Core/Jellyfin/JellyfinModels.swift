@@ -110,7 +110,7 @@ nonisolated struct MediaItem: Decodable, Sendable, Identifiable, Hashable {
 
     // MARK: 表示用の派生プロパティ
 
-    var displayName: String { name ?? "不明なタイトル" }
+    var displayName: String { name ?? String(localized: "不明なタイトル") }
 
     /// トラックなら演奏者、アルバムならアルバムアーティストを優先して返す。
     var displayArtist: String? {
