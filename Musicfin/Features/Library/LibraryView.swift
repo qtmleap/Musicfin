@@ -551,7 +551,10 @@ struct SongsView: View {
                         .foregroundStyle(Color.primary)
                         .textCase(nil)
                         .id(section.key)
-                        .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 4, trailing: 20))
+                        // 下を 6 pt にしてあるのは、カプセル下端から先頭の画像までの合計 60.67 pt が
+                        // Apple と一致したあとも、内訳が「見出しの字まで 36.67 / 字から画像まで 12.33」と
+                        // Apple の 34.67 / 14.33 から 2 pt ずれていたため。足りないのは見出しの下だった（仕様 1.1 章）。
+                        .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 6, trailing: 20))
                 }
             }
 
@@ -565,10 +568,13 @@ struct SongsView: View {
         // 見出し側の上余白 8 pt を削っても足りず、削れば見出しの字が行に貼り付く。
         // カプセル側（`TrackListActions`）はアルバム一覧と共用で、そちらは Apple と一致しているので触れない。
         // 10 pt は目標 34.3 pt から、カプセル下 12 pt・見出し上 8 pt・17 pt 太字の行内の余白約 4.3 pt を引いた残り（仕様 1.1 章）。
-        // その後の実測でカプセル下端から先頭の画像の上端までが 58.33 pt と、Apple の 60.33 pt より 2 pt 狭かったので 12 pt にした。
-        // 行送り・画像・罫線は一致しているので触っていない。なおこの値は頭文字の区分どうしの間隔でもあり、
-        // そちらが Apple と合っているかは測っていない。
-        .listSectionSpacing(12)
+        // カプセル下端から先頭の画像の上端までの合計 60.67 pt は、この 10 pt と見出し下 6 pt で作る。
+        // 一度この値を 12 pt にして合計を合わせたが、内訳を測ると見出しが 2 pt 下にいたので、
+        // 足す場所を見出しの下へ移して 10 pt へ戻した。
+        // 行送り・画像・罫線・左端は Apple と一致しているので触っていない。
+        // この値は頭文字の区分どうしの間隔でもあるが、Apple 側の撮影に区分が 1 つしか写っておらず、
+        // そちらが合っているかは**比較できていない**。
+        .listSectionSpacing(10)
         .scrollContentBackground(.hidden)
         .refreshable { await library.loadTracks(force: true) }
     }
