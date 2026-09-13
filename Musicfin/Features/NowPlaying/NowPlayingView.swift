@@ -80,8 +80,12 @@ struct NowPlayingView: View {
                         titleRow.frame(height: layout.title)
                         seekControls.frame(height: layout.seek)
                         transport.frame(height: layout.transport)
-                        volumeRow.frame(height: layout.volume)
-                        bottomControls(palette: palette).frame(height: layout.bottom)
+                        // 音量は帯の下端へ、下部の記号は帯の上端へ寄せる。この 2 つを中央に置いたままだと
+                        // 音量記号から選択円までが (volume + bottom) / 2 で決まってしまい、
+                        // 最小値だけで目標を 15 pt 超えるので比率をいくら下げても届かない（仕様 4 章）。
+                        // 寄せるのは 44 pt の操作行ごとで、記号だけを動かすのではない。
+                        volumeRow.frame(height: layout.volume, alignment: .bottom)
+                        bottomControls(palette: palette).frame(height: layout.bottom, alignment: .top)
                     }
                     .padding(.horizontal, 24)
                 }
@@ -97,11 +101,12 @@ struct NowPlayingView: View {
                     }
                     .frame(height: layout.media + layout.title)
                     .clipped()
-                    // 以下 4 つはアートワーク状態と同じ順・同じ高さで並べる。帯が同一なので縦位置も一致する。
+                    // 以下 4 つはアートワーク状態と同じ順・同じ高さ・同じ縦揃えで並べる。
+                    // 帯も揃えも同一なので、3 状態で記号の縦位置が一致する（仕様 5.1 章）。
                     seekControls.frame(height: layout.seek)
                     transport.frame(height: layout.transport)
-                    volumeRow.frame(height: layout.volume)
-                    bottomControls(palette: palette).frame(height: layout.bottom)
+                    volumeRow.frame(height: layout.volume, alignment: .bottom)
+                    bottomControls(palette: palette).frame(height: layout.bottom, alignment: .top)
                 }
                 .padding(.horizontal, 24)
             }
@@ -142,9 +147,9 @@ struct NowPlayingView: View {
         Capsule()
             .fill(.white.opacity(0.42))
             .frame(width: 60, height: 5)
-            // 上余白は仮置き。自前で描いていた頃と同じ 10 pt から始める。
-            // 撮り直して上端が 67 pt から動いていたら、そのときに合わせ直す（仕様 4 章）。
-            .padding(.top, 10)
+            // 10 pt だと上端が 72 pt に出て、仕様 4 章が記録する 67 pt より 5 pt 下がったので引いた。
+            // なぜ 5 pt ずれるのかは確かめていない。この値は撮り直して測るまで確定ではない。
+            .padding(.top, 5)
             // 触れない・読み上げない。閉じる経路は `accessibilityAction(.escape)` が持つ。
             .allowsHitTesting(false)
             .accessibilityHidden(true)
@@ -583,14 +588,21 @@ private struct PlayerLayout {
     let volume: CGFloat
     let bottom: CGFloat
 
+    /// 下部の帯は高さを固定する。中身を上寄せにして、選択円の下に残る余白でこの値が効く（仕様 4 章）。
+    static let bottomHeight: CGFloat = 55
+
     init(height: CGFloat, artworkMedia: CGFloat, titleMinimum: CGFloat, seekMinimum: CGFloat) {
         let reclaimedTop = max(44, height * 0.07)
-        var title = max(titleMinimum, height * 0.12)
-        var seek = max(seekMinimum, height * 0.08)
+        var title = max(titleMinimum, height * 0.113)
+        // `seek` と `bottom` は比率で伸ばさない（仕様 4 章の差し替え）。音量記号から下部の円までの距離は
+        // 2 帯の合計で決まるので、比率で膨らむ帯を残しておくと目標の合計に届かない。
+        // 拡大後の実寸のほうが大きいときだけそちらを採るので、文字が欠けることはない。
+        let seekFloor = max(seekMinimum, 80)
+        var seek = seekFloor
         // 低い画面でも再生ボタンの高さを下回らず、縦方向に欠けないようにする。
-        var transport = max(64, height * 0.13)
+        var transport = max(64, height * 0.118)
         var volume = max(44, height * 0.08)
-        var bottom = max(52, height * 0.09)
+        var bottom = Self.bottomHeight
         // 旧上部領域をそのままメディアへ移す。帯を削ったぶんはここへ戻る。
         let mediaHeight = { (bands: CGFloat) in reclaimedTop + max(96, height - reclaimedTop - bands) }
 
@@ -604,11 +616,13 @@ private struct PlayerLayout {
             band -= taken
             shortfall -= taken
         }
-        borrow(from: &bottom, minimum: 52)
+        // 順番は変えない。ただし `bottom` と `seek` は下限が高さそのものなので、実際に貸せるのは
+        // `volume` / `title` / `transport` の 3 つだけになる。下部と音量の距離を固定した帰結である。
+        borrow(from: &bottom, minimum: Self.bottomHeight)
         borrow(from: &volume, minimum: 44)
         borrow(from: &title, minimum: titleMinimum)
         borrow(from: &transport, minimum: 64)
-        borrow(from: &seek, minimum: seekMinimum)
+        borrow(from: &seek, minimum: seekFloor)
 
         self.title = title
         self.seek = seek
