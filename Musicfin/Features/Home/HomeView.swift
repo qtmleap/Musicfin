@@ -7,9 +7,13 @@ struct HomeView: View {
     @Environment(LibraryStore.self) private var library
     @Environment(PlaybackEngine.self) private var player
     @Environment(AlbumCatalog.self) private var catalog
-    @State private var showsSettings = false
+    @State private var showsAccount = false
 
     private var favorites: [MediaItem] { library.favoriteTracks.filter(\.isFavorite) }
+    private var accountName: String? {
+        if case .signedIn(let user) = auth.state, !user.isEmpty { return user }
+        return nil
+    }
     private var isEmpty: Bool {
         library.recentlyAdded.isEmpty && library.frequentlyPlayed.isEmpty
             && favorites.isEmpty && catalog.items.isEmpty
@@ -18,42 +22,54 @@ struct HomeView: View {
     var body: some View {
         GeometryReader { geometry in
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 32) {
-                    if !library.recentlyAdded.isEmpty {
-                        albumCarousel("最近追加したアルバム", items: library.recentlyAdded, size: 180)
+                // 大見出しの直後だけ、Apple は区分と区分の間（32 pt）より狭い 30 pt で次へ移る。
+                // 見出しの行を `LazyVStack` の外へ出し、そこだけ別の間隔を与えている。
+                VStack(alignment: .leading, spacing: 25) {
+                    HStack {
+                        Text("ホーム")
+                            .font(.largeTitle.bold())
+                        Spacer()
+                        Button {
+                            showsAccount = true
+                        } label: {
+                            AccountAvatar(name: accountName, size: 44)
+                        }
+                        .accessibilityLabel("アカウント")
                     }
-                    if !library.frequentlyPlayed.isEmpty {
-                        albumCarousel("よく聴くアルバム", items: library.frequentlyPlayed, size: 160)
-                    }
-                    if !favorites.isEmpty { favoriteCarousel }
-                    if !catalog.items.isEmpty { exploreAlbums(width: geometry.size.width) }
-                    if case .failed(let message) = library.homeState {
-                        LoadErrorView(message: message) { await library.loadHome(force: true) }
-                    }
-                    if let message = catalog.errorMessage {
-                        LoadErrorView(message: message) { await loadAlbums(force: true) }
+                    .padding(.horizontal, 20)
+
+                    LazyVStack(alignment: .leading, spacing: 32) {
+                        if !library.recentlyAdded.isEmpty {
+                            albumCarousel("最近追加したアルバム", items: library.recentlyAdded, size: 180)
+                        }
+                        if !library.frequentlyPlayed.isEmpty {
+                            albumCarousel("よく聴くアルバム", items: library.frequentlyPlayed, size: 160)
+                        }
+                        if !favorites.isEmpty { favoriteCarousel }
+                        if !catalog.items.isEmpty { exploreAlbums(width: geometry.size.width) }
+                        if case .failed(let message) = library.homeState {
+                            LoadErrorView(message: message) { await library.loadHome(force: true) }
+                        }
+                        if let message = catalog.errorMessage {
+                            LoadErrorView(message: message) { await loadAlbums(force: true) }
+                        }
                     }
                 }
-                .padding(.vertical, 16)
+                .padding(.bottom, 16)
             }
             .overlay { emptyState }
             .refreshable { await load(force: true) }
         }
         .background(AppBackdrop())
         .tint(.pink)
-        .navigationTitle("ホーム")
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button("設定", systemImage: "gearshape") { showsSettings = true }
-            }
-        }
-        .sheet(isPresented: $showsSettings) { SettingsView() }
+        .toolbarVisibility(.hidden, for: .navigationBar)
+        .sheet(isPresented: $showsAccount) { AccountView() }
         .task { await load() }
     }
 
-    private func albumCarousel(_ title: String, items: [MediaItem], size: CGFloat) -> some View {
+    private func albumCarousel(_ title: LocalizedStringResource, items: [MediaItem], size: CGFloat) -> some View {
         CarouselSection(
-            title: title, destination: { AlbumGridView(title: title, albums: items) },
+            title: title, destination: { AlbumGridView(title: String(localized: title), albums: items) },
             content: {
                 ForEach(items) { album in
                     NavigationLink {
@@ -74,19 +90,44 @@ struct HomeView: View {
                     VStack(spacing: 0) {
                         ForEach(start..<min(start + 3, favorites.count), id: \.self) { index in
                             let track = favorites[index]
-                            Button {
-                                player.play(items: favorites, startingAt: index)
-                            } label: {
-                                TrackRow(
-                                    track: track, showsArtwork: true, isPlaying: player.currentItem?.id == track.id
-                                )
-                                .frame(height: 64)
+                            // 操作をスワイプに隠さず、行末の「…」から出す（仕様 1.1 章）。
+                            HStack(spacing: 0) {
+                                Button {
+                                    player.play(items: favorites, startingAt: index)
+                                } label: {
+                                    // 3 段組の行は仕様 2 章どおり画像 44 pt のまま（一覧の 48 pt とは別）。
+                                    TrackRow(
+                                        track: track, showsArtwork: true,
+                                        isCurrent: player.currentItem?.id == track.id
+                                    )
+                                    // 文字拡大時は行を伸ばし、3 段の固定高で文字を押し潰さない。
+                                    .frame(minHeight: 64)
+                                }
+                                .buttonStyle(.plain)
+
+                                RowMenu {
+                                    Button {
+                                        player.playNext([track])
+                                    } label: {
+                                        Label(
+                                            "次に再生",
+                                            systemImage: "text.line.first.and.arrowtriangle.forward"
+                                        )
+                                    }
+                                    Button {
+                                        Task { await library.toggleFavorite(track) }
+                                    } label: {
+                                        Label(
+                                            track.isFavorite ? "お気に入りから削除" : "お気に入りに追加",
+                                            systemImage: track.isFavorite ? "heart.slash" : "heart"
+                                        )
+                                    }
+                                }
                             }
-                            .buttonStyle(.plain)
                         }
                         Spacer(minLength: 0)
                     }
-                    .frame(width: 280, height: 192, alignment: .top)
+                    .frame(width: 280, alignment: .top)
                 }
             })
     }
@@ -105,7 +146,7 @@ struct HomeView: View {
                     exploreLink
                 }
             }
-            LazyVGrid(columns: metrics.gridItems, alignment: .leading, spacing: 24) {
+            LazyVGrid(columns: metrics.gridItems, alignment: .leading, spacing: AlbumGridMetrics.rowSpacing) {
                 ForEach(catalog.items.prefix(6)) { album in
                     NavigationLink {
                         AlbumDetailView(album: album)
@@ -116,7 +157,7 @@ struct HomeView: View {
                 }
             }
         }
-        .padding(.horizontal, 16)
+        .padding(.horizontal, 20)
     }
 
     private var exploreTitle: some View {

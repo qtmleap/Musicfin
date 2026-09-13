@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// ミニプレイヤー。`tabViewBottomAccessory` に置き、`.expanded` / `.inline` で密度を変える（`docs/ui-spec.md` 3 章）。
-/// 再生ボタンだけをピンクの丸で塗り、ガラスの帯の中で唯一の「押す場所」として目立たせる。
+/// ガラスの帯の上に塗りを重ねず、Apple Music と同じく裸のグリフだけを並べる。
 struct MiniPlayerView: View {
     let openPlayer: () -> Void
 
@@ -12,16 +12,20 @@ struct MiniPlayerView: View {
 
     var body: some View {
         if let track = player.currentItem {
-            HStack(spacing: 4) {
+            // 間隔 0 は、一時停止と次曲の記号の空きを Apple 実機の実測 26 pt に合わせるため。
+            // 44 pt の当たり判定は両方のボタンで維持する。詰めた分は曲名ボタンが吸収する。
+            HStack(spacing: 0) {
                 Button(action: openPlayer) {
-                    HStack(spacing: 10) {
+                    // 画像の右端から曲名までは 8 pt（仕様 3 章）。画像側に余白を足して広げない。
+                    HStack(spacing: 8) {
                         artwork(for: track)
                         VStack(alignment: .leading, spacing: 2) {
+                            // 2 段目だけ小さくせず、濃淡とウェイトで主従を付ける（仕様 3 章）。
                             Text(track.displayName)
-                                .font(.subheadline.weight(.semibold))
+                                .font(.subheadline.weight(.medium))
                             if !isInline {
-                                Text(track.displayArtist ?? "不明なアーティスト")
-                                    .font(.caption)
+                                Text(track.displayArtist ?? String(localized: "不明なアーティスト"))
+                                    .font(.subheadline)
                                     .foregroundStyle(.secondary)
                             }
                         }
@@ -40,17 +44,24 @@ struct MiniPlayerView: View {
                     Button {
                         player.playNext()
                     } label: {
+                        // 仕様 3 章の約 18 pt は再生・一時停止の指定。次曲は Apple 実機の実測が
+                        // 24×14 pt と一回り小さいので、字送り 14 pt（横長の記号なので幅は約 24 pt）にする。
                         Image(systemName: "forward.fill")
-                            .font(.title3)
+                            .font(.system(size: 14, weight: .medium))
+                            // 裸のグリフなので、透明な余白まで押せることを形で明示する。
                             .frame(width: 44, height: 44)
+                            .contentShape(.rect)
                     }
                     .buttonStyle(.plain)
                     .disabled(!player.hasNext)
                     .accessibilityLabel("次の曲")
                 }
             }
-            .padding(.horizontal, isInline ? 8 : 12)
-            .padding(.vertical, isInline ? 0 : 4)
+            // 左だけ 4 pt 内側へ寄せて画像を Apple 実機と同じ位置に置く。帯そのものは狭めない。
+            // 右は次曲ボタンの 44 pt の当たり判定を帯の端近くまで残したいので 12 pt のまま。
+            .padding(.leading, isInline ? 8 : 16)
+            .padding(.trailing, isInline ? 8 : 12)
+            .padding(.vertical, isInline ? 0 : 8)
             // 上スワイプだけでフルプレイヤーを開く。横方向は誤爆しやすいので何も割り当てない。
             .simultaneousGesture(
                 DragGesture(minimumDistance: 24).onEnded { value in
@@ -65,8 +76,8 @@ struct MiniPlayerView: View {
     }
 
     private func artwork(for track: MediaItem) -> some View {
-        ArtworkView(item: track, size: isInline ? 28 : 40, cornerRadius: isInline ? 6 : 8)
-            .shadow(color: .pink.opacity(0.25), radius: 4, y: 2)
+        // `.expanded` は Apple 実機の実測 30 pt（仕様 3 章）。`.inline` は参照画像が無いので据え置く。
+        ArtworkView(item: track, size: isInline ? 28 : 30, cornerRadius: 6)
             .overlay {
                 // バッファ中は画像の上に進行表示を重ね、行の高さを変えずに状態を伝える。
                 if player.isBuffering {
@@ -82,17 +93,16 @@ struct MiniPlayerView: View {
         Button {
             player.toggle()
         } label: {
+            // 塗り円は付けない（仕様 3 章）。記号の高さが約 18 pt になる字送りを選ぶ。
             Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
-                .font(.system(size: isInline ? 13 : 15, weight: .bold))
-                .foregroundStyle(.white)
-                .frame(width: isInline ? 28 : 34, height: isInline ? 28 : 34)
-                .background(.pink.gradient, in: .circle)
-                // 見た目は小さな丸でも、当たり判定は 44pt を確保する。
+                .font(.system(size: isInline ? 16 : 18, weight: .medium))
+                .foregroundStyle(Color.primary)
+                // 見た目は裸のグリフでも、当たり判定は 44pt を確保する。
                 .frame(width: 44, height: 44)
                 .contentShape(.rect)
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(player.isPlaying ? "一時停止" : "再生")
+        .accessibilityLabel(player.isPlaying ? String(localized: "一時停止") : String(localized: "再生"))
     }
 }
 

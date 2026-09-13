@@ -18,11 +18,14 @@ nonisolated extension TimeInterval {
 }
 
 nonisolated extension MediaItem {
-    /// 「2023年・12曲」のようなアルバムの副題。
+    /// 「2023年 · 12 曲」のようなアルバムの副題。
+    /// 年も曲数も言語で語順や単複が変わるので、組み立てた文字列ではなくカタログを通す。
     var albumSubtitle: String {
         var parts: [String] = []
-        if let year = productionYear { parts.append("\(year)年") }
-        if let count = childCount { parts.append("\(count)曲") }
-        return parts.joined(separator: "・")
+        if let year = productionYear { parts.append(String(localized: "\(year)年")) }
+        if let count = childCount { parts.append(String(localized: "\(count) 曲")) }
+        // 区切りは中黒（U+30FB）ではなく、Apple Music と同じ半角空白付きの中点（U+00B7）。
+        // 英語表示で「2023・12 songs」と詰まって見えるのを避ける。
+        return parts.joined(separator: " · ")
     }
 }

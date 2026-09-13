@@ -1,8 +1,7 @@
 import SwiftUI
 
-/// アカウント確認・音質の選択・ログアウトをまとめた設定画面。`sheet` で表示する前提。
-/// ログイン画面と同じく、グループ化リストの上にピンクの淡いグラデーションを敷いて統一感を出す。
-struct SettingsView: View {
+/// Jellyfin のアカウント情報・音質・ログアウトをまとめた画面。`sheet` で表示する前提。
+struct AccountView: View {
     @Environment(AuthStore.self) private var auth
     @Environment(PlaybackSettings.self) private var settings
     @Environment(\.dismiss) private var dismiss
@@ -10,176 +9,155 @@ struct SettingsView: View {
 
     private var userName: String {
         if case .signedIn(let user) = auth.state, !user.isEmpty { return user }
-        return "ユーザー"
+        return String(localized: "ユーザー")
     }
 
     var body: some View {
         @Bindable var settings = settings
 
-        NavigationStack {
-            List {
-                accountSection
-                Section {
-                    QualityPicker(
-                        title: "Wi-Fi",
-                        systemImage: "wifi",
-                        selection: $settings.wifiQuality
-                    )
-                    QualityPicker(
-                        title: "モバイル通信",
-                        systemImage: "antenna.radiowaves.left.and.right",
-                        selection: $settings.cellularQuality
-                    )
-                } header: {
-                    Text("音質")
-                } footer: {
-                    Text("ロスレスは通信量が大きく、再生開始まで時間がかかることがあります。変更は次の曲から反映されます。")
-                }
-                signOutSection
+        ScrollView {
+            VStack(alignment: .leading, spacing: 24) {
+                header
+                // 閉じるボタンの下端から最初のカードまでは 44 pt 空ける（Apple 実機の実測）。
+                // 他のカード間の 24 pt は保ちたいので、差の 20 pt をこのカードだけに足す。
+                accountSurface
+                    .padding(.top, 20)
+                qualitySurface(wifi: $settings.wifiQuality, cellular: $settings.cellularQuality)
+                signOutSurface
             }
-            .scrollContentBackground(.hidden)
-            .background(SettingsBackdrop())
-            .navigationTitle("設定")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("閉じる") { dismiss() }
-                }
+            .padding(.horizontal, 16)
+            .padding(.top, 16)
+            .padding(.bottom, 40)
+        }
+        .background(Color(.systemBackground).ignoresSafeArea())
+        .confirmationDialog("ログアウトしますか？", isPresented: $confirmsSignOut, titleVisibility: .visible) {
+            Button("ログアウト", role: .destructive) {
+                // サインアウトするとルートが切り替わるため、残った sheet がログイン画面を覆わないよう先に閉じる。
+                dismiss()
+                auth.signOut()
             }
-            .confirmationDialog(
-                "ログアウトしますか？",
-                isPresented: $confirmsSignOut,
-                titleVisibility: .visible
-            ) {
-                Button("ログアウト", role: .destructive) {
-                    // サインアウトすると MusicfinApp がログイン画面へ切り替えるが、
-                    // シート自体は残るので先に閉じておく。
-                    dismiss()
-                    auth.signOut()
-                }
-            } message: {
-                Text("\(userName) としてのセッションを終了します。")
+        } message: {
+            Text("\(userName) としてのセッションを終了します。")
+        }
+        .presentationDragIndicator(.visible)
+    }
+
+    private var header: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "play.square.stack")
+                .font(.title2)
+                .foregroundStyle(.tint)
+            // 見出しは本文より一段だけ太く大きい程度に留める（Apple 実機の実測 17 pt）。
+            Text("Jellyfin Account")
+                .font(.headline)
+            Spacer()
+            Button {
+                dismiss()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.title3.weight(.semibold))
+                    .frame(width: 44, height: 44)
+                    .background(Color(.secondarySystemBackground), in: .circle)
             }
+            .buttonStyle(.plain)
+            .accessibilityLabel("閉じる")
         }
     }
 
-    // MARK: - アカウント
-
-    private var accountSection: some View {
-        Section("アカウント") {
-            HStack(spacing: 16) {
-                Image(systemName: "person.crop.circle.fill")
-                    .font(.system(size: 56))
-                    .foregroundStyle(.pink.gradient)
+    private var accountSurface: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // 円と名前の間は 8 pt（Apple 実機の実測）。他の利用箇所には及ぼさないので呼び出し側で指定する。
+            HStack(spacing: 8) {
+                AccountAvatar(name: userName, size: 56)
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(userName)
-                        .font(.title3.weight(.semibold))
+                    Text(userName).font(.title3.bold())
                     Text(auth.serverName ?? "Jellyfin")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
+                Spacer()
             }
-            .padding(.vertical, 8)
+            .padding(16)
 
-            // URL は控えるときに全文が要るので、省略せず折り返して見せる。
+            Divider().padding(.horizontal, 16)
+
             VStack(alignment: .leading, spacing: 4) {
                 Text("サーバー URL")
-                    .font(.subheadline)
+                    .font(.footnote)
                     .foregroundStyle(.secondary)
                 Text(auth.client?.serverURL.absoluteString ?? "—")
                     .fixedSize(horizontal: false, vertical: true)
                     .textSelection(.enabled)
             }
-            .padding(.vertical, 2)
+            .padding(16)
+        }
+        .background(Color(.secondarySystemBackground), in: .rect(cornerRadius: 18))
+    }
+
+    private func qualitySurface(wifi: Binding<StreamQuality>, cellular: Binding<StreamQuality>) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("音質").font(.title3.bold())
+            VStack(spacing: 0) {
+                QualityPicker(title: "Wi-Fi", systemImage: "wifi", selection: wifi)
+                    .padding(16)
+                Divider().padding(.horizontal, 16)
+                QualityPicker(
+                    title: "モバイル通信",
+                    systemImage: "antenna.radiowaves.left.and.right",
+                    selection: cellular
+                )
+                .padding(16)
+            }
+            .background(Color(.secondarySystemBackground), in: .rect(cornerRadius: 18))
+            Text("ロスレスは通信量が大きく、変更は次の曲から反映されます。")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                // カード内の行と左端を揃え、説明だけ外側へ張り付かないようにする。
+                .padding(.horizontal, 16)
         }
     }
 
-    // MARK: - ログアウト
-
-    private var signOutSection: some View {
-        Section {
+    private var signOutSurface: some View {
+        VStack(alignment: .leading, spacing: 8) {
             Button("ログアウト", role: .destructive) { confirmsSignOut = true }
-                .frame(maxWidth: .infinity)
-        } footer: {
+                .frame(maxWidth: .infinity, minHeight: 52)
+                .background(Color(.secondarySystemBackground), in: .rect(cornerRadius: 18))
             Text("ログアウトしてもサーバーの URL は保持されます。")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
         }
     }
 }
 
-// MARK: - 音質の選択
-
-/// 接続種別ごとに 3 択を並べる。Picker の `navigationLink` だと「今どれか」が一覧で見えないので、
-/// iPod の設定画面のように同じ画面内で切り替えられるようにした。
 private struct QualityPicker: View {
-    let title: String
+    let title: LocalizedStringResource
     let systemImage: String
     @Binding var selection: StreamQuality
 
     var body: some View {
-        DisclosureGroup {
-            ForEach(StreamQuality.allCases) { quality in
-                QualityRow(network: title, quality: quality, isSelected: quality == selection) {
-                    selection = quality
+        Menu {
+            Picker(title, selection: $selection) {
+                ForEach(StreamQuality.allCases) { quality in
+                    Text(quality.title).tag(quality)
                 }
             }
         } label: {
-            Label {
-                LabeledContent(title, value: selection.title)
-            } icon: {
-                Image(systemName: systemImage)
-                    .foregroundStyle(.pink)
-            }
-        }
-    }
-}
-
-private struct QualityRow: View {
-    let network: String
-    let quality: StreamQuality
-    let isSelected: Bool
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(quality.title)
-                        .foregroundStyle(.primary)
-                    Text(quality.detail)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                }
+            HStack(spacing: 12) {
+                Image(systemName: systemImage).foregroundStyle(.tint).frame(width: 24)
+                Text(title)
                 Spacer()
-                Image(systemName: "checkmark")
-                    .font(.body.weight(.semibold))
-                    .foregroundStyle(.pink)
-                    .opacity(isSelected ? 1 : 0)
+                Text(selection.title).foregroundStyle(.secondary)
+                Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(.tertiary)
             }
             .contentShape(.rect)
         }
         .buttonStyle(.plain)
-        // 両グループを展開すると同じ 3 択が二度並ぶので、読み上げだけでも通信種別を区別できるようにする。
-        .accessibilityLabel("\(network)、\(quality.title)")
-        .accessibilityValue(quality.detail)
-        .accessibilityAddTraits(isSelected ? .isSelected : [])
-    }
-}
-
-// MARK: - 背景
-
-private struct SettingsBackdrop: View {
-    var body: some View {
-        LinearGradient(
-            colors: [Color.pink.opacity(0.14), Color(.systemGroupedBackground), Color(.systemGroupedBackground)],
-            startPoint: .top,
-            endPoint: .bottom
-        )
-        .ignoresSafeArea()
+        .accessibilityValue(selection.title)
     }
 }
 
 #Preview {
-    SettingsView()
+    AccountView()
         .environment(AuthStore())
         .environment(PlaybackSettings())
 }
