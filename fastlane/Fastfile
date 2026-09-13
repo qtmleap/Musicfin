@@ -9,6 +9,8 @@ REPO_ROOT      = File.expand_path("..", __dir__)
 require "base64"
 require "fileutils"
 require "tmpdir"
+require_relative "lib/testflight_notes"
+require_relative "lib/tester_notification"
 
 opt_out_usage
 
@@ -200,20 +202,47 @@ lane :verify do
   UI.success("ipa: build/#{SCHEME}.ipa")
 end
 
+# 前回の配信以降のコミット件名から「テスト内容」を組み立てる。整形ロジックは
+# fastlane 非依存の lib/testflight_notes.rb に置き、プレビューと単体テストを可能にしている。
+def whats_new_notes
+  subjects, basis = TestflightNotes.git_history(REPO_ROOT)
+  UI.message("テスト内容の基準: #{basis}")
+  TestflightNotes.build(subjects)
+end
+
 desc "TestFlight へアップロードする"
 lane :beta do
+  count = TestflightNotes.dirty_count(REPO_ROOT)
+  if count.nil?
+    UI.important("作業ツリーの変更件数を取得できませんでした。")
+  elsif count.positive?
+    UI.important("未コミットの変更が #{count} 件あります。テスト内容はコミット件名から作るので、この変更は文面に出ません。")
+  end
+
+  # ビルドとアップロードを待つ間に HEAD が動いても、次回の基準を先へ進めない。
+  shipped_sha = TestflightNotes.head_sha(REPO_ROOT)
+  version = get_version_number(xcodeproj: XCODEPROJ, target: SCHEME)
   api_key = asc_api_key
   build = next_build_number(api_key)
   UI.message("build number: #{build}")
 
+  notes = whats_new_notes
+  UI.message("テスト内容:\n#{notes}")
+
   build_for_appstore(api_key: api_key, build_number: build)
 
+  # localized_build_info は ASC の処理が終わらないと書き込めないので、ここだけ待つ。
+  # skip_submission は維持したままなので、外部テスターへの配信は始まらない。
   upload_to_testflight(
     api_key: api_key,
     app_identifier: APP_IDENTIFIER,
-    skip_waiting_for_build_processing: true,
-    skip_submission: true
+    skip_waiting_for_build_processing: false,
+    skip_submission: true,
+    localized_build_info: { "ja" => { whats_new: notes } }
   )
+
+  # 失敗したビルドやアップロードでは、この地点に到達しないので前回の記録が残る。
+  TestflightNotes.record_shipped(REPO_ROOT, sha: shipped_sha, build: build, version: version)
 end
 
 desc "App Store へアップロードする。審査提出は SUBMIT=1 のときだけ"
@@ -254,6 +283,308 @@ lane :upload_metadata do
     force: true,
     precheck_include_in_app_purchases: false
   )
+end
+
+# ASC を直接叩く lane 用。upload 系アクションに渡す Hash とは別に Spaceship のトークンも張る。
+def connect_api_session
+  key = asc_api_key
+  Spaceship::ConnectAPI.token = Spaceship::ConnectAPI::Token.create(
+    key_id: ENV.fetch("ASC_KEY_ID"),
+    issuer_id: ENV.fetch("ASC_ISSUER_ID"),
+    filepath: asc_key_filepath
+  )
+  key
+end
+
+# version / build オプションから対象ビルドを 1 件に確定する。
+# notify_testers・set_whats_new・diagnose_testflight で同じ決め方を共有するためのヘルパー。
+def resolve_build(options)
+  version = options[:version] || get_version_number(xcodeproj: XCODEPROJ, target: SCHEME)
+  app = Spaceship::ConnectAPI::App.find(APP_IDENTIFIER)
+  UI.user_error!("アプリが見つからない: #{APP_IDENTIFIER}") unless app
+
+  candidates = Spaceship::ConnectAPI::Build.all(
+    app_id: app.id,
+    version: version,
+    build_number: options[:build],
+    platform: Spaceship::ConnectAPI::Platform::IOS
+  )
+  build, error = TesterNotification.select(candidates, version: version, build_number: options[:build])
+  UI.user_error!(error) if error
+
+  [app, build, version]
+end
+
+desc "アップロード済みのビルドについて、割り当て済みテスターへ TestFlight の通知を送る"
+desc "例: fastlane notify_testers version:1.0.0 build:12 / 確認だけなら dry_run:true"
+lane :notify_testers do |options|
+  connect_api_session
+  app, build, version = resolve_build(options)
+  dry_run = TesterNotification.truthy?(options[:dry_run])
+
+  UI.message("アプリ: #{app.name} (#{APP_IDENTIFIER})")
+  UI.message("バージョン: #{version}")
+  UI.message("ビルド番号: #{build.version}")
+  UI.message("ビルド ID: #{build.id}")
+  UI.message("処理状態: #{build.processing_state}")
+
+  reason = TesterNotification.blocking_reason(build.processing_state)
+  UI.user_error!(reason) if reason
+
+  if dry_run
+    UI.success("dry_run のため通知は送っていない")
+    next
+  end
+
+  # spaceship に buildBetaNotifications 用のメソッドが無いので、認証済みクライアントで直接叩く。
+  # JWT を自作すると鍵の扱いが二重管理になるため、必ずこの経路を使う。
+  begin
+    Spaceship::ConnectAPI.test_flight_request_client.post(
+      "v1/buildBetaNotifications",
+      TesterNotification.notification_body(build.id)
+    )
+    UI.success("ビルド #{version} (#{build.version}) の通知を送った")
+  rescue StandardError => e
+    # autoNotifyEnabled のビルドは手動送信を受け付けない。設定どおりの応答なので落とさない。
+    raise unless TesterNotification.auto_notify_conflict?(e.message)
+    UI.success("自動通知が有効なビルドなので手動送信は不要（Apple 側が配信する）")
+  end
+end
+
+desc "既存ビルドのテスト内容（What to Test）を書き込む。ビルドはしない"
+desc "例: fastlane set_whats_new version:0.1.0 build:1 / text:\"任意の文面\""
+lane :set_whats_new do |options|
+  connect_api_session
+  _app, build, version = resolve_build(options)
+  text = options[:text].to_s.strip
+  text = whats_new_notes if text.empty?
+
+  UI.message("ビルド #{version} (#{build.version}) / id=#{build.id}")
+  UI.message("書き込む文面:\n#{text}")
+
+  existing = Spaceship::ConnectAPI.get_beta_build_localizations(filter: { build: build.id })
+    .all_pages.flat_map(&:to_models)
+  ja = existing.find { |l| l.locale == "ja" }
+
+  if ja
+    Spaceship::ConnectAPI.patch_beta_build_localizations(
+      localization_id: ja.id,
+      attributes: { whatsNew: text }
+    )
+    UI.message("ja の betaBuildLocalization を更新した (id=#{ja.id})")
+  else
+    Spaceship::ConnectAPI.post_beta_build_localizations(
+      build_id: build.id,
+      attributes: { locale: "ja", whatsNew: text }
+    )
+    UI.message("ja の betaBuildLocalization を作成した")
+  end
+
+  # 書き込みが反映されたかは読み直して確かめる。
+  Spaceship::ConnectAPI.get_beta_build_localizations(filter: { build: build.id })
+    .all_pages.flat_map(&:to_models).each do |l|
+      UI.success("#{l.locale} [#{l.whats_new.to_s.bytesize} bytes]:\n#{l.whats_new}")
+    end
+end
+
+desc "TestFlight のテスト情報（アプリ単位・ja の betaAppLocalizations）を書き込む。ビルドはしない"
+desc "例: fastlane set_test_info feedback_email:you@example.com"
+lane :set_test_info do |options|
+  connect_api_session
+  app = Spaceship::ConnectAPI::App.find(APP_IDENTIFIER)
+  UI.user_error!("アプリが見つからない: #{APP_IDENTIFIER}") unless app
+
+  description = File.read(File.join(REPO_ROOT, "fastlane/testflight/ja/description.txt")).strip
+  feedback_email = options[:feedback_email] || ENV["TESTFLIGHT_FEEDBACK_EMAIL"]
+  attributes = TesterNotification.app_localization_attributes(
+    locale: "ja", description: description, feedback_email: feedback_email
+  )
+  UI.message("feedbackEmail: #{attributes[:feedbackEmail] || '(未指定)'}")
+
+  existing = Spaceship::ConnectAPI.get_beta_app_localizations(filter: { app: app.id })
+    .all_pages.flat_map(&:to_models)
+  ja = existing.find { |l| l.locale == "ja" }
+
+  begin
+    if ja
+      Spaceship::ConnectAPI.patch_beta_app_localizations(
+        localization_id: ja.id, attributes: attributes.reject { |k, _| k == :locale }
+      )
+      UI.message("ja の betaAppLocalization を更新した (id=#{ja.id})")
+    else
+      Spaceship::ConnectAPI.post_beta_app_localizations(app_id: app.id, attributes: attributes)
+      UI.message("ja の betaAppLocalization を作成した")
+    end
+  rescue StandardError => e
+    # 値を推測して埋めると誤ったアドレスがテスターに出るので、ここは止めるのが正しい。
+    raise unless TesterNotification.feedback_email_required?(e.message) && !attributes.key?(:feedbackEmail)
+    UI.user_error!(<<~MSG)
+      feedbackEmail の指定が必要（API の応答: #{e.message.strip}）
+
+        bundle exec fastlane set_test_info feedback_email:you@example.com
+    MSG
+  end
+
+  Spaceship::ConnectAPI.get_beta_app_localizations(filter: { app: app.id })
+    .all_pages.flat_map(&:to_models).each do |l|
+      UI.success("#{l.locale} feedbackEmail=#{l.feedback_email.inspect} description=[#{l.description.to_s.bytesize} bytes]")
+    end
+end
+
+desc "ベータグループの未招待テスターへ TestFlight の招待を送る"
+desc "例: fastlane invite_testers dry_run:true"
+lane :invite_testers do |options|
+  connect_api_session
+  dry_run = TesterNotification.truthy?(options[:dry_run])
+  client = Spaceship::ConnectAPI.test_flight_request_client
+
+  app = Spaceship::ConnectAPI::App.find(APP_IDENTIFIER)
+  UI.user_error!("アプリが見つからない: #{APP_IDENTIFIER}") unless app
+
+  groups = Spaceship::ConnectAPI.get_beta_groups(filter: { app: app.id })
+    .all_pages.flat_map(&:to_models)
+  UI.user_error!("ベータグループが無い") if groups.empty?
+
+  groups.each do |group|
+    rows = client.get("v1/betaTesters", { "filter[betaGroups]" => group.id, "limit" => 200 }).body["data"]
+    pending = TesterNotification.pending_invitations(rows)
+    UI.message("[#{group.name}] #{rows.size} 名中 #{pending.size} 名が未招待")
+    pending.each { |row| UI.message("  #{TesterNotification.email_of(row)}") }
+    next if pending.empty?
+
+    if dry_run
+      UI.success("dry_run のため招待は送っていない")
+      next
+    end
+
+    pending.each do |row|
+      email = TesterNotification.email_of(row)
+      tester_id = row["id"]
+      begin
+        client.post("v1/betaTesterInvitations", TesterNotification.invitation_body(app.id, tester_id))
+        UI.success("招待を送った (betaTesterInvitations): #{email}")
+      rescue StandardError => e
+        # 内部テスターには betaTesterInvitations が使えないことがある。その場合は
+        # グループから外して入れ直すと Apple が招待を再発送する。
+        UI.important("betaTesterInvitations が使えない (#{e.message[0, 120]})。グループ再追加で招待する: #{email}")
+        Spaceship::ConnectAPI.delete_beta_tester_from_beta_groups(
+          beta_tester_id: tester_id,
+          beta_group_ids: [group.id]
+        )
+        Spaceship::ConnectAPI.add_beta_tester_to_group(
+          beta_group_id: group.id,
+          beta_tester_ids: [tester_id]
+        )
+        UI.success("グループに再追加した: #{email}")
+      end
+    end
+
+    # 状態が実際に変わったか読み直す。
+    client.get("v1/betaTesters", { "filter[betaGroups]" => group.id, "limit" => 200 }).body["data"].each do |row|
+      UI.message("  #{TesterNotification.email_of(row)}  state=#{TesterNotification.state_of(row)}")
+    end
+  end
+end
+
+desc "TestFlight の配信状況を読み取って表示する。通知が届かない原因の切り分け用"
+desc "例: fastlane diagnose_testflight version:0.1.0 build:1"
+# この lane は GET しか呼ばない。POST / PATCH / DELETE は絶対に足さないこと
+# （診断のつもりで通知やグループ割り当てを発火させないため）。
+lane :diagnose_testflight do |options|
+  connect_api_session
+  app, build, version = resolve_build(options)
+
+  detail = build.build_beta_detail
+  UI.header("ビルド #{version} (#{build.version})")
+  UI.message("id: #{build.id}")
+  UI.message("processingState: #{build.processing_state}")
+  UI.message("expired: #{build.expired.inspect}  expirationDate: #{build.expiration_date}")
+  UI.message("usesNonExemptEncryption: #{build.uses_non_exempt_encryption.inspect}")
+  if detail
+    UI.message("autoNotifyEnabled: #{detail.auto_notify_enabled.inspect}")
+    UI.message("internalBuildState: #{detail.internal_build_state}")
+    UI.message("externalBuildState: #{detail.external_build_state}")
+  else
+    UI.important("buildBetaDetail: 取得不能")
+  end
+
+  UI.header("betaGroups（このビルドに紐づくもの）")
+  groups =
+    begin
+      Spaceship::ConnectAPI.get_beta_groups(filter: { builds: build.id }).all_pages.flat_map(&:to_models)
+    rescue StandardError => e
+      UI.important("取得不能: #{e.message[0, 120]}")
+      []
+    end
+  if groups.empty?
+    UI.important("このビルドに紐づくベータグループは 0 件")
+  end
+  groups.each do |g|
+    kind = g.is_internal_group ? "内部" : "外部"
+    UI.message("#{g.name}  (#{kind})  id=#{g.id}  hasAccessToAllBuilds=#{g.has_access_to_all_builds.inspect}  publicLinkEnabled=#{g.public_link_enabled.inspect}")
+  end
+
+  UI.header("アプリ全体の betaGroups（参考）")
+  all_groups =
+    begin
+      Spaceship::ConnectAPI.get_beta_groups(filter: { app: app.id }).all_pages.flat_map(&:to_models)
+    rescue StandardError => e
+      UI.important("取得不能: #{e.message[0, 120]}")
+      []
+    end
+  all_groups.each do |g|
+    kind = g.is_internal_group ? "内部" : "外部"
+    linked = groups.any? { |x| x.id == g.id } ? "このビルドに紐づく" : "紐づいていない"
+    UI.message("#{g.name}  (#{kind})  id=#{g.id}  #{linked}")
+  end
+
+  UI.header("テスター")
+  # spaceship の BetaTester モデルは旧属性名 betaTesterState を見ていて現行 API の
+  # state を落とすので、招待状態だけは素のレスポンスから読む。
+  (all_groups.empty? ? groups : all_groups).each do |g|
+    begin
+      rows = Spaceship::ConnectAPI.test_flight_request_client
+        .get("v1/betaTesters", { "filter[betaGroups]" => g.id, "limit" => 200 })
+        .body["data"]
+      UI.message("[#{g.name}] #{rows.size} 名")
+      rows.each do |row|
+        a = row["attributes"]
+        name = [a["firstName"], a["lastName"]].compact.join(" ")
+        UI.message("  #{a['email']}  #{name}  state=#{a['state']}  inviteType=#{a['inviteType']}  devices=#{Array(a['appDevices']).size}")
+      end
+    rescue StandardError => e
+      UI.important("#{g.name}: 取得不能 #{e.message[0, 120]}")
+    end
+  end
+
+  UI.header("individualTesters（このビルド個別）")
+  begin
+    individuals = Spaceship::ConnectAPI.get_beta_testers(filter: { builds: build.id }).all_pages.flat_map(&:to_models)
+    UI.important("0 件") if individuals.empty?
+    individuals.each { |t| UI.message("  #{t.email}  state=#{t.beta_tester_state}") }
+  rescue StandardError => e
+    UI.important("取得不能: #{e.message[0, 120]}")
+  end
+
+  UI.header("betaBuildLocalizations")
+  begin
+    locales = Spaceship::ConnectAPI.get_beta_build_localizations(filter: { build: build.id })
+      .all_pages.flat_map(&:to_models)
+    UI.important("0 件") if locales.empty?
+    locales.each do |l|
+      body = l.whats_new.to_s
+      UI.message("  #{l.locale}: #{body.empty? ? '(空)' : body.lines.first.strip} [#{body.bytesize} bytes]")
+    end
+  rescue StandardError => e
+    UI.important("取得不能: #{e.message[0, 120]}")
+  end
+end
+
+desc "テスト内容（What to Test）の生成結果を表示するだけ。何もアップロードしない"
+lane :preview_whats_new do
+  notes = whats_new_notes
+  UI.message("#{notes.bytesize} bytes")
+  puts(notes)
 end
 
 desc "スクリーンショットだけ App Store Connect へ送る (fastlane/screenshots/<locale>/ から)"

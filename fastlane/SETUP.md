@@ -16,6 +16,14 @@ bundle exec fastlane lanes
 | `fastlane beta` | ビルド → TestFlight | 低（ASC 側で無効化できる） |
 | `fastlane release` | ビルド → App Store。**審査には出さない** | 低 |
 | `SUBMIT=1 fastlane release` | 上に加えて審査提出 | **高** |
+| `fastlane notify_testers` | アップロード済みビルドについてテスターへ通知を送る。ビルドしない | 中（テスターに通知が飛ぶ） |
+| `fastlane notify_testers dry_run:true` | 対象の特定とログ出力だけ。通知は送らない | なし |
+| `fastlane set_test_info feedback_email:…` | アプリ単位のテスト情報 (ja) を書き込む。ビルドしない | 中（ASC の入力を上書き） |
+| `fastlane set_whats_new` | アップロード済みビルドの「テスト内容」(ja) を書き込む。ビルドしない | 中（ASC の入力を上書き） |
+| `fastlane invite_testers` | 未招待テスターへ TestFlight の招待を送る。ビルドしない | 中（テスターにメールが飛ぶ） |
+| `fastlane invite_testers dry_run:true` | 未招待テスターを数えるだけ。何も送らない | なし |
+| `fastlane diagnose_testflight` | 配信状況（グループ・テスター・処理状態・テスト内容）を読み取って表示する。GET のみ | なし |
+| `fastlane preview_whats_new` | TestFlight の「テスト内容」の生成結果を表示するだけ。何も送らない | なし |
 | `fastlane upload_metadata` | `fastlane/metadata/` の説明文等だけ送る。ビルドしない | 中（ASC の入力を上書き） |
 | `fastlane upload_screenshots` | `fastlane/screenshots/<locale>/` だけ送る。既存は上書き | 中 |
 
@@ -103,6 +111,139 @@ plutil -p /tmp/musicfin-ipa/Payload/Musicfin.app/Info.plist | grep -iE "CFBundle
 ```
 
 問題なければ `bundle exec fastlane beta`。
+
+## 既存ビルドのテスター通知
+
+内部テスターはグループへのビルド公開時に TestFlight が自動通知する。
+`notify_testers` は「自動通知が届かなかった」「後からテスターを追加した」ときの手動通知手段で、
+**ビルドもアップロードもしない**（既にアップロード済みのビルドが対象）。
+
+```sh
+# 対象を確認するだけ。何も送らない
+bundle exec fastlane notify_testers version:1.0.0 build:12 dry_run:true
+# 実際に送る
+bundle exec fastlane notify_testers version:1.0.0 build:12
+```
+
+- `version` 省略時はプロジェクトの `MARKETING_VERSION`、`build` 省略時は
+  そのバージョンの候補が 1 件のときだけ確定する。複数あるときは
+  候補の番号を並べて止まるので `build:` で指定する。該当 0 件でも止まる。
+- 送信前にアプリ名・バージョン・ビルド番号・ビルド ID・処理状態をログに出す。
+- 処理状態が `VALID` でなければ送らない（`PROCESSING` は待てば解決、`FAILED` / `INVALID` は解決しない）。
+- 通知先は「そのビルドに割り当て済みで受け取る資格のあるテスター全員」。
+  App Store Connect API にグループを指定する余地は無いので、グループ引数も用意していない。
+  外部テスターへの通知は Beta App Review 承認後になる。
+- `What to Test` の文面はこの lane では更新しない（`beta` が設定したものを維持）。
+- 実装は `POST /v1/buildBetaNotifications`。spaceship に専用メソッドが無いため、
+  認証済みの `Spaceship::ConnectAPI.test_flight_request_client` から直接叩いている
+  （JWT を自作しない）。純ロジックは `fastlane/lib/tester_notification.rb`、
+  検証は `ruby fastlane/test/tester_notification_test.rb`。
+
+## テスト情報 → テスト内容 → 招待 の順で整える
+
+TestFlight は「アプリ単位のテスト情報 (betaAppLocalizations)」が空のままだと
+テスターへの配信・招待が進まない。既存ビルドを配る手順は必ずこの順で行う。
+
+```sh
+# 1. アプリ単位のテスト情報 (ja)。feedbackEmail は必須なので必ず渡す
+bundle exec fastlane set_test_info feedback_email:you@example.com
+# 2. ビルド単位のテスト内容 (whatsNew)
+bundle exec fastlane set_whats_new version:0.1.0 build:1
+# 3. 未招待テスターへの招待
+bundle exec fastlane invite_testers
+```
+
+`set_test_info` の本文は `fastlane/testflight/ja/description.txt`。
+`feedback_email:` 省略時は環境変数 `TESTFLIGHT_FEEDBACK_EMAIL` を見る。
+どちらも無いまま API が feedbackEmail 必須で弾いた場合は、アドレスを推測せずに
+API の応答をそのまま出して止まる（誤ったアドレスがテスターに表示されるのを防ぐため）。
+
+## 既存ビルドの「テスト内容」を後から書き込む
+
+`beta` を経由せずにアップロードしたビルドには `betaBuildLocalizations` が無い。
+TestFlight は「テスト内容」が空のビルドをテスターへ出し渋るので、後から入れる。
+
+```sh
+# Git コミットから自動生成した文面を入れる
+bundle exec fastlane set_whats_new version:0.1.0 build:1
+# 文面を直接指定する
+bundle exec fastlane set_whats_new version:0.1.0 build:1 text:"初回配信です"
+```
+
+対象ビルドの決め方は `notify_testers` と同じ（`resolve_build` を共有）。
+ja が未作成なら `POST`、あれば `PATCH` で更新し、直後に `GET` で読み直してログに出す。
+
+## 未招待テスターへの招待
+
+`state` が `NOT_INVITED` のテスターはグループに入っていてもメールを受け取っていない。
+この lane はそのテスターだけを対象に招待を送る。**ビルドもアップロードもしない**。
+
+```sh
+bundle exec fastlane invite_testers dry_run:true   # 数えるだけ
+bundle exec fastlane invite_testers                # 実際に送る
+```
+
+- `POST /v1/betaTesterInvitations` を使い、拒否された場合のみグループからの
+  削除 → 再追加にフォールバックする（どちらを使ったかはログに出る）。
+- テスターの `state` は spaceship のモデルが拾わない（API は `state`、モデルは
+  `betaTesterState` を見ている）ため、`v1/betaTesters` の生 JSON を読んでいる。
+- 送信後に `GET` で読み直して `state` を出す。
+
+### 通知が届かないときの診断
+
+```sh
+bundle exec fastlane diagnose_testflight version:0.1.0 build:1
+```
+
+ビルドの処理状態・輸出コンプライアンス・有効期限、紐づくベータグループ、
+グループごとのテスター（`state` が `NOT_INVITED` / `INVITED` / `ACCEPTED` / `INSTALLED`）、
+個別テスター、`betaBuildLocalizations` を一覧する。**GET しか呼ばない**ので実行しても何も変わらない。
+
+`notify_testers` が `Auto-notify already enabled` で拒否されるのは、そのビルドの
+`autoNotifyEnabled` が true で Apple 側の自動通知に委ねられているため。この場合は
+手動通知 API を使う余地が無いので、テスターの `state` を疑う。
+
+## TestFlight の「テスト内容」(What to Test)
+
+`beta` lane は Git のコミット件名から日本語のテストノートを組み立て、
+`upload_to_testflight` の `localized_build_info` で ja ロケールに設定する。
+外部 AI API は使わない。整形ロジックは `fastlane/lib/testflight_notes.rb`。
+
+- **範囲**: 直近の祖先タグ `vX.Y.Z` の次から `HEAD` まで。該当タグが無ければ全履歴。
+  マージコミットは除外し、新しい順に最大 10 件。
+- **採用する type**: `feat` / `fix` / `perf` を優先。1 件も無いときだけ他の Conventional Commits
+  （`ui` / `refactor` / `build` など）も拾って空欄を避ける。
+- **整形**: `type(scope)!:` と末尾の `(#123)` を落とし、`- 新機能: 〜` の形にする。重複件名は 1 つに畳む。
+  コミット本文・SHA・著者は載せない。
+- **フォールバック**: Git を読めない、または採用できる件名が無いときは見出しと通常操作
+  （ログイン・検索・再生・キュー）の確認依頼だけにする。
+- **長さ**: UTF-8 4,000 バイト以内。超えるときは古い項目から落とし、1 項目でも収まらなければ
+  文字境界で切って `…` を付ける。
+
+プレビュー（何も送らない）:
+
+```sh
+bundle exec fastlane preview_whats_new
+# fastlane を通さず素の Ruby でも見られる
+ruby fastlane/lib/testflight_notes.rb
+```
+
+整形ロジックの検証:
+
+```sh
+ruby fastlane/test/testflight_notes_test.rb
+```
+
+`beta` はメタデータを書き込むために `skip_waiting_for_build_processing: false` にしてある
+（ASC の処理完了まで待つ）。`skip_submission: true` は維持しているので配信は始まらない。
+
+**浅い clone では履歴とタグが無いのでノートが空になる。** CI では次のように取り直す。
+
+```yaml
+- uses: actions/checkout@v4
+  with:
+    fetch-depth: 0   # または: git fetch --prune --unshallow --tags
+```
 
 ## CI（GitHub Actions）
 
