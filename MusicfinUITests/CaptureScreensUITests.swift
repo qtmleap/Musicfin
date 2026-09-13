@@ -14,6 +14,21 @@ final class CaptureScreensUITests: XCTestCase {
     private var capturedNames: Set<String> = []
     private var skippedScreens: [String] = []
 
+    /// 英語固定の撮影でも同じ操作手順を使えるよう、既存の日本語ラベルを英訳して検索する。
+    @MainActor
+    private func element(_ type: XCUIElement.ElementType, _ japanese: String) -> XCUIElement {
+        let english: [String: String] = [
+            "アカウント": "Account", "接続": "Connect", "サーバーを変更": "Change Server",
+            "閉じる": "Close", "ログアウト": "Sign Out", "キャンセル": "Cancel",
+            "ユーザー名": "Username", "ログイン": "Sign In", "最近追加したアルバム": "Recently Added Albums",
+            "ライブラリ": "Library", "アルバム": "Albums", "アーティスト": "Artists", "プレイリスト": "Playlists",
+            "ジャンル": "Genres", "曲": "Songs", "お気に入りの曲": "Favorite Songs", "再生": "Play", "歌詞": "Lyrics",
+            "すべてのアルバムを確認中…": "Loading all albums…", "一時停止": "Pause", "次に再生": "Play Next",
+            "アルバムがありません": "No Albums",
+        ]
+        return app.descendants(matching: type)[english[japanese] ?? japanese]
+    }
+
     override func setUpWithError() throws {
         // 1 つの画面が撮れなくても残りは撮り切りたい。
         continueAfterFailure = true
@@ -38,8 +53,8 @@ final class CaptureScreensUITests: XCTestCase {
         launchApp()
 
         // 起動直後はセッション復元でホームかログイン画面のどちらかになる。
-        let settings = app.buttons["設定"]
-        let connect = app.buttons["接続"]
+        let settings = element(.button, "アカウント")
+        let connect = element(.button, "接続")
         XCTAssertTrue(
             waitForAny([settings, connect], timeout: 20),
             "起動後にホームもログイン画面も表示されなかった")
@@ -54,7 +69,7 @@ final class CaptureScreensUITests: XCTestCase {
         enterServerURL()
         connect.tap()
 
-        let changeServer = app.buttons["サーバーを変更"]
+        let changeServer = element(.button, "サーバーを変更")
         XCTAssertTrue(changeServer.waitForExistence(timeout: 20), "認証ステップが表示されなかった")
         dismissKeyboard()
         settle()
@@ -67,27 +82,26 @@ final class CaptureScreensUITests: XCTestCase {
         XCTAssertTrue(settings.waitForExistence(timeout: 20), "ログイン後にホームが表示されなかった")
         if !capturedNames.contains("settings") {
             settings.tap()
-            let close = app.buttons["閉じる"]
-            XCTAssertTrue(close.waitForExistence(timeout: 10), "設定画面が表示されなかった")
+            XCTAssertTrue(element(.staticText, "Jellyfin Account").waitForExistence(timeout: 10), "アカウント画面が表示されなかった")
             settle()
-            capture("settings")
-            close.tap()
+            capture("account")
+            element(.button, "閉じる").tap()
+            XCTAssertTrue(settings.waitForExistence(timeout: 10), "アカウント画面を閉じられなかった")
         }
     }
 
     /// ホーム右上の「設定」から設定画面を撮り、確認ダイアログ経由でログアウトする。
     @MainActor
     private func signOutFromHome() {
-        app.buttons["設定"].tap()
-        // 「ログアウト」は画面下にあり iPhone では画面外（未生成）のことがあるので、表示の検出には「閉じる」を使う。
-        guard app.buttons["閉じる"].waitForExistence(timeout: 10) else {
-            XCTFail("設定画面が表示されなかった")
+        element(.button, "アカウント").tap()
+        guard element(.staticText, "Jellyfin Account").waitForExistence(timeout: 10) else {
+            XCTFail("アカウント画面が表示されなかった")
             return
         }
         settle()
-        capture("settings")
+        capture("account")
 
-        let signOut = app.buttons["ログアウト"]
+        let signOut = element(.button, "ログアウト")
         var attempts = 0
         while !signOut.exists, attempts < 5 {
             app.swipeUp()
@@ -99,10 +113,10 @@ final class CaptureScreensUITests: XCTestCase {
         }
         signOut.tap()
         // 確認ダイアログにも同名のボタンが出るので、増えた方（後に現れた方）を押す。
-        let all = app.buttons.matching(identifier: "ログアウト")
+        let all = app.buttons.matching(identifier: "Sign Out")
         let appeared = NSPredicate(format: "count >= 2")
         _ = XCTWaiter.wait(for: [expectation(for: appeared, evaluatedWith: all)], timeout: 10)
-        let confirm = app.sheets.buttons["ログアウト"]
+        let confirm = app.sheets.buttons["Sign Out"]
         if confirm.exists {
             confirm.tap()
         } else {
@@ -134,7 +148,7 @@ final class CaptureScreensUITests: XCTestCase {
     /// サーバー側で無効化されていてエラーになった場合も、その見た目を残す。
     @MainActor
     private func captureQuickConnect() {
-        let quickConnect = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Quick Connect'")).firstMatch
+        let quickConnect = app.buttons.matching(NSPredicate(format: "label CONTAINS 'Quick Connect'")).firstMatch
         guard quickConnect.waitForExistence(timeout: 5) else {
             XCTFail("Quick Connect ボタンが見つからなかった")
             capture("login-quickconnect")
@@ -143,7 +157,7 @@ final class CaptureScreensUITests: XCTestCase {
         tapScrollingIntoView(quickConnect)
 
         // コードが出れば「キャンセル」が現れる。失敗したときはエラー文が出るので、そちらも待ち終わりにする。
-        let cancel = app.buttons["キャンセル"]
+        let cancel = element(.button, "キャンセル")
         let errorText = app.staticTexts.matching(
             NSPredicate(format: "label CONTAINS 'エラー' OR label CONTAINS '失敗' OR label CONTAINS 'できません'")
         ).firstMatch
@@ -157,7 +171,7 @@ final class CaptureScreensUITests: XCTestCase {
 
     @MainActor
     private func signInWithPassword() {
-        let username = app.textFields["ユーザー名"]
+        let username = element(.textField, "ユーザー名")
         guard username.waitForExistence(timeout: 5) else {
             XCTFail("ユーザー名の入力欄が見つからなかった")
             return
@@ -166,7 +180,7 @@ final class CaptureScreensUITests: XCTestCase {
         dismissKeyboardTutorial()
         username.typeText(Self.demoUser)
 
-        let signIn = app.buttons["ログイン"]
+        let signIn = element(.button, "ログイン")
         tapScrollingIntoView(signIn)
     }
 
@@ -178,61 +192,330 @@ final class CaptureScreensUITests: XCTestCase {
         ensureSignedIn()
 
         // ホーム: セクションが出るまで待って読込完了とみなす。
-        let recentlyAdded = app.staticTexts["最近追加したアルバム"]
-        XCTAssertTrue(recentlyAdded.waitForExistence(timeout: 30), "ホームの読込が終わらなかった")
+        let recentlyAdded = element(.staticText, "最近追加したアルバム")
+        let account = element(.button, "アカウント")
+        XCTAssertTrue(
+            waitForAny([recentlyAdded, account], timeout: 30),
+            "ホームが表示されなかった"
+        )
         settle()
         capture("home")
 
         // ライブラリ → アルバム一覧 → 先頭のアルバム詳細。
         selectTab("ライブラリ")
-        XCTAssertTrue(app.navigationBars["ライブラリ"].waitForExistence(timeout: 10), "ライブラリが表示されなかった")
+        XCTAssertTrue(element(.staticText, "ライブラリ").firstMatch.waitForExistence(timeout: 10), "ライブラリが表示されなかった")
         settle()
         capture("library")
 
-        app.staticTexts["アルバム"].firstMatch.tap()
-        XCTAssertTrue(app.navigationBars["アルバム"].waitForExistence(timeout: 10), "アルバム一覧が表示されなかった")
-        let firstAlbum = app.scrollViews.firstMatch.buttons.firstMatch
+        // ライブラリ配下の遷移先。ライブラリ本体と同じ平坦なリストに見えるかを比較できるよう 1 枚ずつ撮る。
+        captureLibraryChild(
+            row: "アーティスト", title: "アーティスト", screen: "artists", dependents: ["artist"]
+        ) {
+            self.captureArtistDetail()
+        }
+        captureLibraryChild(
+            row: "プレイリスト", title: "プレイリスト", screen: "playlists", dependents: ["playlist"]
+        ) {
+            self.capturePlaylistDetail()
+        }
+        captureLibraryChild(row: "ジャンル", title: "ジャンル", screen: "genres")
+        captureLibraryChild(row: "曲", title: "曲", screen: "songs")
+        captureLibraryChild(row: "お気に入りの曲", title: "お気に入りの曲", screen: "favorites")
+
+        app.buttons["library.albums"].tap()
+        // 位置で引くと一覧の先頭にある「再生」を掴んでしまい、詳細ではなく一覧が撮れる。
+        let firstAlbum = app.buttons["album.card"].firstMatch
         XCTAssertTrue(firstAlbum.waitForExistence(timeout: 20), "アルバムが 1 件も読み込まれなかった")
         settle()
         capture("albums")
 
         firstAlbum.tap()
-        let play = app.buttons["再生"]
+        let play = element(.button, "再生")
         XCTAssertTrue(play.waitForExistence(timeout: 10), "アルバム詳細が表示されなかった")
+        // 「再生」は一覧にもあるので、遷移そのものをカードの消失で確かめる。
+        XCTAssertTrue(
+            waitForDisappearance(of: firstAlbum, timeout: 10), "アルバム詳細へ遷移しなかった")
         // 収録曲の読込が終わるまで「再生」は無効なので、有効化を待つ。
         _ = XCTWaiter.wait(
             for: [expectation(for: NSPredicate(format: "isEnabled == true"), evaluatedWith: play)], timeout: 20)
         settle()
         capture("album")
 
-        capturePlayerScreens(playButton: play)
+        // `album` は 1 曲のアルバムのまま残し、再生だけ 2 曲以上のアルバムから始める。
+        // 先頭のアルバムで再生すると待機曲が 0 件になり、`queue` が空状態しか撮れない（仕様 5.2 章）。
+        let playbackPlay = openAlbumWithUpcomingTracks() ?? play
+        capturePlayerScreens(playButton: playbackPlay)
         recoverIfTerminated()
+        // sheet が残っているとタブバーに触れず検索へ進めない。念のためもう一度閉じる。
+        if element(.button, "歌詞").exists {
+            _ = dismissSheet(revealing: play)
+        }
 
         // 検索: 入力前の状態を撮ってから、クエリを入れて結果の行が出るまで待つ。
         selectTab("検索")
         let searchField = app.searchFields.firstMatch
-        XCTAssertTrue(searchField.waitForExistence(timeout: 10), "検索欄が表示されなかった")
-        settle()
-        capture("search-idle")
+        // ここで打ち切ると以降の撮影が全部落ちるので、撮れない画面は記録だけして最後まで進む。
+        if searchField.waitForExistence(timeout: 10) {
+            settle()
+            capture("search-idle")
 
-        searchField.tap()
-        dismissKeyboardTutorial()
-        // 改行で検索キーを押したことになり、結果を隠すキーボードも閉じる。
-        searchField.typeText("a\n")
-        let firstResult = app.cells.firstMatch
-        XCTAssertTrue(firstResult.waitForExistence(timeout: 20), "検索結果が表示されなかった")
-        dismissKeyboard()
-        settle()
-        capture("search")
+            // 入力を始めるとタイルが結果に置き換わるので、遷移の 2 枚を先に撮る。
+            captureSearchPush()
+
+            searchField.tap()
+            dismissKeyboardTutorial()
+            // Apple Music と同じく「入力中」も比較対象なので、確定前に 1 枚撮る。
+            searchField.typeText("a")
+            settle()
+            capture("search-typing")
+
+            // 改行で検索キーを押したことになり、結果を隠すキーボードも閉じる。
+            searchField.typeText("\n")
+            if app.cells.firstMatch.waitForExistence(timeout: 20) {
+                dismissKeyboard()
+                settle()
+                capture("search")
+            } else {
+                skippedScreens.append("search")
+            }
+        } else {
+            skippedScreens += [
+                "search-idle", "search-push", "search-pop", "search-typing", "search",
+            ]
+        }
 
         XCTAssertTrue(skippedScreens.isEmpty, "撮れなかった画面: \(skippedScreens.joined(separator: ", "))")
+    }
+
+    /// ライブラリの行から遷移して 1 画面撮り、必ずライブラリ直下へ戻す。
+    /// 1 画面の失敗で後続が全部落ちないよう、待てなければ記録して戻るだけにする。
+    /// `dependents` は `drillDown` がさらに潜って撮る画面。ここで先に抜けると `drillDown` へ届かず、
+    /// その名前が未撮影の記録から漏れるので、撮影はせず記録だけ肩代わりする。
+    @MainActor
+    private func captureLibraryChild(
+        row: String, title: String, screen: String, dependents: [String] = [],
+        then drillDown: (() -> Void)? = nil
+    ) {
+        guard app.buttons["library.account"].waitForExistence(timeout: 10) else {
+            skippedScreens += [screen] + dependents
+            return
+        }
+        let routeNames = [
+            "アーティスト": "artists", "プレイリスト": "playlists", "ジャンル": "genres", "曲": "songs", "お気に入りの曲": "favorites",
+        ]
+        app.buttons["library.\(routeNames[row] ?? row)"].tap()
+        guard element(.navigationBar, title).waitForExistence(timeout: 20) else {
+            skippedScreens += [screen] + dependents
+            goBackToLibrary()
+            return
+        }
+        waitForCatalogScan()
+        settle()
+        capture(screen)
+        drillDown?()
+        goBackToLibrary()
+    }
+
+    /// アーティスト一覧からアルバムを持つ 1 件を開いて詳細を撮る。戻りは `goBackToLibrary` の多段 pop に任せる。
+    /// 先頭固定にすると、アルバムを持たないアーティストの空のグリッドが撮れたまま撮影が通ってしまう。
+    @MainActor
+    private func captureArtistDetail() {
+        let artists = app.cells
+        guard artists.firstMatch.waitForExistence(timeout: 20) else {
+            skippedScreens.append("artist")
+            return
+        }
+        let card = app.buttons["album.card"].firstMatch
+        let empty = element(.staticText, "アルバムがありません")
+        // 一覧に見えている範囲だけ試す。全件当たっても見つからないなら撮影データ側の問題なので落とす。
+        for index in 0..<min(artists.count, 8) {
+            let artist = artists.element(boundBy: index)
+            guard artist.exists else { break }
+            artist.tap()
+
+            // 詳細の navigationTitle はアーティスト名で事前に分からないので、戻るボタンの文字で到達を判定する。
+            let back = app.navigationBars.buttons["Artists"]
+            guard back.waitForExistence(timeout: 20) else {
+                skippedScreens.append("artist")
+                return
+            }
+            // 読込中は空と見分けが付かないので、グリッドか「アルバムがありません」のどちらかが出るまで待つ。
+            _ = waitForAny([card, empty], timeout: 20)
+            if card.exists {
+                settle()
+                capture("artist")
+                return
+            }
+            back.tap()
+            _ = artists.firstMatch.waitForExistence(timeout: 10)
+        }
+        XCTFail("アルバムを持つアーティストが見つからず、artist 画面を撮れなかった")
+        skippedScreens.append("artist")
+    }
+
+    /// プレイリスト一覧の先頭を開いて詳細を撮る。戻りは `goBackToLibrary` の多段 pop に任せる。
+    /// `continueAfterFailure` が true なので、待てなかったときは `XCTFail` だけでは止まらない。
+    /// 0 件・0 曲の画面を代用として残さないよう、どの失敗も `guard` で必ず抜ける。
+    @MainActor
+    private func capturePlaylistDetail() {
+        let row = app.buttons["playlist.row"].firstMatch
+        guard row.waitForExistence(timeout: 20) else {
+            XCTFail("プレイリストが 1 件も読み込まれず、playlist 画面を撮れなかった")
+            skippedScreens.append("playlist")
+            return
+        }
+        row.tap()
+
+        // 「再生」は一覧にも在るので到達の証拠にしない。題名の出現と一覧の消失で確かめる。
+        let detail = app.staticTexts["playlist.detail"]
+        guard detail.waitForExistence(timeout: 20), waitForDisappearance(of: row, timeout: 10) else {
+            XCTFail("プレイリスト詳細へ遷移しなかった")
+            skippedScreens.append("playlist")
+            return
+        }
+        // 曲が出るまで待たないと、読込中の空の一覧が撮れてしまう。
+        guard app.buttons["playlist.track"].firstMatch.waitForExistence(timeout: 20) else {
+            XCTFail("プレイリストの曲が 1 件も出ず、playlist 画面を撮れなかった")
+            skippedScreens.append("playlist")
+            return
+        }
+        settle()
+        // ここで再生を始めると後続のアルバム・プレイヤー撮影の状態が変わるので、撮るだけで戻る。
+        capture("playlist")
+    }
+
+    /// 収録曲が 2 曲以上あるアルバムを探して開き、その詳細の「再生」を返す。
+    /// `queue` の待機曲は「再生した曲より後ろに曲があること」でしか作れないので、曲数は**開いて数える**。
+    /// 一覧のカードからは曲数が読めず、名前や並び順から推測すると 1 曲のアルバムを引いたときに黙って空になる。
+    /// 見つからなければ `nil` を返すが、**その場合も先頭のアルバム詳細を開いた状態で返す**。
+    /// 呼び出し側はそこの「再生」で従来どおり 4 画面を撮り切れる（撮影を落とさないためのフォールバック）。
+    @MainActor
+    private func openAlbumWithUpcomingTracks(maxAlbums: Int = 6) -> XCUIElement? {
+        guard goBackToAlbums() else {
+            XCTFail("アルバム一覧へ戻れず、再生元のアルバムを選べなかった")
+            return nil
+        }
+        let cards = app.buttons.matching(identifier: "album.card")
+        // 先頭も候補に入れる。1 曲だと分かっていても、決め打ちにすると撮影データが変わったとき黙ってずれる。
+        for index in 0..<min(cards.count, maxAlbums) {
+            let card = cards.element(boundBy: index)
+            guard card.exists else { break }
+            card.tap()
+            guard let play = waitForLoadedAlbumDetail() else {
+                guard goBackToAlbums() else { return nil }
+                continue
+            }
+            // 再生した 1 曲目の後ろに 1 曲でも残れば待機曲が出る。
+            if app.buttons.matching(identifier: "album.track").count >= 2 { return play }
+            guard goBackToAlbums() else { return nil }
+        }
+
+        XCTFail("収録曲が 2 曲以上のアルバムが見つからず、queue に待機曲を出せない")
+        // 見つからなくても 4 画面は撮り切る。空の `queue` でも、撮れない 4 枚より欠落が少ない。
+        let first = app.buttons["album.card"].firstMatch
+        if first.exists {
+            first.tap()
+            _ = waitForLoadedAlbumDetail()
+        }
+        return nil
+    }
+
+    /// アルバム詳細が開き、収録曲の読込が終わって「再生」が押せるようになるまで待つ。
+    /// 読込中は「再生」が無効で曲行も 0 件なので、ここを待たずに数えると 2 曲以上でも 1 曲以下に見える。
+    @MainActor
+    private func waitForLoadedAlbumDetail() -> XCUIElement? {
+        guard app.staticTexts["album.detail"].waitForExistence(timeout: 20) else { return nil }
+        let play = element(.button, "再生")
+        guard play.waitForExistence(timeout: 10) else { return nil }
+        _ = XCTWaiter.wait(
+            for: [expectation(for: NSPredicate(format: "isEnabled == true"), evaluatedWith: play)],
+            timeout: 20)
+        return play.isEnabled ? play : nil
+    }
+
+    /// アルバム詳細からアルバム一覧へ戻す。既に一覧なら何もしない。
+    @MainActor
+    private func goBackToAlbums() -> Bool {
+        let cards = app.buttons["album.card"].firstMatch
+        var attempts = 0
+        while !cards.exists, attempts < 3 {
+            let back = app.navigationBars.buttons.firstMatch
+            guard back.exists else { break }
+            back.tap()
+            attempts += 1
+            settle()
+        }
+        return cards.waitForExistence(timeout: 10)
+    }
+
+    /// 検索タブの中の遷移を 2 枚撮る。ライブラリ経由の `albums` や入力前の `search-idle` では、
+    /// 「押した直後に largeTitle と検索欄が出るか」「戻った直後に `.inlineLarge` へ復帰するか」を確かめられない。
+    @MainActor
+    private func captureSearchPush() {
+        let tiles = app.scrollViews.buttons
+        guard tiles.firstMatch.waitForExistence(timeout: 20) else {
+            XCTFail("検索のジャンルタイルが 1 件も出ず、search-push 画面を撮れなかった")
+            skippedScreens += ["search-push", "search-pop"]
+            return
+        }
+        // 遷移先にもスクロール内のボタンが在るので、firstMatch では戻りを判定できない。押した札を覚えておく。
+        let genre = tiles.firstMatch.label
+        tiles.firstMatch.tap()
+
+        // 遷移先の navigationTitle はジャンル名で事前に分からないので、戻るボタンの文字で到達を判定する。
+        let back = app.navigationBars.buttons["Search"]
+        guard back.waitForExistence(timeout: 20) else {
+            XCTFail("検索のタイルからアルバム一覧へ遷移しなかった")
+            skippedScreens += ["search-push", "search-pop"]
+            return
+        }
+        // 読込中の空のグリッドを代用として残さないよう、カードが出るまで待つ。
+        guard app.buttons["album.card"].firstMatch.waitForExistence(timeout: 20) else {
+            XCTFail("ジャンルのアルバムが 1 件も出ず、search-push 画面を撮れなかった")
+            skippedScreens += ["search-push", "search-pop"]
+            return
+        }
+        settle()
+        capture("search-push")
+
+        back.tap()
+        guard tiles[genre].waitForExistence(timeout: 20) else {
+            XCTFail("検索のルートへ戻れず、search-pop 画面を撮れなかった")
+            skippedScreens.append("search-pop")
+            return
+        }
+        settle()
+        capture("search-pop")
+    }
+
+    /// ジャンルは全アルバムを読み切るまで進行表示になる。読込中の画面を撮らないよう待つ。
+    @MainActor
+    private func waitForCatalogScan() {
+        let progress = element(.staticText, "すべてのアルバムを確認中…")
+        let deadline = Date(timeIntervalSinceNow: 60)
+        while progress.exists, Date() < deadline {
+            RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.5))
+        }
+    }
+
+    /// ライブラリ直下まで戻す。詳細まで潜っている場合があるので複数回 pop する。
+    @MainActor
+    private func goBackToLibrary() {
+        var attempts = 0
+        while !app.buttons["library.account"].exists, attempts < 3 {
+            let back = app.navigationBars.buttons.firstMatch
+            guard back.exists else { break }
+            back.tap()
+            attempts += 1
+            settle()
+        }
     }
 
     /// ログイン画面だったらデモサーバーへログインしてから進む。
     @MainActor
     private func ensureSignedIn() {
-        let settings = app.buttons["設定"]
-        let connect = app.buttons["接続"]
+        let settings = element(.button, "アカウント")
+        let connect = element(.button, "接続")
         guard waitForAny([settings, connect], timeout: 20) else {
             XCTFail("起動後にホームもログイン画面も表示されなかった")
             return
@@ -241,7 +524,7 @@ final class CaptureScreensUITests: XCTestCase {
 
         enterServerURL()
         connect.tap()
-        guard app.buttons["サーバーを変更"].waitForExistence(timeout: 20) else {
+        guard element(.button, "サーバーを変更").waitForExistence(timeout: 20) else {
             XCTFail("デモサーバーに接続できなかった")
             return
         }
@@ -249,7 +532,7 @@ final class CaptureScreensUITests: XCTestCase {
         XCTAssertTrue(settings.waitForExistence(timeout: 20), "デモサーバーにログインできなかった")
     }
 
-    /// 先頭曲を再生し、ミニプレイヤー → フルプレイヤー（アートワーク／歌詞／次に再生）を撮る。
+    /// 渡された「再生」からアルバムを再生し、ミニプレイヤー → フルプレイヤー（アートワーク／歌詞／次に再生）を撮る。
     /// ストリーミングが始まらなければ 4 画面まとめてスキップし、後続の検索へ進む。
     @MainActor
     private func capturePlayerScreens(playButton: XCUIElement) {
@@ -261,13 +544,13 @@ final class CaptureScreensUITests: XCTestCase {
         playButton.tap()
 
         // 再生が始まるとミニプレイヤーの再生ボタンが「一時停止」になる。
-        let pause = app.buttons["一時停止"]
+        let pause = element(.button, "一時停止")
         guard pause.waitForExistence(timeout: 20), isRunning else {
             skippedScreens += playerScreens
             return
         }
         // ミニプレイヤーはタブバー付属のアクセサリなのでどのタブでも見える。アルバム詳細のまま撮る。
-        let openPlayer = app.buttons.matching(NSPredicate(format: "label ENDSWITH 'プレイヤーを開く'")).firstMatch
+        let openPlayer = app.buttons.matching(NSPredicate(format: "label ENDSWITH 'Open Player'")).firstMatch
         guard openPlayer.waitForExistence(timeout: 10), isRunning else {
             skippedScreens += playerScreens
             return
@@ -276,8 +559,10 @@ final class CaptureScreensUITests: XCTestCase {
         capture("miniplayer")
 
         openPlayer.tap()
-        let close = app.buttons["プレイヤーを閉じる"]
-        guard close.waitForExistence(timeout: 10), isRunning else {
+        // 閉じるボタンは廃止された。下部のモード切替「歌詞」はどのモードでも常に出ていて
+        // ミニプレイヤーにもブラウズ画面にも無いため、フルプレイヤー到達の判定に使える。
+        let lyricsButton = element(.button, "歌詞")
+        guard lyricsButton.waitForExistence(timeout: 10), isRunning else {
             skippedScreens += playerScreens.dropFirst()
             return
         }
@@ -288,7 +573,7 @@ final class CaptureScreensUITests: XCTestCase {
             skippedScreens += ["lyrics", "queue"]
             return
         }
-        app.buttons["歌詞"].tap()
+        lyricsButton.tap()
         settle()
         capture("lyrics")
 
@@ -296,14 +581,31 @@ final class CaptureScreensUITests: XCTestCase {
             skippedScreens.append("queue")
             return
         }
-        app.buttons["次に再生"].tap()
+        element(.button, "次に再生").tap()
         settle()
         capture("queue")
 
         guard isRunning else { return }
-        close.tap()
-        _ = XCTWaiter.wait(
-            for: [expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: close)], timeout: 5)
+        // 背後はアルバム詳細なので、その「再生」が再び押せるようになったら閉じたとみなす。
+        if !dismissSheet(revealing: playButton) {
+            skippedScreens.append("nowplaying-dismiss")
+        }
+    }
+
+    /// sheet を下スワイプで閉じ、背後の要素が押せる状態に戻るまで待つ。
+    /// 閉じられなくても無限に粘らず、呼び出し側が次へ進めるよう成否だけ返す。
+    @MainActor
+    private func dismissSheet(revealing target: XCUIElement, attempts maxAttempts: Int = 3) -> Bool {
+        var attempts = 0
+        while !target.isHittable, attempts < maxAttempts, isRunning {
+            // sheet の上端を掴んで下まで引く。中央からの swipeDown では中身がスクロールするだけで閉じない。
+            let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.08))
+            let end = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.97))
+            start.press(forDuration: 0.05, thenDragTo: end)
+            settle()
+            attempts += 1
+        }
+        return target.isHittable
     }
 
     @MainActor
@@ -322,7 +624,9 @@ final class CaptureScreensUITests: XCTestCase {
     /// まず「Close」で元に戻してから目的のタブを押す。
     @MainActor
     private func selectTab(_ title: String) {
-        let tab = app.tabBars.buttons[title]
+        let labels = ["ホーム": "Home", "ライブラリ": "Library", "検索": "Search"]
+        let localizedTitle = labels[title] ?? title
+        let tab = app.tabBars.buttons[localizedTitle]
         if !tab.exists {
             let closeSearch = app.tabBars.buttons["Close"]
             if closeSearch.exists { closeSearch.tap() }
@@ -330,7 +634,7 @@ final class CaptureScreensUITests: XCTestCase {
         if tab.waitForExistence(timeout: 5) {
             tab.tap()
         } else {
-            app.buttons[title].firstMatch.tap()
+            app.buttons[localizedTitle].firstMatch.tap()
         }
     }
 
@@ -347,6 +651,17 @@ final class CaptureScreensUITests: XCTestCase {
         return elements.contains(where: { $0.exists })
     }
 
+    /// 要素が消えるまで待つ。同じ文言のボタンが遷移元にもある画面で、遷移の成否を確かめるのに使う。
+    @MainActor
+    private func waitForDisappearance(of element: XCUIElement, timeout: TimeInterval) -> Bool {
+        let deadline = Date(timeIntervalSinceNow: timeout)
+        while Date() < deadline {
+            if !element.exists { return true }
+            RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.5))
+        }
+        return !element.exists
+    }
+
     /// キーボードに隠れているときはスクロールして押せる位置に出す。
     @MainActor
     private func tapScrollingIntoView(_ element: XCUIElement) {
@@ -361,7 +676,7 @@ final class CaptureScreensUITests: XCTestCase {
     /// シミュレータ初回のキーボード説明（Continue）が出ていれば閉じる。出たままだと入力が届かない。
     @MainActor
     private func dismissKeyboardTutorial() {
-        let tutorialContinue = app.buttons["Continue"]
+        let tutorialContinue = element(.button, "Continue")
         if tutorialContinue.waitForExistence(timeout: 1) { tutorialContinue.tap() }
     }
 
