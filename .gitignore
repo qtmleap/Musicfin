@@ -29,6 +29,10 @@ Package.resolved
 ## CI のローカル実行 (act)
 build.log
 
+## Python (scripts/ のツール)
+__pycache__/
+.venv/
+
 ## Node (commitlint をローカルで動かす場合)
 node_modules/
 
@@ -43,6 +47,15 @@ node_modules/
 docs/screenshots/light/
 docs/screenshots/dark/
 docs/screenshots/manifest.json
+docs/screenshots/baseline/
+
+## Apple 配布のスクリーンショットを比較用に置く場所。再配布しないため追跡しない
+docs/screenshots/reference/
+
+## 撮り直しのたびに入れ替わる比較用の出力。reference との差分を見るためだけのもの
+docs/screenshots/current/
+docs/screenshots/previous/
+docs/screenshots/comparison/
 
 ## fastlane（README.md は毎回自動生成される。手順書は fastlane/SETUP.md）
 fastlane/README.md
