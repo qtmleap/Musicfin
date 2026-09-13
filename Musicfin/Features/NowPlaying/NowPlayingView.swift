@@ -12,7 +12,6 @@ struct NowPlayingView: View {
     @Environment(LibraryStore.self) private var library
     @Environment(PlaybackEngine.self) private var player
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.dismiss) private var dismiss
     @ScaledMetric(relativeTo: .title2) private var minimumTitleHeight = 76.0
     @ScaledMetric(relativeTo: .caption) private var minimumSeekHeight = 64.0
 
@@ -20,6 +19,9 @@ struct NowPlayingView: View {
     /// 抑止を掛けるのは sheet を出している `RootView` 側なので、この状態だけ外に持たせて共有する。
     /// 再生側の状態ではないので `PlaybackEngine` には置かない。
     @Binding var isScrubbing: Bool
+    /// 閉じる経路。iPhone は UIKit のカスタム提示なので SwiftUI の `dismiss` が届かず、
+    /// 提示している側の状態を落としてもらうしかない（仕様 4.1.1 章）。
+    let close: () -> Void
 
     @State private var mode: ContentMode = .artwork
     @State private var scrubTime = 0.0
@@ -122,7 +124,7 @@ struct NowPlayingView: View {
         .tint(.pink)
         // 閉じるボタンは置かない方針（仕様 4 章）なので、下スワイプの届かない VoiceOver へ
         // エスケープ操作だけは自前で用意する（仕様 4.1 章）。
-        .accessibilityAction(.escape) { dismiss() }
+        .accessibilityAction(.escape) { close() }
         .task(id: player.currentItem?.id) {
             isScrubbing = false
             favoriteTrack = player.currentItem
@@ -520,7 +522,8 @@ private struct SeekGesture: UIGestureRecognizerRepresentable {
 /// 横ドラッグだけをシークとして成立させ、縦ドラッグは認識を**失敗**させてスクロールへ渡す（仕様 4.2 章）。
 /// SwiftUI の `DragGesture` を使わないのは、`onChanged` で更新を止めても成立済みの認識は残り、
 /// 本文の縦スクロールを奪ったままになるため。失敗へ落とせるのは UIKit 側の認識器だけ。
-private final class SeekGestureRecognizer: UIGestureRecognizer {
+/// `private` にしないのは、終了 pan がこの型の失敗を待つ依存を作るため（仕様 4.1.1 章）。
+final class SeekGestureRecognizer: UIGestureRecognizer {
     /// 方向を判定するまでの待機量と、横と認める比。**このアプリの操作上の決定値**であり、
     /// Apple Music の実測値でも `ScrollView` の内部しきい値でもない（仕様 4.2 章）。
     private static let decisionDistance: CGFloat = 10
@@ -573,6 +576,14 @@ private final class SeekGestureRecognizer: UIGestureRecognizer {
     override func reset() {
         super.reset()
         origin = nil
+    }
+
+    /// 外側の `ScrollView` にシークの失敗を待たせる。横シークが成立したあと指が縦へ流れても
+    /// 本文へ渡らないようにするためで、依存を作るのはこの 1 方向だけ（仕様 4.2 章）。
+    /// この認識器はシークバーの当たり判定にしか付いていないので、領域の限定は掛け直さない。
+    override func shouldBeRequiredToFail(by other: UIGestureRecognizer) -> Bool {
+        guard let scrollView = other.view as? UIScrollView else { return false }
+        return other === scrollView.panGestureRecognizer
     }
 }
 
@@ -697,7 +708,7 @@ private struct AudioRouteView: UIViewRepresentable {
 }
 
 #Preview {
-    NowPlayingView(isScrubbing: .constant(false))
+    NowPlayingView(isScrubbing: .constant(false), close: {})
         .environment(AuthStore())
         .environment(LibraryStore())
         .environment(PlaybackEngine())
