@@ -2,6 +2,8 @@ import XCTest
 
 /// 主要画面を同じ手順で撮影し、`docs/screenshots/manifest.json`（スクリプトが生成）経由で比較できるようにする。
 /// 保存先は `MUSICFIN_SHOT_DIR` で受け取る。
+/// 文字サイズは `MUSICFIN_CONTENT_SIZE` で受け取る（例 `UICTContentSizeCategoryAccessibilityXXXL`）。
+/// 未指定なら Simulator の既定サイズのままにする。
 /// アプリ本体に `accessibilityIdentifier` を足さず、表示ラベルだけで操作する。
 final class CaptureScreensUITests: XCTestCase {
     private static let demoServerURL = "https://demo.jellyfin.org/stable"
@@ -11,6 +13,8 @@ final class CaptureScreensUITests: XCTestCase {
     // クラス自体を MainActor にすると XCTestCase の nonisolated な override と衝突する。
     private var app: XCUIApplication!
     private var shotDirectory: URL?
+    /// `UICTContentSizeCategory…` の名前をそのまま持つ。未指定なら nil。
+    private var contentSizeCategory: String?
     private var capturedNames: Set<String> = []
     private var skippedScreens: [String] = []
 
@@ -37,12 +41,20 @@ final class CaptureScreensUITests: XCTestCase {
         if let directory = environment["MUSICFIN_SHOT_DIR"], !directory.isEmpty {
             shotDirectory = URL(fileURLWithPath: directory, isDirectory: true)
         }
+        if let category = environment["MUSICFIN_CONTENT_SIZE"], !category.isEmpty {
+            contentSizeCategory = category
+        }
     }
 
     @MainActor
     private func launchApp() {
         app = XCUIApplication()
         app.launchEnvironment["MUSICFIN_SHOT_DIR"] = shotDirectory?.path ?? ""
+        // 文字サイズは起動引数でしか差し替えられない（Simulator 全体の設定を触らずに済む）。
+        // 未指定のときは引数ごと足さないので、既定の撮影は今までと同じ経路を通る。
+        if let contentSizeCategory {
+            app.launchArguments += ["-UIPreferredContentSizeCategoryName", contentSizeCategory]
+        }
         app.launch()
     }
 
@@ -229,19 +241,14 @@ final class CaptureScreensUITests: XCTestCase {
         settle()
         capture("albums")
 
-        firstAlbum.tap()
-        let play = element(.button, "再生")
-        XCTAssertTrue(play.waitForExistence(timeout: 10), "アルバム詳細が表示されなかった")
-        // 「再生」は一覧にもあるので、遷移そのものをカードの消失で確かめる。
-        XCTAssertTrue(
-            waitForDisappearance(of: firstAlbum, timeout: 10), "アルバム詳細へ遷移しなかった")
-        // 収録曲の読込が終わるまで「再生」は無効なので、有効化を待つ。
-        _ = XCTWaiter.wait(
-            for: [expectation(for: NSPredicate(format: "isEnabled == true"), evaluatedWith: play)], timeout: 20)
+        // 曲行が 2 行以上あるアルバムを開く。1 行しか写らないと、トラック番号の出方も
+        // ディスク→番号の並び順も比べる相手がいない（仕様 7.3 章）。
+        // 見つからないときは先頭のアルバムが開いた状態で返るので、今までどおり撮って先へ進む。
+        let play = openAlbum(minimumTracks: 2) ?? element(.button, "再生")
+        XCTAssertTrue(play.waitForExistence(timeout: 20), "アルバム詳細が表示されなかった")
         // 再生中の行に出るイコライザは鳴らさないと写らないので、1 曲目を再生してから撮る（仕様 2 章）。
-        // 1 曲だけのアルバムなので、行は再生後も画面の上のほうに残る。
         let firstTrack = app.buttons["album.track"].firstMatch
-        if firstTrack.waitForExistence(timeout: 10) {
+        if firstTrack.waitForExistence(timeout: 20) {
             firstTrack.tap()
             // ミニプレイヤーが出るまで待つ。先に撮ると行の色も棒も再生前のままになる。
             XCTAssertTrue(element(.button, "一時停止").waitForExistence(timeout: 40), "再生が始まらず album を再生中で撮れない")
@@ -405,23 +412,32 @@ final class CaptureScreensUITests: XCTestCase {
             XCTFail("アルバム一覧へ戻れず、再生元のアルバムを選べなかった")
             return nil
         }
+        // 再生した 1 曲目の後ろに 1 曲でも残れば待機曲が出る。
+        if let play = openAlbum(minimumTracks: 2, maxAlbums: maxAlbums) { return play }
+        XCTFail("収録曲が 2 曲以上のアルバムが見つからず、queue に待機曲を出せない")
+        // 見つからなくても 4 画面は撮り切る。空の `queue` でも、撮れない 4 枚より欠落が少ない。
+        return nil
+    }
+
+    /// 曲行が `minimumTracks` 以上あるアルバムを開き、その詳細の「再生」を返す。
+    /// アルバム一覧に居ることが前提。見つからなければ**先頭のアルバムを開いたうえで** nil を返すので、
+    /// 呼び出し側は撮影を諦めずに済む。デモサーバーの中身は変わり得るので、条件を満たす保証はない。
+    @MainActor
+    private func openAlbum(minimumTracks: Int, maxAlbums: Int = 8) -> XCUIElement? {
         let cards = app.buttons.matching(identifier: "album.card")
         // 先頭も候補に入れる。1 曲だと分かっていても、決め打ちにすると撮影データが変わったとき黙ってずれる。
         for index in 0..<min(cards.count, maxAlbums) {
             let card = cards.element(boundBy: index)
             guard card.exists else { break }
             card.tap()
-            guard let play = waitForLoadedAlbumDetail() else {
-                guard goBackToAlbums() else { return nil }
-                continue
+            if let play = waitForLoadedAlbumDetail(),
+                app.buttons.matching(identifier: "album.track").count >= minimumTracks
+            {
+                return play
             }
-            // 再生した 1 曲目の後ろに 1 曲でも残れば待機曲が出る。
-            if app.buttons.matching(identifier: "album.track").count >= 2 { return play }
             guard goBackToAlbums() else { return nil }
         }
 
-        XCTFail("収録曲が 2 曲以上のアルバムが見つからず、queue に待機曲を出せない")
-        // 見つからなくても 4 画面は撮り切る。空の `queue` でも、撮れない 4 枚より欠落が少ない。
         let first = app.buttons["album.card"].firstMatch
         if first.exists {
             first.tap()
