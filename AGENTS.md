@@ -13,8 +13,9 @@ branches), Swift 6.2, `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`.
 - **Comments are written in Japanese.** Say **why**, not **what**, and match the
   density of the surrounding file.
 - Add `nonisolated` to file-scope `extension`s where it is needed.
-- Commit messages follow Conventional Commits (`.commitlintrc.yaml`); **the body
-  is written in Japanese.**
+- Commit messages follow Conventional Commits (`.commitlintrc.yaml`) and are
+  **written entirely in English**, subject and body alike. This is the one place
+  where the language rule differs from code comments, which stay Japanese.
 - Formatting is `.swift-format` — `swift-format lint --strict` must pass.
 
 ## Build and verify
