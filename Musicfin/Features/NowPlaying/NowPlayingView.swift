@@ -24,12 +24,16 @@ struct NowPlayingView: View {
     let close: () -> Void
 
     @State private var mode: ContentMode = .artwork
+    /// 上部の切り替えが動いている間だけ true。歌詞の初回位置合わせをここが下りるまで待たせる（仕様 5.1 章）。
+    /// 上部が動いている最中に本文まで自分でスクロールすると、二つの動きが重なって読む位置を見失う。
+    @State private var isTopTransitioning = false
+    /// 切り替えごとに増やす世代。連打したとき、古い切り替えの完了処理が後から届いて
+    /// 新しい遷移の途中で待ちを解いてしまうのを防ぐ。
+    @State private var transitionGeneration = 0
     @State private var scrubTime = 0.0
     /// キュー内の `MediaItem` はお気に入りの変更を追わないので、サーバーの確定値をここに持つ。
     @State private var favoriteTrack: MediaItem?
     @State private var isUpdatingFavorite = false
-    /// アートワークと曲情報を状態間で繋ぐための名前空間。差し替えではなく位置で動かす（仕様 5.1 章）。
-    @Namespace private var transition
 
     /// 提示領域の上端からアートワークまで 35 pt（仕様 4 章）。
     /// もとは自前のグラバー（上余白 10 ＋ 高さ 5）の下端から 20 という組み立てだったが、
@@ -43,6 +47,11 @@ struct NowPlayingView: View {
     private static func mediaHeight(forArtworkSide side: CGFloat) -> CGFloat {
         side + artworkTopInset + artworkBottomInset
     }
+    /// 3 状態の切り替え（仕様 5.1 章）。`.snappy` は `extraBounce: 0` を渡しても基礎の弾みが残り、
+    /// 縮みながら動く画像だと行き過ぎて戻る揺れが見えるので使わない。
+    /// **0.35 秒は Musicfin の決定値で、Apple 実機を実測した値ではない。**
+    private static let modeTransition: Animation = .smooth(duration: 0.35, extraBounce: 0)
+
     /// 配色を取り出すためだけに頼む画像の一辺。画面に出す大きさとは別に決める。
     /// 走査は 32×32 まで縮めてから行うので大きな画像は要らず、一方で画面側の一辺は
     /// `GeometryReader` の中でしか決まらないため、ここから同じ値を渡してキャッシュを共有できない。
@@ -72,46 +81,29 @@ struct NowPlayingView: View {
                 titleMinimum: minimumTitleHeight,
                 seekMinimum: minimumSeekHeight
             )
-            // 歌詞・キューは自前でスクロールするので、外側の `ScrollView` ごと構成を切り替える（仕様 5.1 章）。
-            if mode == .artwork {
-                ScrollView {
-                    VStack(spacing: 0) {
-                        artwork(width: artworkSide, height: layout.media)
-                            .frame(height: layout.media)
-                            .clipped()
-                        titleRow.frame(height: layout.title)
-                        seekControls.frame(height: layout.seek)
-                        transport.frame(height: layout.transport)
-                        // 音量は帯の下端へ、下部の記号は帯の上端へ寄せる。この 2 つを中央に置いたままだと
-                        // 音量記号から選択円までが (volume + bottom) / 2 で決まってしまい、
-                        // 最小値だけで目標を 15 pt 超えるので比率をいくら下げても届かない（仕様 4 章）。
-                        // 寄せるのは 44 pt の操作行ごとで、記号だけを動かすのではない。
-                        volumeRow.frame(height: layout.volume, alignment: .bottom)
-                        bottomControls(palette: palette).frame(height: layout.bottom, alignment: .top)
-                    }
-                    .padding(.horizontal, 24)
-                }
-                .scrollBounceBehavior(.basedOnSize)
-                .scrollIndicators(.hidden)
-            } else {
+            // 外側の `ScrollView` も、シーク以降の 4 帯も **3 状態で同じものを使い回す**（仕様 5.1 章）。
+            // 以前は状態ごとに構成ごと組み替えていたが、それだと外側が入れ替わるたびに操作帯まで
+            // 挿入・削除として消えて現れ、上部が動く裏で画面全体がちらつく。
+            // 組み替えるのは上部の配置だけにする。
+            ScrollView {
                 VStack(spacing: 0) {
-                    // 本文が占めるのはメディア領域と曲名行を合わせた上部だけ（仕様 5.1 章）。
-                    // 高さを固定して残り 4 つの帯を押し下げさせないので、あふれたぶんは本文側が自分でスクロールする。
-                    VStack(spacing: 0) {
-                        compactHeader
-                        detail.frame(maxWidth: .infinity, maxHeight: .infinity)
-                    }
-                    .frame(height: layout.media + layout.title)
-                    .clipped()
-                    // 以下 4 つはアートワーク状態と同じ順・同じ高さ・同じ縦揃えで並べる。
-                    // 帯も揃えも同一なので、3 状態で記号の縦位置が一致する（仕様 5.1 章）。
+                    topArea(artworkSide: artworkSide, layout: layout)
                     seekControls.frame(height: layout.seek)
                     transport.frame(height: layout.transport)
+                    // 音量は帯の下端へ、下部の記号は帯の上端へ寄せる。この 2 つを中央に置いたままだと
+                    // 音量記号から選択円までが (volume + bottom) / 2 で決まってしまい、
+                    // 最小値だけで目標を 15 pt 超えるので比率をいくら下げても届かない（仕様 4 章）。
+                    // 寄せるのは 44 pt の操作行ごとで、記号だけを動かすのではない。
                     volumeRow.frame(height: layout.volume, alignment: .bottom)
                     bottomControls(palette: palette).frame(height: layout.bottom, alignment: .top)
                 }
                 .padding(.horizontal, 24)
             }
+            // 中身は通常ちょうど画面の高さなので、ここは余分に動かない。文字を大きくして
+            // 入り切らなくなったときだけ操作部へ届く退避先になる（仕様 5.1 章）。
+            // **`.scrollDisabled(true)` は付けない。**内側の歌詞・キューの本文まで無効化が伝わる。
+            .scrollBounceBehavior(.basedOnSize)
+            .scrollIndicators(.hidden)
         }
         // iPad では 560pt を目安にした中央の sheet にする（6 章）。
         .frame(idealWidth: 560, maxWidth: .infinity, idealHeight: 800)
@@ -159,22 +151,77 @@ struct NowPlayingView: View {
 
     // MARK: - アートワーク / 歌詞 / キュー
 
-    /// アートワーク状態の大きな正方形。基準は幅いっぱいで、帯の高さが足りないときだけ縮める（仕様 4 章）。
-    /// 帯のほうは `PlayerLayout` が一辺を先に確保しに行くので、通常は `width` で決まる。
-    private func artwork(width: CGFloat, height: CGFloat) -> some View {
-        let available = height - Self.artworkTopInset - Self.artworkBottomInset
-        return artworkImage(size: max(1, min(width, available)), cornerRadius: 20)
-            // 停止中は 90% に縮めて「止まっている」ことを形で示す。視差効果を減らす設定なら固定。
-            .scaleEffect(reduceMotion || player.isPlaying ? 1 : 0.9)
-            .animation(reduceMotion ? nil : .spring(duration: 0.4, bounce: 0.2), value: player.isPlaying)
-            // 影は無彩色に替えるのではなく付けない。画像そのものを見せる（仕様 1.1 章）。
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            .padding(.top, Self.artworkTopInset)
+    /// メディア領域と曲情報行を合わせた上部。**切り替えるのはここの配置だけ**で、高さは 3 状態で同じ（仕様 5.1 章）。
+    /// 高さを固定して下の 4 帯を押し下げさせないので、あふれたぶんは歌詞・キューが自分でスクロールする。
+    /// クリップを掛けるのはこの境界だけにする。内側で切ると、縮みながら動く画像が
+    /// 経路の途中で切り落とされて、消えてから現れたように見える。
+    ///
+    /// 子は **5 つを常に同じ順序で並べ、`if` / `else` で作り分けない**。状態で変えるのは
+    /// `PlayerTopLayout` に渡す `progress` だけなので、画像も曲名も状態ごとに別の View へ
+    /// 差し替わらず、遷移の途中で 2 つ写ることがない（仕様 5.1 章）。
+    /// 明示的なフェードを足すのは歌詞・キューの本文だけ。
+    private func topArea(artworkSide: CGFloat, layout: PlayerLayout) -> some View {
+        // 基準は幅いっぱいで、帯の高さが足りないときだけ縮める（仕様 4 章）。
+        // 帯のほうは `PlayerLayout` が一辺を先に確保しに行くので、通常は `artworkSide` で決まる。
+        let bigSide = max(1, min(artworkSide, layout.media - Self.artworkTopInset - Self.artworkBottomInset))
+        return PlayerTopLayout(
+            progress: mode == .artwork ? 0 : 1,
+            bigArtworkSide: bigSide,
+            artworkTop: Self.artworkTopInset,
+            mediaHeight: layout.media,
+            titleHeight: layout.title,
+            hasArtist: !(player.currentItem?.displayArtist ?? "").isEmpty
+        ) {
+            // 並び順は `PlayerTopLayout` の添字と対応する。本文を最初に置くのは、
+            // 縮んでいく画像が本文の領域を通る間、画像が上に来て文字と重なって見えないようにするため。
+            detailSlot
+            artworkSlot(bigSide: bigSide)
+            songTitle
+            songArtist
+            favoriteButton
+        }
+        .frame(height: layout.media + layout.title)
+        .clipped()
     }
 
-    private func artworkImage(size: CGFloat, cornerRadius: CGFloat) -> some View {
-        ArtworkView(item: player.currentItem, size: size, cornerRadius: cornerRadius)
-            .matchedGeometryEffect(id: "artwork", in: transition)
+    /// アートワーク。**大きさも角丸も同じ View の上で変える**ので、状態を切り替えても
+    /// 画像の読み込みやプレースホルダーからのフェードは起き直らない（仕様 5.1 章）。
+    /// 一辺はレイアウトが提示した枠から読む。ここで状態を見て決めると、補間の途中の値を取れない。
+    private func artworkSlot(bigSide: CGFloat) -> some View {
+        GeometryReader { proxy in
+            let side = max(1, min(proxy.size.width, proxy.size.height))
+            ArtworkView(
+                item: player.currentItem,
+                size: side,
+                cornerRadius: Self.artworkCornerRadius(forSide: side, bigSide: bigSide)
+            )
+        }
+        // 停止中は 90% に縮めて「止まっている」ことを形で示す。視差効果を減らす設定なら固定。
+        // 72 pt まで縮んだ状態では掛けない。小さい画像でさらに縮めても止まっていることは伝わらず、
+        // 曲名との縦位置だけがずれる。
+        .scaleEffect(reduceMotion || player.isPlaying || mode != .artwork ? 1 : 0.9)
+        .animation(reduceMotion ? nil : .spring(duration: 0.4, bounce: 0.2), value: player.isPlaying)
+        // 影は無彩色に替えるのではなく付けない。画像そのものを見せる（仕様 1.1 章）。
+    }
+
+    /// 角丸は一辺に従わせる。72 pt で 8 pt、大画像で 20 pt（仕様 4 章・5.1 章）。
+    /// 20 pt のままで縮めると小さい画像の縁だけが不釣り合いに丸くなる。
+    private static func artworkCornerRadius(forSide side: CGFloat, bigSide: CGFloat) -> CGFloat {
+        let span = bigSide - PlayerTopLayout.compactArtworkSide
+        guard span > 0 else { return 20 }
+        let ratio = min(max((side - PlayerTopLayout.compactArtworkSide) / span, 0), 1)
+        return 8 + (20 - 8) * ratio
+    }
+
+    /// 本文の置き場。中身が無いアートワーク状態でも**子の数と順序を変えない**ために、
+    /// 透明な枠で場所だけ確保する（仕様 5.1 章）。
+    private var detailSlot: some View {
+        Color.clear
+            .overlay {
+                detail.transition(.opacity)
+            }
+            // アートワーク状態ではこの枠に大画像が重なるので、透明な枠に操作を吸わせない。
+            .allowsHitTesting(mode != .artwork)
     }
 
     /// 歌詞・キューの本体。アートワーク状態では出さない。
@@ -185,7 +232,8 @@ struct NowPlayingView: View {
             EmptyView()
         case .lyrics:
             if let track = player.currentItem {
-                LyricsView(track: track)
+                // 上部が動いている間は歌詞に位置合わせをさせない（仕様 5.1 章）。
+                LyricsView(track: track, isSettled: !isTopTransitioning)
                     .id(track.id)
             }
         case .queue:
@@ -195,61 +243,47 @@ struct NowPlayingView: View {
 
     // MARK: - 曲情報
 
-    /// 歌詞・キュー時の上部。72 pt のアートワークの右に曲名・アーティストを 2 行で並べ、
-    /// お気に入りは同じ行の右端に残す（仕様 5.1 章）。
-    private var compactHeader: some View {
-        HStack(spacing: 12) {
-            artworkImage(size: 72, cornerRadius: 8)
-            songInfo(compact: true)
-            favoriteButton
-        }
-        // 画像と曲名だけを外側の 24 pt より一段内側の 32 pt へ入れる。
-        // お気に入りは行の右端に残す指定（仕様 5.1 章）なので、右側には足さない。
-        .padding(.leading, 8)
-        // 大画像と違ってこちらは実測が 2.7 pt 大きかったので、共通の 35 ではなく 32 を使う。
-        // `artworkTopInset` を下げるとアートワーク状態の大画像の上端まで動いてしまい、そちらは一致済み。
-        .padding(.top, 32)
-        .padding(.bottom, 16)
-    }
-
-    private var titleRow: some View {
-        HStack(spacing: 12) {
-            songInfo(compact: false)
-            favoriteButton
-        }
-        // アートワークの 24 pt より一段内側の左右 32 pt へ入れる（仕様 4 章）。
-        .padding(.horizontal, 8)
-    }
-
     /// 曲名とアーティスト。歌詞・キューでは 72 pt のアートワーク横へ収まる大きさへ落とす。
-    /// 曲情報はアートワークと同じく位置のアニメーションで前後の状態を繋ぐ（仕様 5.1 章）ので、
-    /// `matchedGeometryEffect` は `.position` だけに絞る。既定では大きさも対応付けてしまい、
-    /// 全幅のアートワーク状態と、アートワーク・お気に入りを除いた狭い歌詞状態とが寸法を取り合って、
-    /// 文字の塊ごと横に伸び縮みして飛んで見えるため。
-    /// 付ける先を外側ではなく各 `Text` にするのも同じ理由で、幅を決める `frame` の内側であれば
-    /// 幅・揃えはそれぞれの状態のレイアウトに委ねたまま、位置だけが連続する。
+    /// 置き場所と幅は `PlayerTopLayout` が決めるので、ここは **leading 揃えのまま**にして
+    /// 揃えや余白で位置を繕わない（仕様 5.1 章）。
+    /// フォントの変更は `.contentTransition(.interpolate)` に補間させる。意味のある指定
+    /// （`.title2.bold()` ↔ `.headline`、`.title3` ↔ `.subheadline`）はそのまま残す。
     /// **曲名・アーティストはどちらも 1 行で、入らない分は末尾を省略する**（仕様 4 章）。
     /// Apple Music が長い曲名を折り返さないためで、**あちらの横スクロールを実測して真似たものではない**。
     /// 縮小して詰め込むと隣の状態と字の大きさが食い違うので `minimumScaleFactor` は足さない。
     /// 文字列は切らずに `Text` へ省略させる。読み上げには省略前の全文が残る。
-    private func songInfo(compact: Bool) -> some View {
-        VStack(alignment: .leading, spacing: compact ? 2 : 4) {
-            Text(player.currentItem?.displayName ?? String(localized: "再生していません"))
-                .font(compact ? .headline : .title2.bold())
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .matchedGeometryEffect(id: "songTitle", in: transition, properties: .position, anchor: .center)
-            if let artist = player.currentItem?.displayArtist {
-                // アーティスト名はアクセント色にしない（仕様 4 章）。曲名に近い大きさの secondary。
-                Text(artist)
-                    .font(compact ? .subheadline : .title3)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .matchedGeometryEffect(id: "songArtist", in: transition, properties: .position, anchor: .center)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
+    ///
+    /// 2 行は **`VStack` でまとめず、レイアウトの別々の子として置く**。まとめていたときは
+    /// 遷移の途中で曲名だけが遅れ、アーティストが上に出て 2 行が入れ替わって見えた。
+    /// 録画のフレームで測ると、レイアウトが直に置くアートワーク・お気に入りと
+    /// アーティストは進みが一致し、曲名だけが 0.2 付近で止まっていた
+    /// （`.contentTransition` を外しても同じだったので、文字の補間が原因ではない）。
+    ///
+    /// さらに `.geometryGroup()` を付ける。字の大きさが変わる `Text` は、自分の寸法の変化を
+    /// 祖先の位置の変化とは別に補間してしまい、レイアウトが置いた場所へ遅れて着く。
+    /// 録画では画像とお気に入りが 0.43 まで進んだところで文字 2 行だけが 0.2 に居残っていた。
+    /// この修飾子でジオメトリの変化をひとまとめにすると、位置はレイアウトの `progress` だけで決まる。
+    private var songTitle: some View {
+        // 状態で切り替えるのはフォントだけ。`Text` そのものは作り直さない。
+        Text(player.currentItem?.displayName ?? String(localized: "再生していません"))
+            .font(mode == .artwork ? .title2.bold() : .headline)
+            .lineLimit(1)
+            .truncationMode(.tail)
+            .contentTransition(reduceMotion ? .identity : .interpolate)
+            .geometryGroup()
+    }
+
+    /// アーティスト名はアクセント色にしない（仕様 4 章）。曲名に近い大きさの secondary。
+    /// 曲がないときは空文字にして、**子の数を 5 で固定する**。子が増減すると
+    /// `PlayerTopLayout` の添字がずれる。行として数えるかは `hasArtist` で明示的に渡す。
+    private var songArtist: some View {
+        Text(player.currentItem?.displayArtist ?? "")
+            .font(mode == .artwork ? .title3 : .subheadline)
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+            .truncationMode(.tail)
+            .contentTransition(reduceMotion ? .identity : .interpolate)
+            .geometryGroup()
     }
 
     private var favoriteButton: some View {
@@ -272,7 +306,6 @@ struct NowPlayingView: View {
             favoriteTrack?.isFavorite == true
                 ? String(localized: "お気に入りから削除") : String(localized: "お気に入りに追加")
         )
-        .matchedGeometryEffect(id: "favorite", in: transition)
     }
 
     // MARK: - シーク
@@ -409,7 +442,7 @@ struct NowPlayingView: View {
     ) -> some View {
         let isSelected = mode == target
         return Button {
-            withAnimation(.snappy) { mode = isSelected ? .artwork : target }
+            switchMode(to: isSelected ? .artwork : target)
         } label: {
             Image(systemName: symbol)
                 .font(.title3)
@@ -426,6 +459,27 @@ struct NowPlayingView: View {
         .buttonStyle(.plain)
         .accessibilityLabel(label)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
+    /// 状態を切り替え、上部の遷移が終わってから歌詞の位置合わせを許す（仕様 5.1 章）。
+    /// 世代と現在のモードの両方を確かめてから待ちを解くのは、連打したときに古い切り替えの
+    /// 完了処理が後から届き、まだ動いている新しい遷移の途中で歌詞を跳ばせてしまうため。
+    private func switchMode(to next: ContentMode) {
+        transitionGeneration += 1
+        let generation = transitionGeneration
+        // 「視差効果を減らす」設定では位置・大きさを補間しないので、待たせる理由もない（仕様 5.1 章）。
+        guard !reduceMotion else {
+            mode = next
+            isTopTransitioning = false
+            return
+        }
+        isTopTransitioning = true
+        withAnimation(Self.modeTransition) {
+            mode = next
+        } completion: {
+            guard transitionGeneration == generation, mode == next else { return }
+            isTopTransitioning = false
+        }
     }
 
     private func toggleFavorite() async {
@@ -648,6 +702,135 @@ private struct PlayerLayout {
         self.bottom = bottom
         // 借りても届かないときは、従来どおり最後にアートワークのほうが縮む。
         media = mediaHeight(title + seek + transport + volume + bottom)
+    }
+}
+
+/// 上部の 5 つの子を、アートワーク状態と歌詞・キュー状態の配置の間に置くレイアウト（仕様 5.1 章）。
+/// `progress` が 0 で大画像、1 で 72 pt の見出し。同じ子を保ったまま**置き場所と提示する大きさだけ**を
+/// 補間するので、画像や文字が状態ごとに別の View へ差し替わらず、遷移の途中で二重に写らない。
+/// 帯の配分を持つのは `PlayerLayout` 側で、ここは受け取った高さの中の配置だけを決める。
+/// `HStack` / `VStack` の差し替えにしないのは、大画像状態が「画像の下に曲情報」、
+/// 歌詞状態が「画像の横に曲情報」で、同じ子のまま両方を表せる組み合わせが無いため。
+private struct PlayerTopLayout: Layout {
+    /// 0 = アートワーク状態、1 = 歌詞・キュー状態。
+    var progress: CGFloat
+    /// アートワーク状態の一辺。帯の高さで縮めた後の値を受け取る。
+    let bigArtworkSide: CGFloat
+    /// 大画像の上端まで（仕様 4 章の 35 pt）。
+    let artworkTop: CGFloat
+    let mediaHeight: CGFloat
+    let titleHeight: CGFloat
+    /// アーティスト行を 1 行として数えるか。`Text("")` の実測幅で判定すると、
+    /// 名前があっても幅が丸めで 0 になる状況に引きずられるので、呼び出し側の値で決める。
+    let hasArtist: Bool
+
+    /// 歌詞・キュー時の見出しの寸法（仕様 5.1 章）。画像は 72 pt 角。
+    static let compactArtworkSide: CGFloat = 72
+    /// 大画像と違ってこちらは実測が 2.7 pt 大きかったので、共通の 35 ではなく 32 を使う。
+    /// `artworkTop` を下げるとアートワーク状態の大画像の上端まで動いてしまい、そちらは一致済み。
+    private static let compactTop: CGFloat = 32
+    private static let compactBottom: CGFloat = 16
+    /// 画像と曲情報の間、曲情報とお気に入りの間。
+    private static let spacing: CGFloat = 12
+    /// 外側の 24 pt より一段内側の 32 pt にするための差（仕様 4 章）。
+    private static let sideInset: CGFloat = 8
+    /// お気に入りの操作領域（仕様 4 章）。
+    private static let favoriteSide: CGFloat = 44
+
+    /// `progress` を補間対象にする。子の identity は変わらないので、動くのは配置だけになる。
+    var animatableData: CGFloat {
+        get { progress }
+        set { progress = newValue }
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout Void) -> CGSize {
+        CGSize(
+            width: proposal.replacingUnspecifiedDimensions().width,
+            height: mediaHeight + titleHeight
+        )
+    }
+
+    /// 添字は `topArea` の並び順（本文・画像・曲名・アーティスト・お気に入り）。
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout Void) {
+        guard subviews.count == 5 else {
+            assertionFailure("`topArea` の子は 5 つ（本文・画像・曲名・アーティスト・お気に入り）で固定")
+            return
+        }
+        let width = bounds.width
+
+        // 曲情報とお気に入りは同じ行に載るので、行の中心を共有する。
+        // 歌詞・キュー状態のお気に入りは行の右端に残す指定（仕様 5.1 章）なので、右の内側余白は足さない。
+        let infoLeading = lerp(Self.sideInset, Self.sideInset + Self.compactArtworkSide + Self.spacing)
+        let favoriteTrailing = lerp(Self.sideInset, 0)
+        let infoWidth = max(0, width - infoLeading - favoriteTrailing - Self.favoriteSide - Self.spacing)
+        let infoProposal = ProposedViewSize(width: infoWidth, height: nil)
+
+        // 2 行の縦位置は、**行間だけが違う同じ組み方**を両状態ぶん作って補間する。
+        // 高さは今のフォントのものしか測れないので、両端の計算に同じ高さを使う。
+        // 落ち着いた状態ではそのフォントの高さで測れているので誤差は出ず、
+        // 途中の数 pt のずれは中央合わせで半分になる。
+        let titleSize = subviews[2].sizeThatFits(infoProposal)
+        let artistSize = subviews[3].sizeThatFits(infoProposal)
+        let artistHeight = hasArtist ? artistSize.height : 0
+        let bigGap: CGFloat = hasArtist ? 4 : 0
+        let compactGap: CGFloat = hasArtist ? 2 : 0
+
+        // 歌詞・キュー状態の見出し行の高さは、**文字から決める**。72 pt に固定すると
+        // 文字を大きくしたときに 2 行が行からあふれ、下の本文に重なる。
+        // 既定の文字サイズでは 72 pt が最大になるので、これまでの配置と同じ値になる。
+        let compactHeader = max(
+            Self.compactArtworkSide,
+            titleSize.height + compactGap + artistHeight,
+            Self.favoriteSide
+        )
+
+        // 本文は歌詞・キュー状態の見出しの下に固定する。ここを `progress` で動かすと、
+        // 出入りのフェードと縦移動が重なって文字が流れて見える。
+        let detailTop = Self.compactTop + compactHeader + Self.compactBottom
+        subviews[0].place(
+            at: CGPoint(x: bounds.minX, y: bounds.minY + detailTop),
+            anchor: .topLeading,
+            proposal: ProposedViewSize(width: width, height: max(0, mediaHeight + titleHeight - detailTop))
+        )
+
+        let side = lerp(bigArtworkSide, Self.compactArtworkSide)
+        subviews[1].place(
+            at: CGPoint(
+                x: bounds.minX + lerp((width - bigArtworkSide) / 2, Self.sideInset),
+                // 行が文字で伸びたときは、72 pt の画像を行の中で縦中央に置く。
+                y: bounds.minY
+                    + lerp(artworkTop, Self.compactTop + (compactHeader - Self.compactArtworkSide) / 2)
+            ),
+            anchor: .topLeading,
+            proposal: ProposedViewSize(width: side, height: side)
+        )
+
+        let rowCenter = lerp(mediaHeight + titleHeight / 2, Self.compactTop + compactHeader / 2)
+        let bigBlockTop = rowCenter - (titleSize.height + bigGap + artistHeight) / 2
+        let compactBlockTop = rowCenter - (titleSize.height + compactGap + artistHeight) / 2
+        let titleCenter = lerp(bigBlockTop, compactBlockTop) + titleSize.height / 2
+        let artistCenter =
+            lerp(bigBlockTop + bigGap, compactBlockTop + compactGap) + titleSize.height + artistHeight / 2
+
+        subviews[2].place(
+            at: CGPoint(x: bounds.minX + infoLeading, y: bounds.minY + titleCenter),
+            anchor: .leading,
+            proposal: infoProposal
+        )
+        subviews[3].place(
+            at: CGPoint(x: bounds.minX + infoLeading, y: bounds.minY + artistCenter),
+            anchor: .leading,
+            proposal: infoProposal
+        )
+        subviews[4].place(
+            at: CGPoint(x: bounds.maxX - favoriteTrailing - Self.favoriteSide / 2, y: bounds.minY + rowCenter),
+            anchor: .center,
+            proposal: ProposedViewSize(width: Self.favoriteSide, height: Self.favoriteSide)
+        )
+    }
+
+    private func lerp(_ start: CGFloat, _ end: CGFloat) -> CGFloat {
+        start + (end - start) * progress
     }
 }
 
