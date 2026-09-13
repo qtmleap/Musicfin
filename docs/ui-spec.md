@@ -870,7 +870,7 @@ iPad の中央 sheet は維持する。
 | 枠 | `UIPresentationController.frameOfPresentedViewInContainerView` を**容器全体**に | **上端 62 pt を塞ぐ** |
 | 遷移 | `UIViewControllerTransitioningDelegate` | 出入りのアニメーションを自分で持つ |
 | 指追従 | `UIPercentDrivenInteractiveTransition` の `update(_:)` / `finish()` / `cancel()` | **実機報告 #1** |
-| 上角の丸み | ドラッグ量に応じて変える。**同じ遷移アニメーターの中で** | **実機報告 #2** |
+| 上角の丸み | **画面の角と同じ丸みで一定**。`cornerConfiguration` の `containerConcentric` | **実機報告 #2** |
 
 **背景だけを上端まで描き、本文の safe area は維持する。**
 文字や記号を status bar の下へ潜らせるのではない。**塞ぐのは地だけ**である。
@@ -916,7 +916,10 @@ iPad の中央 sheet は維持する。
 
 **それでも実機は未確認である。**この節が挙げた 3 つ（シーク成立後の縦流れ、本文途中から始めた
 スクロールとの競合、`cancel()` のあとの復帰）は**どれも静止画から確かめられない**ので、
-**「直った」とは書かない。**閉じる途中の上角の丸み 44 pt も Apple と並べて測った値ではなく暫定である。
+**「直った」とは書かない。**上角の丸みは暫定の 44 pt をやめ、`containerConcentric` で
+画面の角と同じ値を持たせた（iPhone 17 Pro では `effectiveRadius(corner:)` が 62.0 pt を返す。
+Simulator 実測。下へずらしても値は変わらない）。**Apple と並べて測ったわけではないが、
+自前の数値ではなく画面から決まる値になった。**
 
 **グラバーが Apple より 2 pt 下にある**（Musicfin 67〜72 pt／Apple 65〜70 pt）。
 これは変更前も 201 / 216 px だったので**この変更が作った差ではなく、§4 の既存の差**である。
@@ -924,8 +927,11 @@ iPad の中央 sheet は維持する。
 ##### 実装の要点（戻すときに読む場所）
 
 - 枠は `frameOfPresentedViewInContainerView` に `containerView.bounds` を返す。**62 pt を塞ぐのはここだけ**
-- 移動と上角の丸みを**1 つの `UIViewPropertyAnimator`** に入れる。
-  指追従は `fractionComplete` を動かすだけで、両方が同じ比で進む
+- `UIViewPropertyAnimator` が持つのは**移動だけ**。指追従は `fractionComplete` を動かすだけ。
+  上角の丸みは提示ビューの `cornerConfiguration` が**常に画面の角と同じ値**で持つので遷移側は触らない
+- **取消の戻りだけ**、`continueAnimation(withTimingParameters:durationFactor:)` を上書きして
+  離した瞬間の速さを載せたばねへ差し替える（`completionCurve` は cubic 4 種しか取れず速さを運べない）。
+  `durationFactor: 0` を渡すこと。残り時間を掛けると「浅い引きほど戻りが速い」性質が戻る
 - 終了 pan は**シーク認識器の失敗を待ち**、触れた本文の scroll pan には**自分の失敗を待たせる**。
   `isEnabled` の切り替えは使わない（認識開始の競争を防げないため）
 - safe area は `UIHostingController.safeAreaRegions` を既定のままにし、
