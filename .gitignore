@@ -71,6 +71,9 @@ fastlane/metadata/review_information/last_name.txt
 fastlane/metadata/review_information/phone_number.txt
 fastlane/metadata/review_information/email_address.txt
 
+## NAS の蔵書を調べた出力。手元の調査用で、アプリにも配布物にも要らない
+/lrc-album-ids.txt
+
 ## App Store Connect API Key
 *.p8
 
