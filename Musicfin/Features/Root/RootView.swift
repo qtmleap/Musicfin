@@ -101,8 +101,10 @@ struct RootView: View {
                     Color.clear
                 }
             }
-            // グラバーは自前で描かず、システムの指示子を出す（仕様 4.1 章 第 2 版）。
-            .presentationDragIndicator(.visible)
+            // システムの指示子は 36 pt 幅で、Apple 実機の 60 pt より 24 pt 細いことが実測で分かった。
+            // 幅だけを合わせる手段が無いので指示子は消し、`NowPlayingView` 側で同じ寸法を描く。
+            // 消すのは描画だけで、指に追従する終了はシステムのまま残る（仕様 4 章・4.1 章 第 3 版）。
+            .presentationDragIndicator(.hidden)
             // 本文のスクロールを提示サイズの変更より優先する（仕様 4.1 章）。
             .presentationContentInteraction(.scrolls)
             // 終了を止めるのはシークが成立している間だけ。それ以外は指に追従する終了へ任せる。

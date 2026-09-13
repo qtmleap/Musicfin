@@ -108,6 +108,7 @@ struct NowPlayingView: View {
         }
         // iPad では 560pt を目安にした中央の sheet にする（6 章）。
         .frame(idealWidth: 560, maxWidth: .infinity, idealHeight: 800)
+        .overlay(alignment: .top) { grabber }
         // 地が常に暗い帯になったので、明るい外観の端末でも文字と記号は白のままにする（仕様 1.2 章）。
         // 個々の `.primary` / `.secondary` を白に置き換えて回らないのは、選択中の記号が地の色へ
         // 反転する `modeButton` のように、白の指定だけでは足りない組みがあるため。
@@ -125,6 +126,28 @@ struct NowPlayingView: View {
                 favoriteTrack = item
             }
         }
+    }
+
+    // MARK: - 上部のグラバー
+
+    /// 上部のグラバー（仕様 4 章）。システムの指示子は 36 pt 幅で Apple 実機の 60 pt より細いので、
+    /// `RootView` 側で指示子を消し、同じ 60×5 pt をここで描く。
+    /// **描くのは見た目だけ**で、当たり判定もジェスチャも持たせない。閉じる操作は引き続き
+    /// システムの対話的な終了が担うので、自前のドラッグを戻したことにはならない（仕様 4.1 章 第 3 版）。
+    /// 色は `reference/nowplaying.png` の実測（地 (99,79,76) に対しグラバー (169,149,149)）から。
+    /// 白を 0.42 で重ねると 4〜5 階調以内で合う。仕様 4 章の選択中ボタンと同じ「成分への一律加算」でも
+    /// 同じくらい合うが、あちらは palette の中央 stop を前提にした規則で、グラバーが載るのは
+    /// 帯の上端なので、同じ規則だと決めつけずに重ねる側で書く。
+    private var grabber: some View {
+        Capsule()
+            .fill(.white.opacity(0.42))
+            .frame(width: 60, height: 5)
+            // 上余白は仮置き。自前で描いていた頃と同じ 10 pt から始める。
+            // 撮り直して上端が 67 pt から動いていたら、そのときに合わせ直す（仕様 4 章）。
+            .padding(.top, 10)
+            // 触れない・読み上げない。閉じる経路は `accessibilityAction(.escape)` が持つ。
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
     }
 
     // MARK: - アートワーク / 歌詞 / キュー
