@@ -65,7 +65,8 @@ struct LyricsView: View {
                     }
                 }
                 .padding(.vertical, 24)
-                .padding(.horizontal, 4)
+                // 同じ画面の小アートワークや曲名と同じ左右 32 pt に載せる（仕様 5 章）。外側の 24 pt との差。
+                .padding(.horizontal, 8)
             }
             .scrollIndicators(.hidden)
             .onScrollPhaseChange { _, phase in
@@ -113,7 +114,7 @@ struct LyricsView: View {
         lines = []
         defer { if !Task.isCancelled { isLoading = false } }
         guard let client = auth.client else {
-            errorMessage = "サーバーに接続してから、もう一度お試しください。"
+            errorMessage = String(localized: "サーバーに接続してから、もう一度お試しください。")
             return
         }
         do {

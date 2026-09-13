@@ -108,7 +108,7 @@ struct LoginView: View {
             Button(action: connect) {
                 HStack {
                     if isBusy { ProgressView() }
-                    Text(isBusy ? "接続中…" : "接続")
+                    Text(isBusy ? String(localized: "接続中…") : String(localized: "接続"))
                 }
                 .frame(maxWidth: .infinity, minHeight: 32)
             }
@@ -120,7 +120,7 @@ struct LoginView: View {
     private var authenticationStep: some View {
         VStack(alignment: .leading, spacing: 24) {
             VStack(alignment: .leading, spacing: 8) {
-                Label(auth.serverName ?? "Jellyfin サーバー", systemImage: "checkmark.circle.fill")
+                Label(auth.serverName ?? String(localized: "Jellyfin サーバー"), systemImage: "checkmark.circle.fill")
                     .font(.headline)
                 Text(auth.client?.serverURL.absoluteString ?? serverURL)
                     .font(.footnote)
@@ -170,7 +170,7 @@ struct LoginView: View {
             Button(action: signIn) {
                 HStack {
                     if isBusy { ProgressView() }
-                    Text(isBusy ? "ログイン中…" : "ログイン")
+                    Text(isBusy ? String(localized: "ログイン中…") : String(localized: "ログイン"))
                 }
                 .frame(maxWidth: .infinity, minHeight: 32)
             }
@@ -195,7 +195,11 @@ struct LoginView: View {
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
-                ProgressView(auth.quickConnectCode == nil ? "コードを取得中…" : "承認を待っています…")
+                ProgressView(
+                    auth.quickConnectCode == nil
+                        ? String(localized: "コードを取得中…")
+                        : String(localized: "承認を待っています…")
+                )
                 Button("キャンセル", action: cancelQuickConnect)
                     .buttonStyle(.glass)
             } else {
