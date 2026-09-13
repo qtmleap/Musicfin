@@ -13,15 +13,15 @@ nonisolated enum StreamQuality: String, CaseIterable, Codable, Sendable, Identif
 
     var title: String {
         switch self {
-        case .lossless: "ロスレス"
-        case .high: "高音質"
-        case .saver: "データ節約"
+        case .lossless: String(localized: "ロスレス")
+        case .high: String(localized: "高音質")
+        case .saver: String(localized: "データ節約")
         }
     }
 
     var detail: String {
         switch self {
-        case .lossless: "原音のまま（FLAC / ALAC）"
+        case .lossless: String(localized: "原音のまま（FLAC / ALAC）")
         case .high: "AAC 256 kbps"
         case .saver: "AAC 128 kbps"
         }

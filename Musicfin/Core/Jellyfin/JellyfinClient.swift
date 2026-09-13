@@ -12,17 +12,18 @@ nonisolated enum JellyfinError: LocalizedError, Sendable {
     var errorDescription: String? {
         switch self {
         case .invalidServerURL:
-            "サーバーの URL が正しくありません。"
+            String(localized: "サーバーの URL が正しくありません。")
         case .unauthorized:
-            "認証に失敗しました。再度ログインしてください。"
+            String(localized: "認証に失敗しました。再度ログインしてください。")
         case .http(let status, let body):
-            "サーバーがエラーを返しました (HTTP \(status))。\(body.map { "\n\($0)" } ?? "")"
+            String(localized: "サーバーがエラーを返しました (HTTP \(status))。")
+                + (body.map { "\n\($0)" } ?? "")
         case .decoding(let underlying):
-            "サーバーの応答を解釈できませんでした。\n\(underlying)"
+            String(localized: "サーバーの応答を解釈できませんでした。") + "\n\(underlying)"
         case .transport(let underlying):
-            "サーバーに接続できませんでした。\n\(underlying)"
+            String(localized: "サーバーに接続できませんでした。") + "\n\(underlying)"
         case .missingCredentials:
-            "サーバーへのログインが必要です。"
+            String(localized: "サーバーへのログインが必要です。")
         }
     }
 }
@@ -175,7 +176,7 @@ nonisolated struct JellyfinClient: Sendable, Equatable {
             throw JellyfinError.transport(underlying: error.localizedDescription)
         }
         guard let http = response as? HTTPURLResponse else {
-            throw JellyfinError.transport(underlying: "HTTP 応答ではありません。")
+            throw JellyfinError.transport(underlying: String(localized: "HTTP 応答ではありません。"))
         }
         switch http.statusCode {
         case 200..<300:
