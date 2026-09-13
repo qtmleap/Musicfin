@@ -3,6 +3,8 @@
 #
 #   ./scripts/capture-screens.sh
 #   ./scripts/capture-screens.sh --version 0.1.0-r5
+#   MUSICFIN_CONTENT_SIZE=UICTContentSizeCategoryAccessibilityXXXL \
+#     MUSICFIN_SHOT_ROOT=/tmp/shots-ax ./scripts/capture-screens.sh
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -10,6 +12,8 @@ cd "$(dirname "$0")/.."
 device_name="iPhone 17 Pro"
 destination="platform=iOS Simulator,name=$device_name"
 shot_root="${MUSICFIN_SHOT_ROOT:-docs/screenshots/current}"
+# 文字サイズ。未指定なら空のまま渡し、テスト側は起動引数を足さない（既定の撮影は今までどおり）。
+content_size="${MUSICFIN_CONTENT_SIZE:-}"
 version=""
 
 while [ $# -gt 0 ]; do
@@ -19,7 +23,7 @@ while [ $# -gt 0 ]; do
         shift 2
         ;;
     -h | --help)
-        sed -n '2,5p' "$0"
+        sed -n '2,7p' "$0"
         exit 0
         ;;
     *)
@@ -60,8 +64,9 @@ status=0
 stamp="$(mktemp)"
 trap 'rm -f "$stamp"' EXIT
 for test_method in testCaptureLoginScreens testCaptureAppScreens; do
-    echo "==> capture: $version / en_US / dark / $test_method -> $shot_dir"
+    echo "==> capture: $version / en_US / dark / ${content_size:-default} / $test_method -> $shot_dir"
     if ! TEST_RUNNER_MUSICFIN_SHOT_DIR="$shot_dir" \
+        TEST_RUNNER_MUSICFIN_CONTENT_SIZE="$content_size" \
         TEST_RUNNER_AppleLanguages="(en)" \
         TEST_RUNNER_AppleLocale="en_US" \
         xcodebuild test \
