@@ -110,10 +110,14 @@ private final class PlayerPresentationCoordinator: NSObject {
         controller.modalPresentationStyle = .custom
         controller.transitioningDelegate = transitioning
         // 地は SwiftUI 側の帯が safe area を無視して敷くので、UIKit の地は透かす。
-        // ここで持つのは角丸を効かせる切り抜きだけで、丸みの値は遷移アニメーターが動かす。
+        // 角丸は**画面の角と同じ丸みで持ち続ける**。`containerConcentric` は容器（＝窓）の角から
+        // 決まり、iPhone 17 Pro では 62 pt に解決される（Simulator 実測）。下へずらしても値が変わらないので、
+        // 上端が画面の角から連続して剥がれて見える。丸みをドラッグ量で動かしていたときは、
+        // 動き始めた瞬間の丸みが画面の角と合わず段差に見えていた（実機報告 #2）。
+        // 丸みの曲線は `cornerConfiguration` 側が持つので、`cornerCurve` を別に指定しない。
         controller.view.backgroundColor = .clear
         controller.view.layer.masksToBounds = true
-        controller.view.layer.cornerCurve = .continuous
+        controller.view.cornerConfiguration = .uniformCorners(radius: .containerConcentric())
         // `safeAreaRegions` は既定の `.all` のまま。上端を塞ぐのは提示枠の仕事であって、
         // 本文の safe area を削る話ではない（仕様 4.1.1 章）。`additionalSafeAreaInsets` も触らない。
 
@@ -336,7 +340,7 @@ private final class PlayerPresentationController: UIPresentationController {
 
     override func containerViewWillLayoutSubviews() {
         super.containerViewWillLayoutSubviews()
-        // 遷移中もここは呼ばれる。移動と丸みはアニメーターが transform で持っているので、
+        // 遷移中もここは呼ばれる。移動はアニメーターが transform で持っているので、
         // 通常のレイアウトのときだけ枠を書き直して上書きを避ける。
         guard let presentedView, presentedView.transform.isIdentity else { return }
         presentedView.frame = frameOfPresentedViewInContainerView
@@ -414,15 +418,11 @@ private final class PlayerContinuationAnimator: UIViewPropertyAnimator {
     }
 }
 
-/// 出入りのアニメーター。**移動と上角の丸みを 1 つの `UIViewPropertyAnimator` にまとめる**（仕様 4.1.1 章）。
-/// pan から丸みを直接書かないのは、指追従が `fractionComplete` を動かすだけで移動と丸みが
-/// 同じ比のまま進むようにするため。UIKit は遷移中に同じインスタンスを返すことを要求するので、
+/// 出入りのアニメーター。**動かすのは移動だけ**にする（仕様 4.1.1 章）。上角の丸みは提示ビューの
+/// `cornerConfiguration` が画面の角と同じ値で持ち続けるので、遷移の側で触る対象ではなくなった。
+/// UIKit は遷移中に同じインスタンスを返すことを要求するので、
 /// `animateTransition(using:)` も `interruptibleAnimator(using:)` の結果をそのまま使う。
 private final class PlayerTransitionAnimator: NSObject, UIViewControllerAnimatedTransitioning {
-    /// 閉じる途中の上角の丸み。**実機で測った値ではない**ので、Apple Music と並べて見るまで暫定。
-    /// 開いている間は 0 で、画面そのものの角の丸みに任せる（実機報告 #2）。
-    private static let draggedCornerRadius: CGFloat = 44
-
     /// 取り消しの戻りに使うばねの応答時間と減衰比。**Musicfin の決定値で、Apple 実機の実測ではない。**
     /// 既定の完了曲線では戻りが `0.35 秒 × 引いた割合`＝浅い引きで 0.1 秒前後しかなく、
     /// 指を離した瞬間に消えるように見える（実機報告）。0.5 秒の応答なら 0.6 秒ほどで落ち着く。
@@ -493,7 +493,7 @@ private final class PlayerTransitionAnimator: NSObject, UIViewControllerAnimated
             if presented.superview == nil { container.addSubview(presented) }
             // **枠を書くのは提示のときだけ。**`finalFrame(for:)` は「遷移の終わりに窓から外れるビュー」
             // に対して `CGRectZero` を返してよいと SDK が明記しており、終了時の `.from` はまさにそれに
-            // 当たる。入れば本文が 0 になり、取消経路は transform と丸みしか戻さないので寸法が復元されない。
+            // 当たる。入れば本文が 0 になり、取消経路は transform しか戻さないので寸法が復元されない。
             // iOS 26 の Simulator では実測で全面が返ってきたが、**返さないことが許されている以上**
             // 当てにはしない。終了は開いたときの枠のまま滑らせる。
             if isPresenting, presented.transform.isIdentity {
@@ -503,7 +503,6 @@ private final class PlayerTransitionAnimator: NSObject, UIViewControllerAnimated
 
         let offscreen = CGAffineTransform(translationX: 0, y: container.bounds.height)
         presented?.transform = isPresenting ? offscreen : .identity
-        presented?.layer.cornerRadius = isPresenting ? Self.draggedCornerRadius : 0
 
         // 追従中は線形にして指と 1 対 1 で動かす。自動で出入りするときだけ弾みと減速を付ける。
         let timing: UITimingCurveProvider
@@ -520,7 +519,6 @@ private final class PlayerTransitionAnimator: NSObject, UIViewControllerAnimated
         )
         animator.addAnimations { [isPresenting] in
             presented?.transform = isPresenting ? .identity : offscreen
-            presented?.layer.cornerRadius = isPresenting ? 0 : Self.draggedCornerRadius
         }
         animator.addCompletion { [isPresenting] _ in
             // 取り消しでは始まりの側、完了では終わりの側へ明示的に置き直す。
@@ -528,7 +526,6 @@ private final class PlayerTransitionAnimator: NSObject, UIViewControllerAnimated
             let isCancelled = context.transitionWasCancelled
             let staysOpen = isPresenting != isCancelled
             presented?.transform = staysOpen ? .identity : offscreen
-            presented?.layer.cornerRadius = staysOpen ? 0 : Self.draggedCornerRadius
             if !staysOpen, !isPresenting { presented?.removeFromSuperview() }
             context.completeTransition(!isCancelled)
         }
