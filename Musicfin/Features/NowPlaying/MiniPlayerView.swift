@@ -58,9 +58,10 @@ struct MiniPlayerView: View {
                 }
             }
             // 左だけ 4 pt 内側へ寄せて画像を Apple 実機と同じ位置に置く。帯そのものは狭めない。
-            // 右は次曲ボタンの 44 pt の当たり判定を帯の端近くまで残したいので 12 pt のまま。
+            // 右は 14 pt。帯・画像・曲名の字面左端は Apple 実機と一致しているのに、一時停止と次送りの
+            // 中心だけが 2.0 / 2.67 pt 右に寄っていたので、2 点の中間を取って 2 pt だけ内側へ動かす（仕様 3 章）。
             .padding(.leading, isInline ? 8 : 16)
-            .padding(.trailing, isInline ? 8 : 12)
+            .padding(.trailing, isInline ? 8 : 14)
             .padding(.vertical, isInline ? 0 : 8)
             // 上スワイプだけでフルプレイヤーを開く。横方向は誤爆しやすいので何も割り当てない。
             .simultaneousGesture(
