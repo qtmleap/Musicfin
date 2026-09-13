@@ -238,6 +238,16 @@ final class CaptureScreensUITests: XCTestCase {
         // 収録曲の読込が終わるまで「再生」は無効なので、有効化を待つ。
         _ = XCTWaiter.wait(
             for: [expectation(for: NSPredicate(format: "isEnabled == true"), evaluatedWith: play)], timeout: 20)
+        // 再生中の行に出るイコライザは鳴らさないと写らないので、1 曲目を再生してから撮る（仕様 2 章）。
+        // 1 曲だけのアルバムなので、行は再生後も画面の上のほうに残る。
+        let firstTrack = app.buttons["album.track"].firstMatch
+        if firstTrack.waitForExistence(timeout: 10) {
+            firstTrack.tap()
+            // ミニプレイヤーが出るまで待つ。先に撮ると行の色も棒も再生前のままになる。
+            XCTAssertTrue(element(.button, "一時停止").waitForExistence(timeout: 40), "再生が始まらず album を再生中で撮れない")
+        } else {
+            XCTFail("アルバムの曲行が見つからず、album を再生中で撮れない")
+        }
         settle()
         capture("album")
 
