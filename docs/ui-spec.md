@@ -822,7 +822,7 @@ iPhone は `fullScreenCover`、iPad は 181 行の中央 sheet。）
 - 歌詞の追従停止と「現在位置へ」、行タップのシーク、キュー行タップの再生は維持する
 - 閉じるボタンは追加しない。**VoiceOver のエスケープ操作からは閉じられる**ようにする
 
-#### この版が引き換えに作った差：上端が 62 pt 空く（実測。**未解決**）
+#### この版が引き換えに作った差：上端が 62 pt 空く（実測。**UIKit へ替えると決めた**）
 
 利用者から「フルプレイヤーが ignoreSafeArea になっていない」という報告が出た。**実測すると本当だった。**
 
@@ -852,10 +852,36 @@ Apple 側の上端付近に、角丸・影・裏の画面の痕跡は見つか�
 `UIPercentDrivenInteractiveTransition` の `update(_:)` / `finish()` / `cancel()`）。
 iPad の中央 sheet は維持する。
 
-**採るかどうかは決めていない。**#1・#2 は両立**できる**が、
-**システム任せだったものが実装責任になる。**§4.2 のシーク認識器との競合、
-本文スクロールとの競合、取消したときの復帰は、**実機で触るまで保証できない。**
-**62 pt の差と、いま動いている操作性を引き換えにするかどうかは、利用者に聞いてから決める。**
+#### 4.1.1 採る組み方（利用者が選んだ。**この節が iPhone の提示を定める**）
+
+**iPhone の提示を UIKit のカスタム提示へ替える。**iPad の中央 sheet は**現状維持**。
+
+| 要素 | 使うもの | 何のために |
+|---|---|---|
+| 提示 | `UIHostingController` を `.custom` で提示 | SwiftUI の本文はそのまま載せる |
+| 枠 | `UIPresentationController.frameOfPresentedViewInContainerView` を**容器全体**に | **上端 62 pt を塞ぐ** |
+| 遷移 | `UIViewControllerTransitioningDelegate` | 出入りのアニメーションを自分で持つ |
+| 指追従 | `UIPercentDrivenInteractiveTransition` の `update(_:)` / `finish()` / `cancel()` | **実機報告 #1** |
+| 上角の丸み | ドラッグ量に応じて変える。**同じ遷移アニメーターの中で** | **実機報告 #2** |
+
+**背景だけを上端まで描き、本文の safe area は維持する。**
+文字や記号を status bar の下へ潜らせるのではない。**塞ぐのは地だけ**である。
+
+##### システム任せをやめたので、ここから先は実装責任
+
+`presentationDetents` / `presentationCornerRadius` / `presentationDragIndicator` /
+`presentationContentInteraction` / `interactiveDismissDisabled` は、
+**iPhone 側では効かなくなる。**§4.1 が「システムから受け取る」と書いた角丸と追従は、
+**自分で作るものへ変わる。**
+
+**実機で触るまで「直った」と書かないこと。**とくに次の 3 つ：
+
+- **§4.2 のシーク認識器との競合。**`interactiveDismissDisabled(isScrubbing)` に相当する抑止を
+  自前の認識器側で持つ必要がある
+- **本文スクロールとの競合。**歌詞・キューの縦スクロールが終了ジェスチャに食われないこと
+- **取消したときの復帰。**`cancel()` のあと、本文・角丸・地がすべて元の位置へ戻ること
+
+**壊れていた場合に戻すのは §4.2 ではなく、この節である。**
 
 #### 確定していないこと
 
