@@ -28,9 +28,37 @@ nonisolated struct ArtworkPalette: Equatable, Sendable {
             case .player: 0.36
             }
         }
+
+        /// 上端の倍率。基準色（倍率 1.0 の点）に対する比（仕様 1.2 章 手順 5）。
+        var topScale: Double {
+            switch self {
+            case .detail: 0.94
+            case .player: 0.99
+            }
+        }
+
+        /// 下端の倍率。フルプレイヤーは詳細の 0.89 では足りず、Apple の実測は 0.475 まで落ちる。
+        var bottomScale: Double {
+            switch self {
+            case .detail: 0.89
+            case .player: 0.475
+            }
+        }
+
+        /// 両端の間に置く点。位置と、基準色に対する倍率の組。**数も位置も帯で違う。**
+        /// `.detail` は最大付近が平坦で一点に決められないので、その範囲の中の 30% を 1 点だけ置く。
+        /// `.player` は最大が 10% にあり、そこから下端まで直線では下りない。
+        /// 0.10→1.0 と 1.0→0.475 を直線で結ぶと 30% が 0.883・60% が 0.708 になり、
+        /// 実測の 0.93 / 0.845 から離れるので、途中の 2 点を省かない（仕様 1.2 章）。
+        var innerStops: [(location: Double, scale: Double)] {
+            switch self {
+            case .detail: [(0.3, 1.0)]
+            case .player: [(0.1, 1.0), (0.3, 0.93), (0.6, 0.845)]
+            }
+        }
     }
 
-    /// 縦グラデーションの 3 点。上端・上から 30%・下端の順（仕様 1.2 章 手順 5）。
+    /// 縦グラデーションの両端と基準色。途中の点は帯ごとに数が違うので、基準色から作る（仕様 1.2 章 手順 5）。
     var stops: Stops
     /// 前景を暗くするか。基準色の輝度だけで決まり、場所ごとには変えない（仕様 1.2 章 手順 6）。
     var prefersDarkForeground: Bool
@@ -152,6 +180,8 @@ nonisolated extension ArtworkPalette {
     }
 
     /// 上端・基準・下端の 3 点。前景の判定に使うのは `middle` の 1 つだけ（仕様 1.2 章 手順 6）。
+    /// 曲送りの補間はこの 3 点で行い、途中の点は描くときに `middle` から作る。
+    /// 途中の点を持たせると帯ごとに要素数が変わり、`VectorArithmetic` の足し引きが組めない。
     struct Stops: Equatable, Sendable, VectorArithmetic {
         var top: Components = .zero
         var middle: Components = .zero
@@ -256,11 +286,12 @@ nonisolated extension ArtworkPalette {
         let middle = limited(base, band: band, prefersDarkForeground: prefersDarkForeground)
         return Self(
             stops: Stops(
-                // 実測のアルバム詳細 162→172→153 に合わせた比。横方向は一定でよい。
+                // 両端の比は帯から引く。詳細は実測のアルバム詳細 162→172→153、
+                // フルプレイヤーは Apple 実測の 0.99→…→0.475 に合わせた比。横方向は一定でよい。
                 // 上限で基準色を暗くした場合も、同じ比のまま 3 点そろって下がる。
-                top: middle.scaled(by: 0.94),
+                top: middle.scaled(by: band.topScale),
                 middle: middle,
-                bottom: middle.scaled(by: 0.89)
+                bottom: middle.scaled(by: band.bottomScale)
             ),
             prefersDarkForeground: prefersDarkForeground
         )
@@ -357,7 +388,7 @@ struct ArtworkBackdrop<Content: View>: View {
 
     var body: some View {
         content(palette)
-            .modifier(ArtworkBackgroundModifier(stops: palette.stops))
+            .modifier(ArtworkBackgroundModifier(stops: palette.stops, band: band))
             // 同じ作品のまま画面の状態だけが変わったときは取り出し直さない（仕様 1.2 章）。
             .task(id: item?.id) { await load() }
     }
@@ -388,6 +419,9 @@ struct ArtworkBackdrop<Content: View>: View {
 /// safe area を無視するのは背景だけで、本文には及ぼさない。タブバーは塗らず、下の色を Liquid Glass に拾わせる。
 private struct ArtworkBackgroundModifier: ViewModifier, Animatable {
     var stops: ArtworkPalette.Stops
+    /// 停止点の数と位置は帯で違うので、形そのものを帯から引く（仕様 1.2 章）。
+    /// 補間に載るのは `stops` の 3 点だけなので、`animatableData` には入れない。
+    let band: ArtworkPalette.Band
 
     var animatableData: ArtworkPalette.Stops {
         get { stops }
@@ -396,16 +430,20 @@ private struct ArtworkBackgroundModifier: ViewModifier, Animatable {
 
     func body(content: Content) -> some View {
         content.background(
-            LinearGradient(
-                stops: [
-                    Gradient.Stop(color: Color(stops.top.uiColor), location: 0),
-                    Gradient.Stop(color: Color(stops.middle.uiColor), location: 0.3),
-                    Gradient.Stop(color: Color(stops.bottom.uiColor), location: 1),
-                ],
-                startPoint: .top,
-                endPoint: .bottom
-            ),
+            LinearGradient(stops: gradientStops, startPoint: .top, endPoint: .bottom),
             ignoresSafeAreaEdges: .all
         )
+    }
+
+    /// 両端は補間済みの `top` / `bottom` をそのまま使い、途中の点だけ基準色から作る。
+    /// こうすると曲送りの補間で 3 点が動いたとき、途中の点も同じ比のまま付いて動く。
+    private var gradientStops: [Gradient.Stop] {
+        [Gradient.Stop(color: Color(stops.top.uiColor), location: 0)]
+            + band.innerStops.map { inner in
+                Gradient.Stop(
+                    color: Color(stops.middle.scaled(by: inner.scale).uiColor), location: inner.location
+                )
+            }
+            + [Gradient.Stop(color: Color(stops.bottom.uiColor), location: 1)]
     }
 }
