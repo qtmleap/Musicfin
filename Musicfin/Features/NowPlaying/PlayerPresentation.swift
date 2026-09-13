@@ -199,10 +199,14 @@ private final class PlayerPresentationCoordinator: NSObject {
             interaction?.update(progress)
         case .ended:
             // 3 分の 1 まで引いたか、下向きに十分速ければ閉じる。どちらでもなければ元へ戻す。
-            let isFlicked = pan.velocity(in: view).y > Self.dismissVelocity
+            let velocity = pan.velocity(in: view).y
+            let isFlicked = velocity > Self.dismissVelocity
             if progress > Self.dismissProgress || isFlicked {
                 interaction?.finish()
             } else {
+                // 戻りだけは離した瞬間の速さを引き継いだばねに差し替える。既定の完了曲線は
+                // 残り時間が引いた割合に比例するので、浅く引いて離すとほぼ瞬間で戻ってしまう。
+                transitioning.prepareCancel(velocity: velocity, distance: progress * height)
                 interaction?.cancel()
             }
             interaction = nil
@@ -346,6 +350,13 @@ private final class PlayerTransitioningDelegate: NSObject, UIViewControllerTrans
     var interaction: UIPercentDrivenInteractiveTransition?
     var onPresentEnded: ((Bool) -> Void)?
     var onDismissEnded: ((Bool) -> Void)?
+    /// 進行中の終了アニメーター。取り消しの戻りへ指の速さを渡すためだけに覚える。
+    private weak var dismissAnimator: PlayerTransitionAnimator?
+
+    /// 取り消しの戻りに使うばねを、離した瞬間の速さから作って渡す。
+    func prepareCancel(velocity: CGFloat, distance: CGFloat) {
+        dismissAnimator?.prepareCancel(velocity: velocity, distance: distance)
+    }
 
     func presentationController(
         forPresented presented: UIViewController,
@@ -364,13 +375,42 @@ private final class PlayerTransitioningDelegate: NSObject, UIViewControllerTrans
     }
 
     func animationController(forDismissed dismissed: UIViewController) -> UIViewControllerAnimatedTransitioning? {
-        PlayerTransitionAnimator(isPresenting: false, isInteractive: interaction != nil, onEnded: onDismissEnded)
+        let animator = PlayerTransitionAnimator(
+            isPresenting: false,
+            isInteractive: interaction != nil,
+            onEnded: onDismissEnded
+        )
+        dismissAnimator = animator
+        return animator
     }
 
     func interactionControllerForDismissal(
         using animator: UIViewControllerAnimatedTransitioning
     ) -> UIViewControllerInteractiveTransitioning? {
         interaction
+    }
+}
+
+/// 指を離したあとの続きだけ、渡されたばねに差し替えるアニメーター。
+/// `UIPercentDrivenInteractiveTransition` の `completionCurve` は cubic の 4 種しか取らないので、
+/// **離した瞬間の速さをそこから持ち込めない。**UIKit が「残りを進めてくれ」と頼む窓口はこの 1 つなので、
+/// ここで受け取ったばねに置き換える。`continuation` が無いときは頼まれたとおりに進める。
+private final class PlayerContinuationAnimator: UIViewPropertyAnimator {
+    /// 次の継続で使うばね。1 回使ったら捨てて、以降は既定の曲線に戻す。
+    var continuation: UITimingCurveProvider?
+
+    override func continueAnimation(
+        withTimingParameters parameters: UITimingCurveProvider?,
+        durationFactor: CGFloat
+    ) {
+        guard let continuation else {
+            super.continueAnimation(withTimingParameters: parameters, durationFactor: durationFactor)
+            return
+        }
+        self.continuation = nil
+        // 0 はばね自身が決める時間で進める指定。ここで残り時間を掛けると、
+        // 引いた割合に比例して縮むという直したかった性質がそのまま戻ってくる。
+        super.continueAnimation(withTimingParameters: continuation, durationFactor: 0)
     }
 }
 
@@ -383,10 +423,21 @@ private final class PlayerTransitionAnimator: NSObject, UIViewControllerAnimated
     /// 開いている間は 0 で、画面そのものの角の丸みに任せる（実機報告 #2）。
     private static let draggedCornerRadius: CGFloat = 44
 
+    /// 取り消しの戻りに使うばねの応答時間と減衰比。**Musicfin の決定値で、Apple 実機の実測ではない。**
+    /// 既定の完了曲線では戻りが `0.35 秒 × 引いた割合`＝浅い引きで 0.1 秒前後しかなく、
+    /// 指を離した瞬間に消えるように見える（実機報告）。0.5 秒の応答なら 0.6 秒ほどで落ち着く。
+    /// 0.85 は行き過ぎがかすかに出るだけの値で、戻り際に一度だけ息を継ぐように見える。
+    private static let cancelResponse = 0.5
+    private static let cancelDampingRatio = 0.85
+    /// 引き継ぐ初速の上限（戻り距離の何倍／秒まで許すか）。行き過ぎの量はおよそ `初速 ÷ 固有角振動数`
+    /// なので、`cancelResponse` から決まる 12.6 rad/s に対して 4 なら戻り距離の 3 割で頭を打つ。
+    /// 浅く引いて速く離したときに、家の位置を大きく越えて跳ね上がるのを防ぐ。
+    private static let cancelVelocityLimit: CGFloat = 4
+
     private let isPresenting: Bool
     private let isInteractive: Bool
     private let onEnded: ((Bool) -> Void)?
-    private var animator: UIViewPropertyAnimator?
+    private var animator: PlayerContinuationAnimator?
 
     init(isPresenting: Bool, isInteractive: Bool, onEnded: ((Bool) -> Void)?) {
         self.isPresenting = isPresenting
@@ -399,10 +450,23 @@ private final class PlayerTransitionAnimator: NSObject, UIViewControllerAnimated
     }
 
     func animateTransition(using transitionContext: UIViewControllerContextTransitioning) {
-        guard let animator = interruptibleAnimator(using: transitionContext) as? UIViewPropertyAnimator else {
-            return
-        }
-        animator.startAnimation()
+        interruptibleAnimator(using: transitionContext).startAnimation()
+    }
+
+    /// 取り消しの戻りへ、離した瞬間の速さを持ち込んだばねを載せる。`cancel()` より前に呼ぶ。
+    /// 上向き（画面座標で負）が戻る向きなので符号を反転させ、残りの距離で割って
+    /// 「残りの何倍／秒」へ直す。`UISpringTimingParameters` の初速はこの単位で受ける。
+    func prepareCancel(velocity: CGFloat, distance: CGFloat) {
+        guard distance > 0 else { return }
+        let normalized = -velocity / distance
+        let limit = Self.cancelVelocityLimit
+        let omega = 2 * CGFloat.pi / Self.cancelResponse
+        animator?.continuation = UISpringTimingParameters(
+            mass: 1,
+            stiffness: omega * omega,
+            damping: 2 * Self.cancelDampingRatio * omega,
+            initialVelocity: CGVector(dx: 0, dy: min(max(normalized, -limit), limit))
+        )
     }
 
     func interruptibleAnimator(
@@ -419,7 +483,7 @@ private final class PlayerTransitionAnimator: NSObject, UIViewControllerAnimated
         onEnded?(transitionCompleted)
     }
 
-    private func makeAnimator(using context: UIViewControllerContextTransitioning) -> UIViewPropertyAnimator {
+    private func makeAnimator(using context: UIViewControllerContextTransitioning) -> PlayerContinuationAnimator {
         let container = context.containerView
         let key: UITransitionContextViewKey = isPresenting ? .to : .from
         let controllerKey: UITransitionContextViewControllerKey = isPresenting ? .to : .from
@@ -450,7 +514,7 @@ private final class PlayerTransitionAnimator: NSObject, UIViewControllerAnimated
         } else {
             timing = UICubicTimingParameters(animationCurve: .easeOut)
         }
-        let animator = UIViewPropertyAnimator(
+        let animator = PlayerContinuationAnimator(
             duration: transitionDuration(using: context),
             timingParameters: timing
         )
