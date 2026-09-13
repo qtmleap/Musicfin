@@ -9,6 +9,8 @@ struct SearchView: View {
     @Environment(LibraryStore.self) private var library
     @Environment(PlaybackEngine.self) private var player
     @Environment(AlbumCatalog.self) private var catalog
+    /// 上端の罫線を 1 物理画素で描くため（仕様 9 章）。
+    @Environment(\.displayScale) private var displayScale
     @State private var results: [MediaItem] = []
     @State private var isSearching = false
     @State private var errorMessage: String?
@@ -44,14 +46,17 @@ struct SearchView: View {
 
     private var resultList: some View {
         List {
-            // 一覧の上の罫線だけは左 20 pt から引く（仕様 9 章）。行の罫線（左 88 pt）とは
-            // 起点が違い、1 つの行に左端の guide は 1 つしか付けられないので高さ 0 の行に分ける。
-            Color.clear
-                .frame(height: 0)
-                .listRowInsets(EdgeInsets())
-                .listRowSeparator(.hidden, edges: .top)
-                .alignmentGuide(.listRowSeparatorLeading) { _ in 20 }
-                .alignmentGuide(.listRowSeparatorTrailing) { $0[.trailing] }
+            // 一覧の上の罫線だけは左 20 pt から引き、**この 1 本だけ自分で描く**（仕様 9 章）。
+            // システムの区切り線は太さを指定できず 1 pt（3 物理画素）で出るのに対し、
+            // Apple 実機の上端の 1 本は 1 物理画素だったため。行どうしの罫線は 3 物理画素で
+            // 一致しているので、そちらはシステムのまま触らない。
+            // 届く範囲は `alignmentGuide` ではなく行の余白で作る。自分で描く矩形なので、
+            // 左 20 pt・右 0 pt はそのまま `listRowInsets` で表せる。
+            Rectangle()
+                .fill(Color(.separator))
+                .frame(height: 1 / displayScale)
+                .listRowInsets(EdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 0))
+                .listRowSeparator(.hidden)
 
             // 種別で分けず、サーバーが返した順のまま 1 つの一覧に混ぜる（仕様 9 章）。
             ForEach(results) { item in
