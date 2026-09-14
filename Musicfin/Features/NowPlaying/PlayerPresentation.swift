@@ -112,6 +112,8 @@ private final class PlayerPresentationCoordinator: NSObject {
     private var hosting: UIHostingController<AnyView>?
     private let transitioning = PlayerTransitioningDelegate()
     private var interaction: UIPercentDrivenInteractiveTransition?
+    /// 終了 pan を始めた時点の本文の高さ。進行の分母に使う。
+    private var dismissHeight: CGFloat = 1
 
     override init() {
         super.init()
@@ -249,8 +251,10 @@ private final class PlayerPresentationCoordinator: NSObject {
 
     @objc private func handleDismissPan(_ pan: UIPanGestureRecognizer) {
         guard let view = pan.view else { return }
-        let height = max(view.bounds.height, 1)
-        let progress = min(max(pan.translation(in: view).y / height, 0), 1)
+        // 引き始めの高さで割り続ける。「ミニプレイヤーから展開」では引くほど本文が縮むので、
+        // **その場の高さで割ると縮みが進行を押し上げ、途中から勝手に閉じきってしまう。**
+        if pan.state == .began { dismissHeight = max(view.bounds.height, 1) }
+        let progress = min(max(pan.translation(in: view).y / dismissHeight, 0), 1)
         switch pan.state {
         case .began:
             beginInteractiveDismiss()
@@ -265,7 +269,7 @@ private final class PlayerPresentationCoordinator: NSObject {
             } else {
                 // 戻りだけは離した瞬間の速さを引き継いだばねに差し替える。既定の完了曲線は
                 // 残り時間が引いた割合に比例するので、浅く引いて離すとほぼ瞬間で戻ってしまう。
-                transitioning.prepareCancel(velocity: velocity, distance: progress * height)
+                transitioning.prepareCancel(velocity: velocity, distance: progress * dismissHeight)
                 interaction?.cancel()
             }
             interaction = nil
@@ -389,6 +393,10 @@ private final class PlayerDismissPan: UIPanGestureRecognizer {
 
 /// 提示枠を容器いっぱいにして、`.large` detent が空けていた上端 62 pt を塞ぐ（仕様 4.1.1 章）。
 private final class PlayerPresentationController: UIPresentationController {
+    /// 枠の書き直しを止める合図。**「ミニプレイヤーから展開」は寸法そのものを動かす**ので、
+    /// transform では見分けが付かない。途中のレイアウトで全面へ戻されるとアニメーションが飛ぶ。
+    var isAnimatingFrame = false
+
     override var frameOfPresentedViewInContainerView: CGRect {
         containerView?.bounds ?? super.frameOfPresentedViewInContainerView
     }
@@ -397,7 +405,7 @@ private final class PlayerPresentationController: UIPresentationController {
         super.containerViewWillLayoutSubviews()
         // 遷移中もここは呼ばれる。移動はアニメーターが transform で持っているので、
         // 通常のレイアウトのときだけ枠を書き直して上書きを避ける。
-        guard let presentedView, presentedView.transform.isIdentity else { return }
+        guard !isAnimatingFrame, let presentedView, presentedView.transform.isIdentity else { return }
         presentedView.frame = frameOfPresentedViewInContainerView
     }
 }
@@ -414,6 +422,8 @@ private final class PlayerTransitioningDelegate: NSObject, UIViewControllerTrans
     var onDismissEnded: ((Bool) -> Void)?
     /// 進行中の終了アニメーター。取り消しの戻りへ指の速さを渡すためだけに覚える。
     private weak var dismissAnimator: PlayerTransitionAnimator?
+    /// 進行中の提示枠。寸法を動かす方式のときだけ、遷移中の枠の書き直しを止めるのに使う。
+    private weak var presentation: PlayerPresentationController?
 
     /// 取り消しの戻りに使うばねを、離した瞬間の速さから作って渡す。
     func prepareCancel(velocity: CGFloat, distance: CGFloat) {
@@ -425,7 +435,9 @@ private final class PlayerTransitioningDelegate: NSObject, UIViewControllerTrans
         presenting: UIViewController?,
         source: UIViewController
     ) -> UIPresentationController? {
-        PlayerPresentationController(presentedViewController: presented, presenting: presenting)
+        let controller = PlayerPresentationController(presentedViewController: presented, presenting: presenting)
+        presentation = controller
+        return controller
     }
 
     func animationController(
@@ -433,13 +445,21 @@ private final class PlayerTransitioningDelegate: NSObject, UIViewControllerTrans
         presenting: UIViewController,
         source: UIViewController
     ) -> UIViewControllerAnimatedTransitioning? {
-        PlayerTransitionAnimator(isPresenting: true, isInteractive: false, onEnded: onPresentEnded)
+        PlayerTransitionAnimator(
+            isPresenting: true,
+            isInteractive: false,
+            sourceRect: sourceRect,
+            presentationProvider: { [weak self] in self?.presentation },
+            onEnded: onPresentEnded
+        )
     }
 
     func animationController(forDismissed dismissed: UIViewController) -> UIViewControllerAnimatedTransitioning? {
         let animator = PlayerTransitionAnimator(
             isPresenting: false,
             isInteractive: interaction != nil,
+            sourceRect: sourceRect,
+            presentationProvider: { [weak self] in self?.presentation },
             onEnded: onDismissEnded
         )
         dismissAnimator = animator
@@ -476,8 +496,11 @@ private final class PlayerContinuationAnimator: UIViewPropertyAnimator {
     }
 }
 
-/// 出入りのアニメーター。**動かすのは移動だけ**にする（仕様 4.1.1 章）。上角の丸みは提示ビューの
+/// 出入りのアニメーター。動かすのは**姿の 1 つだけ**にする（仕様 4.1.1 章）。上角の丸みは提示ビューの
 /// `cornerConfiguration` が画面の角と同じ値で持ち続けるので、遷移の側で触る対象ではなくなった。
+/// 動かす姿は出発矩形の有無で決まり、無ければ移動（transform）、
+/// あればミニプレイヤーの矩形との間の寸法（frame）になる。**選ぶのは幾何だけ**で、
+/// 曲線・取り消しのばね・完了時の置き直しは 2 方式で共通にする。
 /// UIKit は遷移中に同じインスタンスを返すことを要求するので、
 /// `animateTransition(using:)` も `interruptibleAnimator(using:)` の結果をそのまま使う。
 private final class PlayerTransitionAnimator: NSObject, UIViewControllerAnimatedTransitioning {
@@ -494,12 +517,27 @@ private final class PlayerTransitionAnimator: NSObject, UIViewControllerAnimated
 
     private let isPresenting: Bool
     private let isInteractive: Bool
+    /// 出発（＝帰着）の矩形（窓座標）。`nil` なら完成した寸法のまま画面の外へ出し入れする。
+    private let sourceRect: CGRect?
     private let onEnded: ((Bool) -> Void)?
+    /// 提示枠を後から引く手。**作られる順に依存しないよう**、初期化時ではなくアニメーターを作る
+    /// 時点で呼ぶ。寸法を動かす方式でしか使わない。
+    private let presentationProvider: () -> PlayerPresentationController?
     private var animator: PlayerContinuationAnimator?
+    /// 寸法を動かす間だけ枠の書き直しを止めてもらう相手。
+    private weak var presentation: PlayerPresentationController?
 
-    init(isPresenting: Bool, isInteractive: Bool, onEnded: ((Bool) -> Void)?) {
+    init(
+        isPresenting: Bool,
+        isInteractive: Bool,
+        sourceRect: CGRect?,
+        presentationProvider: @escaping () -> PlayerPresentationController?,
+        onEnded: ((Bool) -> Void)?
+    ) {
         self.isPresenting = isPresenting
         self.isInteractive = isInteractive
+        self.sourceRect = sourceRect
+        self.presentationProvider = presentationProvider
         self.onEnded = onEnded
     }
 
@@ -538,6 +576,9 @@ private final class PlayerTransitionAnimator: NSObject, UIViewControllerAnimated
 
     func animationEnded(_ transitionCompleted: Bool) {
         animator = nil
+        // 止めていた枠の書き直しを戻す。忘れると回転や幅の変化で提示枠が追従しなくなる。
+        presentation?.isAnimatingFrame = false
+        presentation = nil
         onEnded?(transitionCompleted)
     }
 
@@ -559,8 +600,25 @@ private final class PlayerTransitionAnimator: NSObject, UIViewControllerAnimated
             }
         }
 
-        let offscreen = CGAffineTransform(translationX: 0, y: container.bounds.height)
-        presented?.transform = isPresenting ? offscreen : .identity
+        // 動かす姿を 1 つ選ぶ。開いた姿はどちらも容器いっぱい（＝提示枠と同じ）で、
+        // 閉じた姿だけが方式で変わる。**置き直しをこの 1 つの関数に集めるので、
+        // 完了・取り消しの扱いは 2 方式で一字も変わらない。**
+        let openRect = container.bounds
+        let offscreen = CGAffineTransform(translationX: 0, y: openRect.height)
+        let settle: (Bool) -> Void
+        if let collapsedRect = collapsedRect(in: container) {
+            // 寸法を動かすので、途中のレイアウトに枠を書き直させない。提示枠は遷移の始まりに
+            // 作られているので、**アニメーターを作るこの時点で引けば取り違えない**。
+            presentation = presentationProvider()
+            presentation?.isAnimatingFrame = true
+            // 前の遷移が移動で終わっていることがあるので、寸法へ移る前に移動を畳んでおく。
+            presented?.transform = .identity
+            settle = { staysOpen in presented?.frame = staysOpen ? openRect : collapsedRect }
+        } else {
+            settle = { staysOpen in presented?.transform = staysOpen ? .identity : offscreen }
+        }
+        // 提示は閉じた姿から始めて開いた姿へ、終了はその逆へ動かす。
+        settle(!isPresenting)
 
         // 追従中は線形にして指と 1 対 1 で動かす。自動で出入りするときだけ弾みと減速を付ける。
         let timing: UITimingCurveProvider
@@ -576,17 +634,25 @@ private final class PlayerTransitionAnimator: NSObject, UIViewControllerAnimated
             timingParameters: timing
         )
         animator.addAnimations { [isPresenting] in
-            presented?.transform = isPresenting ? .identity : offscreen
+            settle(isPresenting)
         }
         animator.addCompletion { [isPresenting] _ in
             // 取り消しでは始まりの側、完了では終わりの側へ明示的に置き直す。
             // 提示ビューと地は取り消しでも階層から外さない（仕様 4.1.1 章）。
             let isCancelled = context.transitionWasCancelled
             let staysOpen = isPresenting != isCancelled
-            presented?.transform = staysOpen ? .identity : offscreen
+            settle(staysOpen)
             if !staysOpen, !isPresenting { presented?.removeFromSuperview() }
             context.completeTransition(!isCancelled)
         }
         return animator
+    }
+
+    /// ミニプレイヤーの矩形を容器の座標へ直す。`nil`・空・容器と重ならない矩形は
+    /// **渡されなかったものとして扱う**（画面の外から広がって見えるより、せり上がりへ落ちるほうが良い）。
+    private func collapsedRect(in container: UIView) -> CGRect? {
+        guard let sourceRect, sourceRect.width > 0, sourceRect.height > 0 else { return nil }
+        let rect = container.convert(sourceRect, from: nil)
+        return rect.intersects(container.bounds) ? rect : nil
     }
 }
