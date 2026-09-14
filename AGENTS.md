@@ -32,6 +32,24 @@ xcodebuild -project Musicfin.xcodeproj -scheme Musicfin -configuration Debug \
 - Unit tests: `./scripts/run-unit-tests.sh` (details in `Tests/README.md`)
 - CI locally: `./scripts/act.sh` (`--host <job>` for the macOS jobs)
 
+## Ship every finished piece of work
+
+When a request is finished — built, linted, verified — **commit it and ship it to
+TestFlight**. Do not leave finished work sitting in the working tree waiting to
+be asked about.
+
+1. Commit the work itself, one Conventional Commit per coherent change.
+2. `bundle exec fastlane beta` — this is what "release" means here. Tagging `v*`
+   fires the **App Store** lane instead, so never push a tag as part of this.
+3. Commit the build record fastlane writes to
+   `fastlane/testflight/last_shipped.json`, as
+   `chore(fastlane): record build N as shipped to TestFlight`.
+
+**The orchestrator does this, not `agent` or `codex`** — they are told to leave
+the tree uncommitted so that one pane owns the history. It waits until every
+piece of the request is in and verified, so a request is shipped once, not once
+per sub-task.
+
 ## The three agents (`./scripts/start-agents.sh`)
 
 | Pane | Who | Role |
