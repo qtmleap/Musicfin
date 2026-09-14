@@ -54,12 +54,18 @@ struct LyricsView: View {
     @Environment(AuthStore.self) private var auth
     @Environment(PlaybackEngine.self) private var player
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// ぼかしは読みやすさを落とす飾りなので、「透明度を下げる」設定では外す（仕様 5.2 章）。
+    /// この設定を見るのはアプリ内でここだけだが、ぼかしを入れたのもここだけなので方針は揃っている。
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     /// 行送りの動き方の比較設定（仕様 5.2 章）。決まったら 1 つだけ残して畳む。
     @AppStorage(LyricsScrollAnimation.storageKey) private var scrollAnimation = LyricsScrollAnimation.easeInOut
     /// 比較用の暫定値（仕様 5.2 章）。**Apple 実機の実測値ではない。**
     /// 固定値や `.custom` にせず `@ScaledMetric` に持たせるのは、Dynamic Type へ追従させるため。
     @ScaledMetric(relativeTo: .title) private var lyricSize = 32.0
     @ScaledMetric(relativeTo: .title) private var lyricSpacing = 12.0
+    /// 現在行以外に掛けるぼかし（仕様 5.2 章）。**`docs/org/movie.mov` から測った値**で、
+    /// 文字と一緒に伸びるよう `lyricSize` と同じ尺に載せる。測り方は仕様 5.2 章に書いた。
+    @ScaledMetric(relativeTo: .title) private var lyricBlur = 1.7
     @State private var lines: [LyricLine] = []
     @State private var isLoading = true
     @State private var isFollowing = true
@@ -172,20 +178,24 @@ struct LyricsView: View {
                                     resumeTask = nil
                                     player.seek(to: start)
                                 } label: {
-                                    lineText(line, active: index == active)
+                                    lineText(line, active: index == active, hasActiveLine: active != nil)
                                 }
                                 .buttonStyle(.plain)
                                 .accessibilityHint("この行の再生位置へ移動")
                                 .accessibilityAddTraits(index == active ? .isSelected : [])
                             } else {
                                 // 時刻が無ければ飛び先も無いので、押せる行にしない（仕様 5.2 章）。
-                                lineText(line, active: false)
+                                lineText(line, active: false, hasActiveLine: active != nil)
                             }
                         }
                         .id(index)
                     }
                 }
-                .padding(.vertical, 24)
+                // **上に余白は置かない**（仕様 5.2 章）。参照では上の小アートワークの帯から本文が
+                // そのまま続いていて、先頭行は帯のすぐ下から入って上端へ抜けていく。ここへ余白を足すと
+                // 帯の下に空白の段ができ、抜けていく行が途中から現れる別の見え方になる。
+                // 下の 24 pt は最終行が操作帯へ貼り付かないための余白なので残す。
+                .padding(.bottom, 24)
                 // 同じ画面の小アートワークや曲名と同じ左右 32 pt に載せる（仕様 5 章）。外側の 24 pt との差。
                 .padding(.horizontal, 8)
             }
@@ -319,18 +329,30 @@ struct LyricsView: View {
 
     /// 全行で同じ大きさ・同じウェイトにする。現在行だけ大きくすると行高が変わり、
     /// 追従のたびに前後の行が動いて読む位置を見失う（ファイル冒頭の方針・仕様 5.2 章）。
-    /// 濃淡は `.primary` / `.secondary` のまま。参照画像の非活性行にはぼかしが掛かっていて
-    /// 不透明度を逆算できないので、**未計測の係数やぼかしは足さない**。
+    /// 濃淡は `.primary` / `.secondary` のまま。**濃さの係数は測れていないので足さない**が、
+    /// ぼかしだけは参照録画から逆算できたので入れてある（仕様 5.2 章）。
     /// 段内に `lineSpacing` を足さないのも同じ理由で、項目間隔だけで間を作る。
-    private func lineText(_ line: LyricLine, active: Bool) -> some View {
+    private func lineText(_ line: LyricLine, active: Bool, hasActiveLine: Bool) -> some View {
         Text(line.text.isEmpty ? " " : line.text)
             .font(.system(size: lyricSize, weight: .bold))
             .foregroundStyle(active ? .primary : .secondary)
+            // ぼかすのは**文字だけ**。`.frame` と `.contentShape` より前に掛けることで、
+            // 押せる範囲と読み上げの範囲はぼかしても動かない。
+            .blur(radius: blurRadius(active: active, hasActiveLine: hasActiveLine))
             .multilineTextAlignment(.leading)
             .fixedSize(horizontal: false, vertical: true)
             // 44 pt はタップ領域の下限。文字が大きくなれば行の高さはそちらに従って伸びる。
             .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
             .contentShape(.rect)
+    }
+
+    /// ぼかすのは**自動で追い掛けている間の、現在行以外だけ**（仕様 5.2 章）。
+    /// 手で送っている間に外すのは、そのとき読みたいのは現在行ではなく指が止めた場所だから。
+    /// **現在行が決まっていなければ掛けない**。時刻の無い歌詞はもちろん、時刻付きでも
+    /// 前奏のように再生位置が最初の行より前だと現在行は無く、掛ければ全行がぼけてしまう。
+    private func blurRadius(active: Bool, hasActiveLine: Bool) -> CGFloat {
+        guard isSynced, isFollowing, hasActiveLine, !active, !reduceTransparency else { return 0 }
+        return lyricBlur
     }
 
     /// 位置合わせは**すべてここを通す**（仕様 5.1 章 第 4 版）。初回の位置合わせ・現在行の追従・
