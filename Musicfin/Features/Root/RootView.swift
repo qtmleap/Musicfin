@@ -58,6 +58,9 @@ struct RootView: View {
         .tabViewBottomAccessory {
             if showsMiniPlayer {
                 MiniPlayerView(onFrameChange: { miniPlayerSource.rect = $0 }) { showsPlayer = true }
+                    // source はアクセサリ行だけに重ねる。`TabView` 側へ置くと標準 Zoom が
+                    // タブバー本体まで一緒に複製してしまう。
+                    .background { PlayerZoomSource(source: miniPlayerSource) }
             }
         }
         // iPhone は UIKit のカスタム提示、iPad は中央 sheet（仕様 4.1.1 章・6 章）。
@@ -80,7 +83,10 @@ struct RootView: View {
         // 帯が消えたら矩形を捨てる。報告してくるのは `MiniPlayerView` 自身なので、
         // 消えたあとは古い矩形が残り、**居ない帯から広がって見える**（仕様 4.1.1 章）。
         .onChange(of: showsMiniPlayer) { _, shows in
-            if !shows { miniPlayerSource.rect = nil }
+            if !shows {
+                miniPlayerSource.rect = nil
+                miniPlayerSource.view = nil
+            }
         }
         .onChange(of: player.currentItem?.id) { _, id in
             if id == nil { showsPlayer = false }
