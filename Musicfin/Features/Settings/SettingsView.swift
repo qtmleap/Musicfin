@@ -5,6 +5,8 @@ struct AccountView: View {
     @Environment(AuthStore.self) private var auth
     @Environment(PlaybackSettings.self) private var settings
     @Environment(\.dismiss) private var dismiss
+    /// フルプレイヤーの開き方。**実機比較のための一時的な切り替え**なので、再生の設定とは器を分ける。
+    @AppStorage(PlayerPresentationStyle.storageKey) private var playerStyle = PlayerPresentationStyle.slideUp
     @State private var confirmsSignOut = false
 
     private var userName: String {
@@ -23,6 +25,7 @@ struct AccountView: View {
                 accountSurface
                     .padding(.top, 20)
                 qualitySurface(wifi: $settings.wifiQuality, cellular: $settings.cellularQuality)
+                playerSurface
                 signOutSurface
             }
             .padding(.horizontal, 16)
@@ -117,6 +120,22 @@ struct AccountView: View {
         }
     }
 
+    /// プレイヤーの開き方。**実機で 2 方式を見比べるための節**で、どちらを採るか決まったら消す
+    /// （仕様 4.1.1 章）。カードの形は音質の節と同じにして、並んだときに別物に見えないようにする。
+    private var playerSurface: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("プレイヤー").font(.title3.bold())
+            PlayerStylePicker(selection: $playerStyle)
+                .padding(16)
+                .background(Color(.secondarySystemBackground), in: .rect(cornerRadius: 18))
+            Text("実機比較用の一時的な切り替えです。")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                // カード内の行と左端を揃え、説明だけ外側へ張り付かないようにする。
+                .padding(.horizontal, 16)
+        }
+    }
+
     private var signOutSurface: some View {
         VStack(alignment: .leading, spacing: 8) {
             Button("ログアウト", role: .destructive) { confirmsSignOut = true }
@@ -145,6 +164,32 @@ private struct QualityPicker: View {
             HStack(spacing: 12) {
                 Image(systemName: systemImage).foregroundStyle(.tint).frame(width: 24)
                 Text(title)
+                Spacer()
+                Text(selection.title).foregroundStyle(.secondary)
+                Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(.tertiary)
+            }
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .accessibilityValue(selection.title)
+    }
+}
+
+/// 開き方の 2 択。行の形は `QualityPicker` に合わせる（同じ画面に並ぶので形を変えない）。
+private struct PlayerStylePicker: View {
+    @Binding var selection: PlayerPresentationStyle
+
+    var body: some View {
+        Menu {
+            Picker("開き方", selection: $selection) {
+                ForEach(PlayerPresentationStyle.allCases) { style in
+                    Text(style.title).tag(style)
+                }
+            }
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "rectangle.expand.vertical").foregroundStyle(.tint).frame(width: 24)
+                Text("開き方")
                 Spacer()
                 Text(selection.title).foregroundStyle(.secondary)
                 Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(.tertiary)
