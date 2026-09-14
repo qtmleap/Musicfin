@@ -1,6 +1,31 @@
 import SwiftUI
 import UIKit
 
+// MARK: - 提示の方式
+
+/// フルプレイヤーの出入りの見せ方。**実機で見比べるための一時的な切り替え**で、
+/// どちらが Apple Music に近いか決まったら片方だけ残して畳む（仕様 4.1.1 章）。
+/// 保存先を `Core/Settings/` に足さず `@AppStorage` にしているのは、
+/// 比較が済んだら消す設定を再生の設定と同じ器に混ぜないため。
+nonisolated enum PlayerPresentationStyle: String, CaseIterable, Identifiable {
+    /// 完成した寸法のまま下から上げる。現行の挙動で、これを既定にする。
+    case slideUp
+    /// ミニプレイヤーの矩形から画面全面へ、幅と高さの両方を広げる。
+    case expandFromMiniPlayer
+
+    /// `@AppStorage` のキー。設定画面と `RootView` の 2 か所から同じ値を読むので一つ置く。
+    static let storageKey = "player.presentation.style"
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .slideUp: String(localized: "せり上がり（現行）")
+        case .expandFromMiniPlayer: String(localized: "ミニプレイヤーから展開")
+        }
+    }
+}
+
 // MARK: - SwiftUI からの入口
 
 extension View {
