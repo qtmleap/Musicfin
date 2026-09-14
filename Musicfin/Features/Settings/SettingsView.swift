@@ -7,6 +7,7 @@ struct AccountView: View {
     @Environment(\.dismiss) private var dismiss
     /// フルプレイヤーの開き方。**実機比較のための一時的な切り替え**なので、再生の設定とは器を分ける。
     @AppStorage(PlayerPresentationStyle.storageKey) private var playerStyle = PlayerPresentationStyle.slideUp
+    @AppStorage(LyricsScrollAnimation.storageKey) private var lyricsAnimation = LyricsScrollAnimation.easeInOut
     @State private var confirmsSignOut = false
 
     private var userName: String {
@@ -120,14 +121,18 @@ struct AccountView: View {
         }
     }
 
-    /// プレイヤーの開き方。**実機で 2 方式を見比べるための節**で、どちらを採るか決まったら消す
-    /// （仕様 4.1.1 章）。カードの形は音質の節と同じにして、並んだときに別物に見えないようにする。
+    /// プレイヤーの開き方と歌詞の行送り。**実機で見比べるための節**で、採る方式が決まったら消す
+    /// （仕様 4.1.1 章・5.2 章）。カードの形は音質の節と同じにして、並んだときに別物に見えないようにする。
     private var playerSurface: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("プレイヤー").font(.title3.bold())
-            PlayerStylePicker(selection: $playerStyle)
-                .padding(16)
-                .background(Color(.secondarySystemBackground), in: .rect(cornerRadius: 18))
+            VStack(spacing: 16) {
+                PlayerStylePicker(selection: $playerStyle)
+                Divider()
+                LyricsAnimationPicker(selection: $lyricsAnimation)
+            }
+            .padding(16)
+            .background(Color(.secondarySystemBackground), in: .rect(cornerRadius: 18))
             Text("実機比較用の一時的な切り替えです。")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
@@ -164,6 +169,32 @@ private struct QualityPicker: View {
             HStack(spacing: 12) {
                 Image(systemName: systemImage).foregroundStyle(.tint).frame(width: 24)
                 Text(title)
+                Spacer()
+                Text(selection.title).foregroundStyle(.secondary)
+                Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(.tertiary)
+            }
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .accessibilityValue(selection.title)
+    }
+}
+
+/// 行送りの動き方の 4 択。行の形は `PlayerStylePicker` に合わせる（同じ画面に並ぶので形を変えない）。
+private struct LyricsAnimationPicker: View {
+    @Binding var selection: LyricsScrollAnimation
+
+    var body: some View {
+        Menu {
+            Picker("歌詞の行送り", selection: $selection) {
+                ForEach(LyricsScrollAnimation.allCases) { animation in
+                    Text(animation.title).tag(animation)
+                }
+            }
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "quote.bubble").foregroundStyle(.tint).frame(width: 24)
+                Text("歌詞の行送り")
                 Spacer()
                 Text(selection.title).foregroundStyle(.secondary)
                 Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(.tertiary)
