@@ -58,6 +58,20 @@ struct NowPlayingView: View {
     /// 縮みながら動く画像だと行き過ぎて戻る揺れが見えるので使わない。
     /// **0.35 秒は Musicfin の決定値で、Apple 実機を実測した値ではない。**
     private static let modeTransition: Animation = .smooth(duration: 0.35, extraBounce: 0)
+    /// 操作帯の出し入れ（仕様 5.1 章 第 4 版）。3 状態の切り替えとは**別の速さ**で、
+    /// `docs/org/lyrics-control.mov` を 1 枚ずつ当てて測った値に合わせてある。
+    /// 出すほうは臨界制動のばねで ω ≒ 16 rad/s、`2π/ω = 0.39` 秒（当てはめ残差 0.003）。
+    /// SwiftUI の `duration` はそのまま `2π/ω` なので 0.4 秒で並ぶ。
+    private static let controlsReveal: Animation = .smooth(duration: 0.4, extraBounce: 0)
+    /// 引くほうは実測で 0.12 秒ほどで消え、出すのと同じ長さを往復に使うと戻りが重く見える。
+    /// 余韻を少し残して 0.15 秒。弾みは出す側と揃えて 0。
+    private static let controlsHide: Animation = .smooth(duration: 0.15, extraBounce: 0)
+
+    /// 出し入れのどちらを走らせるかは**行き先の状態**で決める。`.animation(_:value:)` は
+    /// 値が変わった更新で読まれるので、ここへ渡る `hidden` は既に新しい側になっている。
+    private static func controlsMotion(hidden: Bool, reduceMotion: Bool) -> Animation? {
+        reduceMotion ? nil : hidden ? controlsHide : controlsReveal
+    }
 
     /// 配色を取り出すためだけに頼む画像の一辺。画面に出す大きさとは別に決める。
     /// 走査は 32×32 まで縮めてから行うので大きな画像は要らず、一方で画面側の一辺は
@@ -117,16 +131,23 @@ struct NowPlayingView: View {
                     // 退避と復帰は**縦だけ 0 と 1 の間で伸縮させる**。隠れている間の見た目の高さは 0 で、
                     // 戻るときは下端を置いたまま上へ育って通常の高さになる。横は縮めない——
                     // 幅まで縮むと帯が中央へ吸い込まれる別の動きに見え、4 帯が横に並ぶ組みが崩れて見える。
+                    // 下端を基準にするのは参照録画の実測（伸びている間、帯の下端はほぼ動かない）。
                     // `scaleEffect` は配置を変えないので、レイアウト上の帯の高さと identity は 3 状態で同じまま。
                     .scaleEffect(x: 1, y: controlsHidden ? 0 : 1, anchor: .bottom)
+                    // 伸び縮みと**同じ速さで濃さも動かす**。参照録画では高さが 5 割の時点で
+                    // まだ半透明で、縦の伸びだけだと畳まれた帯の輪郭が最初から出てしまう。
+                    .opacity(controlsHidden ? 0 : 1)
                     // 帯の高さだけでは下端の余白ぶんが残って記号の頭が覗く。安全域を足して抜け切らせる。
                     .offset(y: detailExtra)
                     // 見えない操作を押せたり読み上げられたりしないようにする。位置だけずらしても残るため。
                     .allowsHitTesting(!controlsHidden)
                     .accessibilityHidden(controlsHidden)
-                    // 状態の切り替えと同じ動き方に揃える（仕様 5.1 章）。
+                    // 出し入れは状態の切り替えとは別の速さ（仕様 5.1 章 第 4 版）。
                     // 「視差効果を減らす」設定では補間しない。
-                    .animation(reduceMotion ? nil : Self.modeTransition, value: controlsHidden)
+                    .animation(
+                        Self.controlsMotion(hidden: controlsHidden, reduceMotion: reduceMotion),
+                        value: controlsHidden
+                    )
                 }
                 .padding(.horizontal, 24)
             }
@@ -235,7 +256,12 @@ struct NowPlayingView: View {
         .contentShape(.interaction, BottomExtendedRect(extra: detailExtra))
         // 伸縮は帯の退避と同じ動き方に揃える（仕様 5.1 章 第 4 版）。本文の高さと切り抜きが
         // 同じ値・同じ曲線で動くので、途中の一瞬でも本文が切り落とされない。
-        .animation(reduceMotion ? nil : Self.modeTransition, value: detailExtra)
+        // 帯が出入りする速さは向きで違うので、**伸びているか縮んでいるかは `extra` から見る**
+        // （この値が 0 より大きい＝帯が退避している側）。
+        .animation(
+            Self.controlsMotion(hidden: detailExtra > 0, reduceMotion: reduceMotion),
+            value: detailExtra
+        )
     }
 
     /// アートワーク。**大きさも角丸も同じ View の上で変える**ので、状態を切り替えても
