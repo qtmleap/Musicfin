@@ -227,7 +227,11 @@ struct NowPlayingView: View {
             artworkTop: Self.artworkTopInset,
             mediaHeight: layout.media,
             titleHeight: layout.title,
-            hasArtist: !(player.currentItem?.displayArtist ?? "").isEmpty
+            hasArtist: !(player.currentItem?.displayArtist ?? "").isEmpty,
+            // 歌詞だけ見出しと本文を**隙間なく繋ぐ**（仕様 5.1 章）。参照では先頭行が見出しの
+            // すぐ下から入って上端へ抜けていくので、ここに段があると行が途中から現れる。
+            // キューは「次に再生」の見出しから始まる別の組みなので、そちらの 16 pt は残す。
+            detailGap: mode == .lyrics ? 0 : PlayerTopLayout.compactBottom
         ) {
             // 並び順は `PlayerTopLayout` の添字と対応する。本文を最初に置くのは、
             // 縮んでいく画像が本文の領域を通る間、画像が上に来て文字と重なって見えないようにするため。
@@ -861,13 +865,18 @@ private struct PlayerTopLayout: Layout {
     /// アーティスト行を 1 行として数えるか。`Text("")` の実測幅で判定すると、
     /// 名前があっても幅が丸めで 0 になる状況に引きずられるので、呼び出し側の値で決める。
     let hasArtist: Bool
+    /// 見出しと本文の間（仕様 5.1 章）。歌詞は 0、キューは `compactBottom`。
+    /// `animatableData` に載せないので状態が変わった時点で切り替わるが、本文が見えているのは
+    /// 歌詞・キューのときだけで、その 2 つの行き来では本文がクロスフェードして入れ替わる。
+    let detailGap: CGFloat
 
     /// 歌詞・キュー時の見出しの寸法（仕様 5.1 章）。画像は 72 pt 角。
     static let compactArtworkSide: CGFloat = 72
     /// 大画像と違ってこちらは実測が 2.7 pt 大きかったので、共通の 35 ではなく 32 を使う。
     /// `artworkTop` を下げるとアートワーク状態の大画像の上端まで動いてしまい、そちらは一致済み。
     private static let compactTop: CGFloat = 32
-    private static let compactBottom: CGFloat = 16
+    /// 見出しの下の余白。**歌詞では 0 を渡して使わない**ので、既定はキュー側の値と考える。
+    static let compactBottom: CGFloat = 16
     /// 画像と曲情報の間、曲情報とお気に入りの間。
     private static let spacing: CGFloat = 12
     /// 外側の 24 pt より一段内側の 32 pt にするための差（仕様 4 章）。
@@ -924,7 +933,7 @@ private struct PlayerTopLayout: Layout {
 
         // 本文は歌詞・キュー状態の見出しの下に固定する。ここを `progress` で動かすと、
         // 出入りのフェードと縦移動が重なって文字が流れて見える。
-        let detailTop = Self.compactTop + compactHeader + Self.compactBottom
+        let detailTop = Self.compactTop + compactHeader + detailGap
         subviews[0].place(
             at: CGPoint(x: bounds.minX, y: bounds.minY + detailTop),
             anchor: .topLeading,
