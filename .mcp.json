@@ -1,0 +1,14 @@
+{
+	"mcpServers": {
+		"codex": {
+			"command": "bun",
+			"args": [
+				"--no-env-file",
+				"${CLAUDE_PROJECT_DIR:-.}/scripts/agents/codex-mcp.mjs"
+			],
+			"env": {
+				"CODEX_MODEL": "gpt-6-astra"
+			}
+		}
+	}
+}
