@@ -255,6 +255,30 @@ Started tmux session '$SESSION'.
 MSG
 fi
 
+# Install the VS Code extension that puts Agents: Start / Restart / Attach in
+# the command palette. A devcontainer would do this from postAttachCommand; this
+# repository has none — Xcode and the Simulator run on the host — so the
+# folderOpen task that runs this script is the only startup hook there is.
+#
+# Best-effort on purpose: install.sh exits 0 when code or zip is missing and
+# early when the installed version already matches. Nothing about the palette is
+# allowed to take down the panes or the fallback shell, so it is detached from
+# this shell entirely — backgrounded, output dropped, status ignored.
+#
+# Detached rather than merely guarded because the early exit is the fast path,
+# not the only one: `code --install-extension` goes over the remote-CLI bridge
+# and takes well over a minute on this host, which is what a version bump costs.
+# Waiting for that would hold the attach below, and the terminal would sit empty
+# while the seats were already running. It lands in time for the reload that a
+# bumped extension needs anyway.
+#
+# The common failure is a stale VSCODE_IPC_HOOK_CLI — `code` is the remote CLI,
+# so it only reaches a window when the environment came from one. A seat running
+# this from its own pane simply installs nothing.
+if [ -x "$SCRIPT_DIR/vscode/install.sh" ]; then
+  "$SCRIPT_DIR/vscode/install.sh" >/dev/null 2>&1 &
+fi
+
 [ "$OPEN" -eq 1 ] && { open_session; exit 0; }
 [ "$ATTACH" -eq 0 ] && exit 0
 # Reached from inside tmux only by --restart, which has done its work already;

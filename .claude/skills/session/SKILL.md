@@ -30,3 +30,14 @@ What it starts — three Claude Code seats, each reaching Codex through the
 
 A model or role-prompt change only takes effect when a seat restarts:
 `./scripts/agents/start-agents.sh --restart`.
+
+In VS Code the same three actions are in the command palette as **Agents: Start
+/ Restart / Attach**, contributed by the local extension in
+`scripts/agents/vscode/` — VS Code does not surface a task in the palette on its
+own, so each command runs the `.vscode/tasks.json` task of the same name.
+`start-agents.sh` installs the extension in the background on every launch,
+because this repository has no devcontainer to install it on attach. If the
+entries are missing or stale, bump `version` in
+`scripts/agents/vscode/package.json` after any `extension.js` change and run
+**Developer: Reload Window** once — VS Code picks up new commands only when a
+window opens.

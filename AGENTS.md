@@ -65,6 +65,16 @@ The seats talk to each other with Claude Code cross-session messaging
 `scripts/agents/*.md`; a model or prompt change needs
 `./scripts/agents/start-agents.sh --restart` to take effect.
 
+In VS Code the session is also reachable from the command palette as **Agents:
+Start / Restart / Attach**. Those entries come from the small local extension in
+`scripts/agents/vscode/`, which exists only because VS Code will not put a task
+in the palette by itself (microsoft/vscode#101761); each command runs the
+`.vscode/tasks.json` task of the same name. `start-agents.sh` installs it in the
+background on every launch, since there is no devcontainer here to do it on
+attach. After changing `extension.js`, bump `version` in its `package.json` — the
+installer skips a version it already has — and run **Developer: Reload Window**
+once, because VS Code only reads the extensions directory when a window opens.
+
 ## For Codex (you, reading this file)
 
 You arrive through the `codex` MCP server, with access to this repository but no
