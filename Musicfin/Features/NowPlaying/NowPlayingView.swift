@@ -30,6 +30,10 @@ struct NowPlayingView: View {
     /// 切り替えごとに増やす世代。連打したとき、古い切り替えの完了処理が後から届いて
     /// 新しい遷移の途中で待ちを解いてしまうのを防ぐ。
     @State private var transitionGeneration = 0
+    /// 歌詞を読み進めている間だけ操作帯を退避させる（仕様 5.1 章 第 4 版）。
+    /// 判定は歌詞本文が持ち、ここは受け取った結果を帯の位置へ反映するだけにする。
+    /// キューは第 3 版のまま常時表示なので、`mode == .lyrics` と併せてしか効かせない。
+    @State private var lyricsControlsHidden = false
     @State private var scrubTime = 0.0
     /// 確定させたシーク先。指を離した直後は 0.2 秒間隔の時刻監視がまだ**古い再生位置**を流してくるので、
     /// 実際の再生位置がここへ追いつくまでは表示側を正とする。`Player/` を触らずに吸収するための状態。
@@ -88,17 +92,36 @@ struct NowPlayingView: View {
             // 以前は状態ごとに構成ごと組み替えていたが、それだと外側が入れ替わるたびに操作帯まで
             // 挿入・削除として消えて現れ、上部が動く裏で画面全体がちらつく。
             // 組み替えるのは上部の配置だけにする。
+            // 歌詞を読み進めている間だけ操作帯を画面外へ逃がす（仕様 5.1 章 第 4 版）。
+            let controlsHidden = mode == .lyrics && lyricsControlsHidden
+            // 逃がしたぶんは**歌詞本文だけを下へ伸ばして**埋める（仕様 5.1 章 第 4 版）。
+            // 本文を据え置くと下に 300 pt の空白が残るだけで、帯を隠しても読める行が 1 行も増えない。
+            // 帯の移動量と同じ値を使うので、伸びた本文の下端は帯が抜けた先とぴったり合う。
+            let detailExtra = controlsHidden ? layout.controlsHeight + geometry.safeAreaInsets.bottom : 0
             ScrollView {
                 VStack(spacing: 0) {
-                    topArea(artworkSide: artworkSide, layout: layout)
-                    seekControls.frame(height: layout.seek)
-                    transport.frame(height: layout.transport)
-                    // 音量は帯の下端へ、下部の記号は帯の上端へ寄せる。この 2 つを中央に置いたままだと
-                    // 音量記号から選択円までが (volume + bottom) / 2 で決まってしまい、
-                    // 最小値だけで目標を 15 pt 超えるので比率をいくら下げても届かない（仕様 4 章）。
-                    // 寄せるのは 44 pt の操作行ごとで、記号だけを動かすのではない。
-                    volumeRow.frame(height: layout.volume, alignment: .bottom)
-                    bottomControls(palette: palette).frame(height: layout.bottom, alignment: .top)
+                    topArea(artworkSide: artworkSide, layout: layout, detailExtra: detailExtra)
+                    // シーク以降の 4 帯は **1 つの塊にまとめ、3 状態で同じものを保つ**（仕様 5.1 章 第 4 版）。
+                    // 退避は `offset` だけで行い、帯を取り除いたり高さを 0 にしたりはしない。
+                    // 高さが動くと `PlayerLayout` の配分ごと組み替わり、上部のアートワークまで動く。
+                    VStack(spacing: 0) {
+                        seekControls.frame(height: layout.seek)
+                        transport.frame(height: layout.transport)
+                        // 音量は帯の下端へ、下部の記号は帯の上端へ寄せる。この 2 つを中央に置いたままだと
+                        // 音量記号から選択円までが (volume + bottom) / 2 で決まってしまい、
+                        // 最小値だけで目標を 15 pt 超えるので比率をいくら下げても届かない（仕様 4 章）。
+                        // 寄せるのは 44 pt の操作行ごとで、記号だけを動かすのではない。
+                        volumeRow.frame(height: layout.volume, alignment: .bottom)
+                        bottomControls(palette: palette).frame(height: layout.bottom, alignment: .top)
+                    }
+                    // 帯の高さだけでは下端の余白ぶんが残って記号の頭が覗く。安全域を足して抜け切らせる。
+                    .offset(y: detailExtra)
+                    // 見えない操作を押せたり読み上げられたりしないようにする。位置だけずらしても残るため。
+                    .allowsHitTesting(!controlsHidden)
+                    .accessibilityHidden(controlsHidden)
+                    // 状態の切り替えと同じ動き方に揃える（仕様 5.1 章）。
+                    // 「視差効果を減らす」設定では補間しない。
+                    .animation(reduceMotion ? nil : Self.modeTransition, value: controlsHidden)
                 }
                 .padding(.horizontal, 24)
             }
@@ -177,7 +200,7 @@ struct NowPlayingView: View {
     /// `PlayerTopLayout` に渡す `progress` だけなので、画像も曲名も状態ごとに別の View へ
     /// 差し替わらず、遷移の途中で 2 つ写ることがない（仕様 5.1 章）。
     /// 明示的なフェードを足すのは歌詞・キューの本文だけ。
-    private func topArea(artworkSide: CGFloat, layout: PlayerLayout) -> some View {
+    private func topArea(artworkSide: CGFloat, layout: PlayerLayout, detailExtra: CGFloat) -> some View {
         // 基準は幅いっぱいで、帯の高さが足りないときだけ縮める（仕様 4 章）。
         // 帯のほうは `PlayerLayout` が一辺を先に確保しに行くので、通常は `artworkSide` で決まる。
         let bigSide = max(1, min(artworkSide, layout.media - Self.artworkTopInset - Self.artworkBottomInset))
@@ -191,28 +214,50 @@ struct NowPlayingView: View {
         ) {
             // 並び順は `PlayerTopLayout` の添字と対応する。本文を最初に置くのは、
             // 縮んでいく画像が本文の領域を通る間、画像が上に来て文字と重なって見えないようにするため。
-            detailSlot
+            detailSlot(extra: detailExtra)
             artworkSlot(bigSide: bigSide)
             songTitle
             songArtist
             favoriteButton
         }
         .frame(height: layout.media + layout.title)
-        .clipped()
+        // 切り抜きは**下だけ `detailExtra` ぶん広げる**（仕様 5.1 章 第 4 版）。`.clipped()` のままだと
+        // 伸ばした本文がこの枠の下端で切り落とされ、帯を隠しても読める行が増えない。
+        // 上と左右を広げないのは、縮んでいく画像がこの境界の外へ出ないようにするため。
+        .clipShape(BottomExtendedRect(extra: detailExtra))
+        // **切り抜きは当たり判定を決めない。**`.clipped()` も `.clipShape` も形を描くだけなので、
+        // これを付けないと伸ばした領域でスクロールも行タップも効かない。切り抜きと同じ形にする。
+        .contentShape(.interaction, BottomExtendedRect(extra: detailExtra))
+        // 伸縮は帯の退避と同じ動き方に揃える（仕様 5.1 章 第 4 版）。本文の高さと切り抜きが
+        // 同じ値・同じ曲線で動くので、途中の一瞬でも本文が切り落とされない。
+        .animation(reduceMotion ? nil : Self.modeTransition, value: detailExtra)
     }
 
     /// アートワーク。**大きさも角丸も同じ View の上で変える**ので、状態を切り替えても
     /// 画像の読み込みやプレースホルダーからのフェードは起き直らない（仕様 5.1 章）。
     /// 一辺はレイアウトが提示した枠から読む。ここで状態を見て決めると、補間の途中の値を取れない。
     private func artworkSlot(bigSide: CGFloat) -> some View {
-        GeometryReader { proxy in
-            let side = max(1, min(proxy.size.width, proxy.size.height))
-            ArtworkView(
-                item: player.currentItem,
-                size: side,
-                cornerRadius: Self.artworkCornerRadius(forSide: side, bigSide: bigSide)
-            )
+        // **3 状態とも同じ `Button`** にする（仕様 5.1 章 第 4 版）。歌詞で操作帯が退避している間は
+        // 下部の 3 ボタンが画面外にあるので、この見出しの画像だけがアートワーク状態へ戻る道になる。
+        // 状態によって `Button` を付け外しすると identity が変わり、補間の途中で画像が作り直される。
+        // アートワーク状態では同じ状態への切り替えになり、`switchMode(to:)` が何もしない。
+        Button {
+            switchMode(to: .artwork)
+        } label: {
+            GeometryReader { proxy in
+                let side = max(1, min(proxy.size.width, proxy.size.height))
+                ArtworkView(
+                    item: player.currentItem,
+                    size: side,
+                    cornerRadius: Self.artworkCornerRadius(forSide: side, bigSide: bigSide)
+                )
+            }
         }
+        .buttonStyle(.plain)
+        .accessibilityLabel("アートワークへ戻る")
+        // アートワーク状態のこれは押しても何も起きない大きな画像なので、操作として読み上げない。
+        // `ArtworkView` 自体は読み上げ対象を持たず、曲名・アーティストは隣の `Text` が読まれる。
+        .accessibilityHidden(mode == .artwork)
         // 停止中は 90% に縮めて「止まっている」ことを形で示す。視差効果を減らす設定なら固定。
         // 72 pt まで縮んだ状態では掛けない。小さい画像でさらに縮めても止まっていることは伝わらず、
         // 曲名との縦位置だけがずれる。
@@ -232,10 +277,10 @@ struct NowPlayingView: View {
 
     /// 本文の置き場。中身が無いアートワーク状態でも**子の数と順序を変えない**ために、
     /// 透明な枠で場所だけ確保する（仕様 5.1 章）。
-    private var detailSlot: some View {
+    private func detailSlot(extra: CGFloat) -> some View {
         Color.clear
             .overlay {
-                detail.transition(.opacity)
+                detail(extra: extra).transition(.opacity)
             }
             // アートワーク状態ではこの枠に大画像が重なるので、透明な枠に操作を吸わせない。
             .allowsHitTesting(mode != .artwork)
@@ -243,15 +288,26 @@ struct NowPlayingView: View {
 
     /// 歌詞・キューの本体。アートワーク状態では出さない。
     @ViewBuilder
-    private var detail: some View {
+    private func detail(extra: CGFloat) -> some View {
         switch mode {
         case .artwork:
             EmptyView()
         case .lyrics:
             if let track = player.currentItem {
-                // 上部が動いている間は歌詞に位置合わせをさせない（仕様 5.1 章）。
-                LyricsView(track: track, isSettled: !isTopTransitioning)
+                // 置かれた枠から**下へだけ** `extra` ぶんはみ出させる（仕様 5.1 章 第 4 版）。
+                // `GeometryReader` 自身の大きさは提案どおりなので、はみ出しは `PlayerTopLayout` へ
+                // 逆流しない。`PlayerTopLayout` は本文の y を `mediaHeight` から決めておらず、
+                // `sizeThatFits` も子の高さを見ないので、伸ばしても上部は 1 px も動かない。
+                GeometryReader { proxy in
+                    // 上部が動いている間は歌詞に位置合わせをさせない（仕様 5.1 章）。
+                    LyricsView(
+                        track: track,
+                        isSettled: !isTopTransitioning,
+                        onControlsVisibilityChange: { lyricsControlsHidden = $0 }
+                    )
                     .id(track.id)
+                    .frame(height: proxy.size.height + extra, alignment: .top)
+                }
             }
         case .queue:
             QueueView()
@@ -501,17 +557,24 @@ struct NowPlayingView: View {
     /// 世代と現在のモードの両方を確かめてから待ちを解くのは、連打したときに古い切り替えの
     /// 完了処理が後から届き、まだ動いている新しい遷移の途中で歌詞を跳ばせてしまうため。
     private func switchMode(to next: ContentMode) {
+        // 見出しのアートワークはアートワーク状態でも押せる（仕様 5.1 章 第 4 版）ので、
+        // 同じ状態への切り替えが来る。遷移を始めてしまうと、動かない画面のまま待ちだけが立つ。
+        guard next != mode else { return }
         transitionGeneration += 1
         let generation = transitionGeneration
+        // 歌詞を離れたら操作帯は出した状態へ戻す（仕様 5.1 章 第 4 版）。歌詞で隠したまま移ると、
+        // 判定を持たないキューやアートワークで操作が消えたきりになる。
         // 「視差効果を減らす」設定では位置・大きさを補間しないので、待たせる理由もない（仕様 5.1 章）。
         guard !reduceMotion else {
             mode = next
+            lyricsControlsHidden = false
             isTopTransitioning = false
             return
         }
         isTopTransitioning = true
         withAnimation(Self.modeTransition) {
             mode = next
+            lyricsControlsHidden = false
         } completion: {
             guard transitionGeneration == generation, mode == next else { return }
             isTopTransitioning = false
@@ -698,6 +761,10 @@ private struct PlayerLayout {
     /// 下部の帯は高さを固定する。中身を上寄せにして、選択円の下に残る余白でこの値が効く（仕様 4 章）。
     static let bottomHeight: CGFloat = 55
 
+    /// シーク以降の 4 帯の合計（仕様 5.1 章 第 4 版）。歌詞で操作帯を画面外へ逃がす距離に使う。
+    /// この型は帯の**配分**を決めるものなので、退避の距離を `init` で確定させず、必要な側で足す。
+    var controlsHeight: CGFloat { seek + transport + volume + bottom }
+
     init(height: CGFloat, artworkMedia: CGFloat, titleMinimum: CGFloat, seekMinimum: CGFloat) {
         let reclaimedTop = max(44, height * 0.07)
         var title = max(titleMinimum, height * 0.113)
@@ -738,6 +805,24 @@ private struct PlayerLayout {
         self.bottom = bottom
         // 借りても届かないときは、従来どおり最後にアートワークのほうが縮む。
         media = mediaHeight(title + seek + transport + volume + bottom)
+    }
+}
+
+/// 与えられた矩形を**下へ `extra` ぶんだけ**広げた形（仕様 5.1 章 第 4 版）。
+/// 歌詞で操作帯を退避させている間、上部の切り抜きと当たり判定をこの形に揃えて、
+/// 伸ばした本文が枠の下端で切られたり、そこだけ操作を受け付けなくなったりするのを防ぐ。
+private struct BottomExtendedRect: Shape {
+    var extra: CGFloat
+
+    /// 伸縮の途中の値で切り抜けるようにする。補間できないと、本文の高さだけが動いて
+    /// 切り抜きが先に最終形へ飛び、伸び始めと縮み終わりで下端がちらつく。
+    nonisolated var animatableData: CGFloat {
+        get { extra }
+        set { extra = newValue }
+    }
+
+    nonisolated func path(in rect: CGRect) -> Path {
+        Path(CGRect(x: rect.minX, y: rect.minY, width: rect.width, height: rect.height + max(0, extra)))
     }
 }
 
