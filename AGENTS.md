@@ -45,26 +45,34 @@ be asked about.
    `fastlane/testflight/last_shipped.json`, as
    `chore(fastlane): record build N as shipped to TestFlight`.
 
-**The orchestrator does this, not `agent` or `codex`** — they are told to leave
-the tree uncommitted so that one pane owns the history. It waits until every
-piece of the request is in and verified, so a request is shipped once, not once
-per sub-task.
+**The orchestrator does this, not `implementer` or `reviewer`** — they are told
+to leave the tree uncommitted so that one seat owns the history. It waits until
+every piece of the request is in and verified, so a request is shipped once, not
+once per sub-task.
 
-## The three agents (`./scripts/start-agents.sh`)
+## The three agents (`./scripts/agents/start-agents.sh`)
 
 | Pane | Who | Role |
 |---|---|---|
-| `orchestrator` | Claude Code | Splits the work, assigns it, verifies it, reports to the user |
-| `agent` | Claude Code | Carries the implementation tasks it gets from the orchestrator through to done |
-| `codex` | Codex (gpt-6-astra) | Design questions, review, second implementer |
+| `orchestrator` | Claude Code | Splits the work, assigns it, verifies it, commits and ships it, reports to the user |
+| `implementer` | Claude Code | Carries the implementation tasks it gets from the orchestrator through to done |
+| `reviewer` | Claude Code | Read-only design and change review, second opinions |
 
-Panes talk through `./scripts/ask-agent.sh <orchestrator|agent|codex> "..."`.
-Read the answer back with `--wait SEC` or `--read`.
+The seats talk to each other with Claude Code cross-session messaging
+(`ListAgents`, then `SendMessage` to `orchestrator` / `implementer` /
+`reviewer`), and every seat reaches Codex through the `codex` MCP server
+(`ask` for a question, `review` for a diff). Role prompts live in
+`scripts/agents/*.md`; a model or prompt change needs
+`./scripts/agents/start-agents.sh --restart` to take effect.
 
 ## For Codex (you, reading this file)
 
-- Your job is mostly to **answer the orchestrator's design questions and review
-  requests**. Write code only when implementation is what was asked for.
+You arrive through the `codex` MCP server, with access to this repository but no
+context from the conversation that called you, so the prompt has to name what
+matters and this file is your standing brief.
+
+- Your job is mostly to **answer design questions and review requests**. Write
+  code only when implementation is what was asked for.
 - Give design answers as decisions ("do this"), not as options ("you could also
   …"). Ground them in the iOS 26 APIs and `docs/ui-spec.md`.
 - After implementing, always run the build command above, then report the

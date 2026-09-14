@@ -6,9 +6,9 @@
       "type": "shell",
       // No Dev Container here: Xcode and the Simulator run on the host.
       // The integrated terminal has a real TTY, so attaching from it puts the
-      // orchestrator / agent / codex panes inside VS Code. (Claude Code's Bash
-      // tool has no TTY and cannot attach.)
-      "command": "./scripts/start-agents.sh",
+      // orchestrator / implementer / reviewer panes inside VS Code. (Claude
+      // Code's Bash tool has no TTY and cannot attach.)
+      "command": "./scripts/agents/start-agents.sh",
       "options": {
         "cwd": "${workspaceFolder}"
       },
@@ -23,6 +23,26 @@
         "close": false,
         "clear": true,
         // Show it without stealing focus from the editor.
+        "focus": false
+      },
+      "problemMatcher": []
+    },
+    {
+      // A model or a role prompt is read when claude starts, so a running seat
+      // keeps the old one until it is respawned. --restart replaces what runs
+      // inside each pane and leaves the session alone, so the terminal opened
+      // on folderOpen survives. Run this by hand, never on folderOpen.
+      "label": "restart-agents",
+      "type": "shell",
+      "command": "./scripts/agents/start-agents.sh --restart",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "echo": false,
+        "clear": true,
         "focus": false
       },
       "problemMatcher": []
