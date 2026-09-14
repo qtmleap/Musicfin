@@ -705,16 +705,20 @@ private final class PlayerExpansionVisuals {
         clipView.backgroundColor = .clear
         clipView.isUserInteractionEnabled = false
         clipView.layer.cornerCurve = .continuous
-        // 帯は四隅とも丸いので、自動の出入りでは四隅を丸めたままにする。上 2 角へ絞ると
-        // 帯の姿のときに下 2 角が角張って見えるため。**引いて閉じている最中だけ**は要件が優先で、
-        // 上 2 角に限る。帯の写し自身が丸みを持って写っているので、終端の見た目は崩れない。
-        clipView.layer.maskedCorners =
-            isInteractiveDismiss
-            ? [.layerMinXMinYCorner, .layerMaxXMinYCorner]
-            : [
-                .layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMinXMaxYCorner,
-                .layerMaxXMaxYCorner,
-            ]
+        // 帯は四隅とも丸いので、`layer` 側は四隅を丸めたままにする。上 2 角へ絞ると
+        // 帯の姿のときに下 2 角が角張って見えるため。引いて閉じている最中だけは下が直角になるが、
+        // それは次の `cornerConfiguration` が受け持つ。
+        clipView.layer.maskedCorners = [
+            .layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMinXMaxYCorner, .layerMaxXMaxYCorner,
+        ]
+        // **引いて閉じている最中だけ**、帯へ寄る途中でも上 2 角をフルプレイヤーと同じ丸みで保つ。
+        // 帯の半径（24 pt）へ進行で近づける作りだと、実際に引く量では数 pt にしかならず
+        // 丸く見えなかった（実機報告 #3）。`cornerConfiguration` を当てると `layer.cornerRadius`
+        // より優先されるので、`apply(open:)` の書き込みは無視される。自動の出入りは従来どおり
+        // 四隅を丸めたままにする（上 2 角へ絞ると帯の姿で下 2 角が角張って見えるため）。
+        if isInteractiveDismiss {
+            clipView.cornerConfiguration = PlayerTransitionAnimator.draggingCorners
+        }
         full.bounds = CGRect(origin: .zero, size: openRect.size)
         clipView.addSubview(full)
         if let miniSnapshot {
@@ -911,23 +915,20 @@ private final class PlayerTransitionAnimator: NSObject, UIViewControllerAnimated
             settle = { staysOpen in expansion.apply(open: staysOpen) }
         } else {
             let offscreen = CGAffineTransform(translationX: 0, y: container.bounds.height)
-            let move: (Bool) -> Void = { staysOpen in presented?.transform = staysOpen ? .identity : offscreen }
-            // せり上がりでは引いている間だけ上 2 角を丸める。静止時は 0、引き切った時点で終端値に
-            // なるように**姿と同じアニメーターへ相乗りさせる**ので、`update(_:)` だけで移動と丸みが
-            // 一緒に進む。pan の `.changed` から半径を書かないのが要点で、書くと進行が二重になり
-            // 取り消しでずれる。自動で出入りするときは丸めない（要件は「引いているときだけ」）。
-            if isInteractive, let presented {
-                let radius = Self.concentricRadius(of: presented)
-                settle = { staysOpen in
-                    move(staysOpen)
-                    presented.layer.cornerRadius = staysOpen ? 0 : radius
-                }
-            } else {
-                settle = move
-            }
+            settle = { staysOpen in presented?.transform = staysOpen ? .identity : offscreen }
         }
         // 提示は閉じた姿から始めて開いた姿へ、終了はその逆へ動かす。
         settle(!isPresenting)
+
+        // 引いている最中の上 2 角。**半径を進行へ乗せない。**乗せていた頃は終端値へ線形に近づける
+        // 作りで、実際に引く量（2 割前後）では十数 pt にしかならず丸く見えなかった。しかも半径を
+        // 読む側が `cornerConfiguration` を当てた直後に `effectiveRadius` を引いており、解決に
+        // レイアウトが要るので NaN が返って**丸みが一切出ていなかった**（実機報告 #3、実測で上端が
+        // 完全な直線）。掴んだ瞬間に `cornerConfiguration` を当てて UIKit に解決させ、進行に
+        // 乗せるのは移動だけにする。取り消しは戻り切ってから完了で外すので、途中で角は立たない。
+        if isInteractive, !isPresenting, let presented {
+            presented.cornerConfiguration = Self.draggingCorners
+        }
 
         // 追従中は線形にして指と 1 対 1 で動かす。自動で出入りするときだけ弾みと減速を付ける。
         let timing: UITimingCurveProvider
@@ -954,6 +955,8 @@ private final class PlayerTransitionAnimator: NSObject, UIViewControllerAnimated
             let isCancelled = context.transitionWasCancelled
             let staysOpen = isPresenting != isCancelled
             settle(staysOpen)
+            // 開いたまま終わったときだけ丸みを外す。静止した本文と撮影に角丸を残さないため。
+            if staysOpen { presented?.cornerConfiguration = .uniformCorners(radius: .fixed(0)) }
             // 展開経路の実体・帯・写しは、取り消しでも成功でもこの 1 か所を通して戻す。
             self?.expansion?.restore()
             if !staysOpen, !isPresenting { presented?.removeFromSuperview() }
@@ -975,19 +978,10 @@ private final class PlayerTransitionAnimator: NSObject, UIViewControllerAnimated
         )
     }
 
-    /// せり上がりで引き切ったときの上 2 角の半径。**数を直書きしない。**画面の角は端末ごとに違うので、
-    /// 書くと機種依存の食い違いになる。`containerConcentric` を**値を読むためだけに**一度当て、
-    /// 解決後の実数を `effectiveRadius(corner:)` で取り出して設定は元へ戻す。
-    /// 以後の丸みは `layer.cornerRadius` だけが持つ（`cornerConfiguration` と併用しない）。
-    /// これは concentric の解決値であって、物理マスクと一致することを保証するものではない。
-    /// 静止時が 0 なので、一致していなくても角から地が覗くことはない。
-    /// 寸法が決まる前は 0 に解決されるため、**呼ぶのは提示が済んだあと**に限る
-    /// （Simulator の iPhone 17 Pro で 62.0 pt、レイアウト前は 0.0）。
-    private static func concentricRadius(of view: UIView) -> CGFloat {
-        let previous = view.cornerConfiguration
-        view.cornerConfiguration = .uniformCorners(radius: .containerConcentric())
-        let radius = view.effectiveRadius(corner: .topLeft)
-        view.cornerConfiguration = previous
-        return radius
-    }
+    /// 引いている最中の角。**数を直書きしない**（画面の角は端末ごとに違う）。解決は UIKit に任せ、
+    /// こちら側で `effectiveRadius` を読まない——読むにはレイアウトを 1 回挟む必要があり、
+    /// 挟まずに読んだ値を使っていたのが丸みの出なかった原因だった。下 2 角は要件どおり直角。
+    static let draggingCorners = UICornerConfiguration.uniformTopRadius(
+        .containerConcentric(), bottomLeftRadius: 0, bottomRightRadius: 0
+    )
 }

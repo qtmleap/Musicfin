@@ -870,7 +870,7 @@ iPad の中央 sheet は維持する。
 | 枠 | `UIPresentationController.frameOfPresentedViewInContainerView` を**容器全体**に | **上端 62 pt を塞ぐ** |
 | 遷移 | `UIViewControllerTransitioningDelegate` | 出入りのアニメーションを自分で持つ |
 | 指追従 | `UIPercentDrivenInteractiveTransition` の `update(_:)` / `finish()` / `cancel()` | **実機報告 #1** |
-| 上角の丸み | **下へ引いている最中だけ**上 2 角を丸める（`layer.cornerRadius`、終端値は `containerConcentric` の解決値）。**静止時・撮影時と下 2 角は 0** | **実機報告 #2** |
+| 上角の丸み | **下へ引いている最中だけ**上 2 角を丸める（`cornerConfiguration` の `containerConcentric`、引き始めから終端の半径を保つ）。**静止時・撮影時と下 2 角は 0** | **実機報告 #2 / #3** |
 
 **背景だけを上端まで描き、本文の safe area は維持する。**
 文字や記号を status bar の下へ潜らせるのではない。**塞ぐのは地だけ**である。
@@ -954,8 +954,8 @@ Apple のフルプレイヤーが `preferredTransition = .zoom` かどうかは�
 - 枠は `frameOfPresentedViewInContainerView` に `containerView.bounds` を返す。**62 pt を塞ぐのはここだけ**
 - `UIViewPropertyAnimator` が動かすのは**姿の 1 つだけ**（移動か寸法か）。
   指追従は `fractionComplete` を動かすだけ。
-  上角の丸みだけは例外で、**指追従の終了のときに姿と同じアニメーターへ相乗りさせる**。
-  静止時の実体は半径 0 で、`cornerConfiguration` は常設しない
+  上角の丸みは**進行に乗せない**。指追従の終了を始めた時点で `cornerConfiguration` を当て、
+  開いたまま終わったとき（取消の完了）だけ外す。静止時の実体は半径 0 で、常設はしない
 - 寸法を動かす間は `containerViewWillLayoutSubviews` の書き直しを止める。
   transform では動きを見分けられず、**途中のレイアウトで全面へ戻される**
 - 終了 pan の進行は**引き始めに測った高さ**で割る。展開方式では引くほど本文が縮むので、
@@ -976,10 +976,13 @@ Apple のフルプレイヤーが `preferredTransition = .zoom` かどうかは�
 一度は**常時同心**（静止時も上 2 角を丸める）を採った。その後、指摘が指していたのは
 **下へ引いている最中**だと確認が取れたので、**この節の規範は次へ差し替える**。
 
-- **下へ引いている最中だけ**、上 2 角を丸める。半径は移動と同じアニメーターに相乗りさせ、
-  引き切った時点で `containerConcentric` の解決値（iPhone 17 Pro Simulator で 62 pt）になる
-- **静止時・撮影時・下 2 角は 0。**`cornerConfiguration` は常設せず、
-  `layer.cornerRadius` と `maskedCorners`（上 2 角のみ）で持つ
+- **下へ引いている最中だけ**、上 2 角を丸める。半径は**進行に乗せず**、掴んだ時点から
+  `containerConcentric` の解決値（iPhone 17 Pro Simulator で 62 pt）を保つ。
+  進行に乗せると、実際に引く量（2 割前後）では十数 pt にしかならず丸く見えない
+- **静止時・撮影時・下 2 角は 0。**丸みは `cornerConfiguration` の
+  `uniformTopRadius(.containerConcentric(), bottomLeftRadius: 0, bottomRightRadius: 0)` が持ち、
+  引いている間だけ当てる。半径を**自分で読まない**——`effectiveRadius` は当てた直後には
+  解決されず、読んだ値を使っていた間は丸みが一切出なかった（実機報告 #3）
 - 自動で出入りするとき（ボタンでの提示・終了）は丸めない
 - 標準 Zoom の角形状は UIKit に任せ、触らない
 
@@ -1031,7 +1034,16 @@ Apple 実機のスクリーンショットは四隅まで本文の地で、見�
 
 **差し替え後の確認（同じ Simulator）**：静止の `nowplaying` / `lyrics` / `queue` と
 引いて取り消したあとの四隅はいずれも本文の地（(78,91,71) 付近）で、角丸は写っていない。
-指で引いて止めた瞬間を外部から撮ると、上 2 角にだけ進行に応じた弧が出る。
+指で引いて止めた瞬間を外部から撮ると、上 2 角にだけ弧が出る。
+
+**実機報告 #3（「引いても Rounded になっていない」）の実測**：半径を進行に乗せていた間は、
+引いて止めた瞬間の上端が **x=0〜200 px まで y=547 の一直線**で、丸みは 0 だった。
+掴んだ時点で `cornerConfiguration` を当てる作りへ変えたあとは、同じ操作で上端が
+**x=300 px 以遠 y=547 → x=10 px で y=677** の弧を描き、左右対称で水平方向の広がりは
+**186 px ＝ 62 pt** と解決値に一致する。下端は最下行まで x=0 が本文の地のままで、**下 2 角は直角**。
+静止（`nowplaying`）と取り消したあとの四隅はどちらも (78,91,71) / (38,44,34) の本文の地で、
+両者の SSIM は **0.9988**。3 枚組は `docs/screenshots/comparison/player-dismiss-drag/` に置いた
+（並べたのは **Musicfin 同士**で、Apple Music は入っていない）。
 
 #### 確定していないこと
 

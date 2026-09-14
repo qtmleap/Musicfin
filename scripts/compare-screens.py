@@ -16,6 +16,14 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SHOTS = ROOT / "docs" / "screenshots"
 CANVAS = (1206, 2622)
+# 左（current）・右（reference）・補助（previous）の見出し。既定は Apple Music との比較だが、
+# **Musicfin 同士を並べる組もある**ので、画面ごとに上書きできるようにしておく。
+# 上書きが無いまま Musicfin 同士を並べると「右は Apple Music」と読めてしまい、誤認になる。
+DEFAULT_LABELS = ("Musicfin", "Apple Music", "変更前の Musicfin")
+LABELS: dict[str, tuple[str, str, str]] = {
+    # 下へ引いている最中の上 2 角を見るための 3 枚組。参照はどれも Musicfin で、Apple Music は入らない。
+    "player-dismiss-drag": ("Musicfin: 引いて途中停止", "Musicfin: 静止（引く前）", "Musicfin: 取消後"),
+}
 
 
 def run(*args: str, capture: bool = False) -> str:
@@ -90,15 +98,19 @@ def write_report(root: Path, generated_at: str, screens: list[dict]) -> None:
         change_text = "基準なし" if change is None else f"{change:+.4f}"
         change_class = "neutral" if change is None else "good" if change > 0 else "bad"
         screen_id = html.escape(screen["id"])
+        left, right, before = (html.escape(label) for label in screen["labels"])
+        # 見出しの直後に何と何を並べたかを置く。ページ全体の説明だけだと、既定でない組を取り違える。
+        extra = f'<a href="{screen_id}/before.png">{before}</a>' if screen["metrics"]["beforeReference"] else ""
         cards.append(f"""
 <section>
   <div class="heading"><h2>{screen_id}</h2><span>SSIM {ssim:.4f}</span><span class="{change_class}">Δ {change_text}</span></div>
+  <p class="pair">左: {left} ／ 右: {right}</p>
   <a href="{screen_id}/side-by-side.png"><img src="{screen_id}/side-by-side.png?v={generated_at}" alt="{screen_id} side by side"></a>
-  <div class="links"><a href="{screen_id}/overlay.png">Overlay</a><a href="{screen_id}/difference.png">Difference</a></div>
+  <div class="links"><a href="{screen_id}/overlay.png">Overlay</a><a href="{screen_id}/difference.png">Difference</a>{extra}</div>
 </section>""")
     document = f"""<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Screenshot Diff</title><style>
-:root{{color-scheme:light dark;font-family:system-ui,sans-serif;background:#09090b;color:#fafafa}}body{{margin:0;padding:24px;max-width:1500px;margin-inline:auto}}header{{border-bottom:1px solid #3f3f46;padding-bottom:18px;margin-bottom:24px}}h1,h2,p{{margin:0}}p{{color:#a1a1aa}}main{{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr));gap:28px}}section{{border-top:1px solid #3f3f46;padding-top:14px}}.heading,.links{{display:flex;align-items:center;gap:12px;margin-bottom:10px}}.heading h2{{margin-right:auto}}span,.links a{{font:12px ui-monospace,monospace;color:#a1a1aa}}.good{{color:#4ade80}}.bad{{color:#fb7185}}img{{display:block;width:100%;border:1px solid #3f3f46;border-radius:6px}}.links{{margin-top:10px}}a{{color:#fafafa}}
-</style></head><body><header><h1>Screenshot Diff</h1><p>左: Musicfin / 右: Apple Music · {html.escape(generated_at)}</p></header><main>{''.join(cards)}</main></body></html>"""
+:root{{color-scheme:light dark;font-family:system-ui,sans-serif;background:#09090b;color:#fafafa}}body{{margin:0;padding:24px;max-width:1500px;margin-inline:auto}}header{{border-bottom:1px solid #3f3f46;padding-bottom:18px;margin-bottom:24px}}h1,h2,p{{margin:0}}p{{color:#a1a1aa}}main{{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr));gap:28px}}section{{border-top:1px solid #3f3f46;padding-top:14px}}.heading,.links{{display:flex;align-items:center;gap:12px;margin-bottom:10px}}.heading h2{{margin-right:auto}}span,.links a,.pair{{font:12px ui-monospace,monospace;color:#a1a1aa}}.pair{{margin:0 0 10px}}.good{{color:#4ade80}}.bad{{color:#fb7185}}img{{display:block;width:100%;border:1px solid #3f3f46;border-radius:6px}}.links{{margin-top:10px}}a{{color:#fafafa}}
+</style></head><body><header><h1>Screenshot Diff</h1><p>並べた 2 枚は画面ごとに見出しの下へ書く（既定は 左: Musicfin / 右: Apple Music） · {html.escape(generated_at)}</p></header><main>{''.join(cards)}</main></body></html>"""
     (root / "index.html").write_text(document)
 
 
@@ -138,6 +150,7 @@ def main() -> None:
             before_metric = metric(target / "before.png", target / "reference.png")
         reports.append({
             "id": screen,
+            "labels": list(LABELS.get(screen, DEFAULT_LABELS)),
             "sourceSize": {"current": list(current_size), "reference": list(reference_size)},
             "metrics": {
                 "currentReference": current_metric,
