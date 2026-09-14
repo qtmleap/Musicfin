@@ -523,20 +523,23 @@ private final class PlayerContinuationAnimator: UIViewPropertyAnimator {
 /// UIKit は遷移中に同じインスタンスを返すことを要求するので、
 /// `animateTransition(using:)` も `interruptibleAnimator(using:)` の結果をそのまま使う。
 private final class PlayerTransitionAnimator: NSObject, UIViewControllerAnimatedTransitioning {
-    /// 取り消しの戻りに使うばねの応答時間と減衰比。**Musicfin の決定値で、Apple 実機の実測ではない。**
-    /// 0.5 / 0.85 では実機で「戻りが速いまま」と言われた（実機報告 build 9）。
-    /// 0.8 秒の応答へはっきり緩めて、離してから落ち着くまでを目に見える長さにする。
-    private static let cancelResponse = 0.8
-    private static let cancelDampingRatio = 0.8
+    /// 取り消しの戻りに使うばねの応答時間と減衰比。**Apple Music の実機録画からの実測値**である
+    /// （`docs/org/movie.mov` の 4.26 秒と 6.49 秒の 2 回。板の縦位置を 1 フレームずつ相関で拾い、
+    /// 残距離の減り方を臨界減衰の `(1 + ωt)e^(-ωt)` に当てると 5 点すべてで ω = 18.6〜20.3 rad/s）。
+    /// 0.31 秒はその ω = 20.3 rad/s に対応する応答時間。
+    /// **減衰比は 1.0 で、行き過ぎは 1 フレームも無い。**0.8 では行き過ぎるので下げてはいけない。
+    /// 減衰比は開くときのばねにも使う（Apple は開閉で同じばねだった）。
+    private static let cancelResponse = 0.31
+    private static let springDampingRatio = 1.0
     /// 戻りに掛ける時間。**ばねの形と別に時間を決めなければならない**（`PlayerContinuationAnimator` の註）。
-    /// 上の応答・減衰だと振幅が 1 % を切るのは `-ln(0.01) / (減衰比 × 固有角振動数)` ≒ 0.73 秒なので、
-    /// ここを 0.7 秒にすればばねはほぼ等倍で鳴り、目で見て止まった時点で継続も終わる。
+    /// Apple の実測は完全停止まで 0.404 / 0.438 秒で、引いた深さが 213 pt でも 314 pt でも変わらない。
+    /// 上の ω・減衰比なら振幅 0.3 % 到達が ≒ 0.40 秒なので、ここを 0.40 にすればばねは素の速さで鳴り切る。
     /// これ以上伸ばすと、止まって見えてから掴み直せるまでの間（`Stage` が `.dismissing` の間）が空く。
-    private static let cancelDuration = 0.7
-    /// 引き継ぐ初速の上限（戻り距離の何倍／秒まで許すか）。行き過ぎの量はおよそ `初速 ÷ 固有角振動数`
-    /// なので、`cancelResponse` から決まる 7.9 rad/s に対して 3 なら戻り距離の 4 割で頭を打つ。
+    private static let cancelDuration = 0.40
+    /// 引き継ぐ初速の上限（戻り距離の何倍／秒まで許すか）。行き過ぎの量は臨界減衰ならおよそ
+    /// `初速 ÷ (固有角振動数 × e)` なので、20.3 rad/s に対して 6 なら戻り距離の約 1 割で頭を打つ。
     /// 浅く引いて速く離したときに、家の位置を大きく越えて跳ね上がるのを防ぐ。
-    private static let cancelVelocityLimit: CGFloat = 3
+    private static let cancelVelocityLimit: CGFloat = 6
 
     private let isPresenting: Bool
     private let isInteractive: Bool
@@ -564,8 +567,10 @@ private final class PlayerTransitionAnimator: NSObject, UIViewControllerAnimated
         self.onEnded = onEnded
     }
 
+    /// 開くときは Apple の実測に合わせて 0.42 秒（`docs/org/movie.mov` の 1.614→2.035 秒）。
+    /// 閉じ切るときは追従からの続きなので、これまでどおり少し短く取る。
     func transitionDuration(using transitionContext: UIViewControllerContextTransitioning?) -> TimeInterval {
-        isPresenting ? 0.45 : 0.35
+        isPresenting ? 0.42 : 0.35
     }
 
     func animateTransition(using transitionContext: UIViewControllerContextTransitioning) {
@@ -583,7 +588,7 @@ private final class PlayerTransitionAnimator: NSObject, UIViewControllerAnimated
         let spring = UISpringTimingParameters(
             mass: 1,
             stiffness: omega * omega,
-            damping: 2 * Self.cancelDampingRatio * omega,
+            damping: 2 * Self.springDampingRatio * omega,
             initialVelocity: CGVector(dx: 0, dy: min(max(normalized, -limit), limit))
         )
         // **ばねと一緒に時間も渡す。**渡さないと UIKit は残り時間で進めてしまい、
@@ -651,7 +656,10 @@ private final class PlayerTransitionAnimator: NSObject, UIViewControllerAnimated
         if isInteractive {
             timing = UICubicTimingParameters(animationCurve: .linear)
         } else if isPresenting {
-            timing = UISpringTimingParameters(dampingRatio: 0.92)
+            // Apple は開くときも戻すときも同じばねで、行き過ぎが 1 フレームも無い（実測）。
+            // 減衰比だけの初期化子はばねを `duration` に合わせて作るので、0.42 秒を渡せば
+            // 上の取り消しと同じ ω ≒ 20 rad/s 相当になり、定数を二重に書かずに揃う。
+            timing = UISpringTimingParameters(dampingRatio: CGFloat(Self.springDampingRatio))
         } else {
             timing = UICubicTimingParameters(animationCurve: .easeOut)
         }
