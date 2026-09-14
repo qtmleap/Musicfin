@@ -924,11 +924,37 @@ Simulator 実測。下へずらしても値は変わらない）。**Apple と�
 **グラバーが Apple より 2 pt 下にある**（Musicfin 67〜72 pt／Apple 65〜70 pt）。
 これは変更前も 201 / 216 px だったので**この変更が作った差ではなく、§4 の既存の差**である。
 
+##### 出入りの見せ方は 2 方式を切り替えられる（**実機比較のための一時的な措置**）
+
+現行の出入りには**ミニプレイヤーの矩形から展開する動きが無く、完成した寸法のプレイヤーを
+上下に移動しているだけ**である。Apple Music と比べたときの違和感がここから来ている疑いがあるが、
+Apple のフルプレイヤーが `preferredTransition = .zoom` かどうかは公式資料からは断定できない。
+**同じ TestFlight のビルドで両方を触って決めるため**、設定に 2 択を置く。
+
+| 方式 | 動かすもの | 既定 |
+|---|---|---|
+| せり上がり | 完成した寸法のまま移動（transform） | ○ |
+| ミニプレイヤーから展開 | ミニプレイヤーの矩形と画面全面の間で寸法（frame） | |
+
+- 保存先は `@AppStorage("player.presentation.style")`。**`Core/Settings/` には足さない。**
+  比較が済んだら片方を消す設定なので、再生の設定と同じ器に混ぜない
+- 出発矩形は `MiniPlayerView` が `onGeometryChange` で報告し、`RootView` 経由で提示側へ渡す。
+  UIKit 側は `UserDefaults` を読まず、**渡された矩形の有無だけ**で方式を決める。
+  矩形が無ければ（ミニプレイヤーが出ていない・容器と重ならない）せり上がりへ落とす
+- **標準の zoom API へは置き換えない。**離した速さを載せた取消のばね・`containerConcentric` の角丸・
+  スクロールビューとの競合解決を公開 API で維持できる根拠が無い。**差し替えるのは幾何だけ**である
+- **決着したらこの節ごと畳む。**方式が 2 つある状態を仕様の到達点にはしない
+
 ##### 実装の要点（戻すときに読む場所）
 
 - 枠は `frameOfPresentedViewInContainerView` に `containerView.bounds` を返す。**62 pt を塞ぐのはここだけ**
-- `UIViewPropertyAnimator` が持つのは**移動だけ**。指追従は `fractionComplete` を動かすだけ。
+- `UIViewPropertyAnimator` が動かすのは**姿の 1 つだけ**（移動か寸法か）。
+  指追従は `fractionComplete` を動かすだけ。
   上角の丸みは提示ビューの `cornerConfiguration` が**常に画面の角と同じ値**で持つので遷移側は触らない
+- 寸法を動かす間は `containerViewWillLayoutSubviews` の書き直しを止める。
+  transform では動きを見分けられず、**途中のレイアウトで全面へ戻される**
+- 終了 pan の進行は**引き始めに測った高さ**で割る。展開方式では引くほど本文が縮むので、
+  その場の高さで割ると縮みが進行を押し上げ、途中から勝手に閉じきる
 - **取消の戻りだけ**、`continueAnimation(withTimingParameters:durationFactor:)` を上書きして
   離した瞬間の速さを載せたばねへ差し替える（`completionCurve` は cubic 4 種しか取れず速さを運べない）。
   `durationFactor: 0` を渡すこと。残り時間を掛けると「浅い引きほど戻りが速い」性質が戻る
