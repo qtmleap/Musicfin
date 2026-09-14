@@ -26,6 +26,17 @@ nonisolated enum PlayerPresentationStyle: String, CaseIterable, Identifiable {
     }
 }
 
+/// ミニプレイヤーの矩形（窓座標）を入れておく箱。**値ではなく参照で持つのが要点**である。
+/// `CGRect` を `@State` に入れると、幾何の報告 → `RootView` の再評価 →
+/// `tabViewBottomAccessory` の作り直し → 再計測、が閉じた輪になる。`.expanded` と `.inline` で
+/// 矩形が違うので、往復し始めると収束しない。参照型へ書くだけなら SwiftUI は何も無効化しないので、
+/// **幾何の報告が親の再レイアウトを誘発しない**。
+/// 監視も等値比較も要らない（読むのは提示・終了の瞬間だけ）ので、`@Observable` は付けない。
+final class PlayerSourceBox {
+    /// ミニプレイヤーが出ていない間は `nil`。古い矩形を残すと、居ない帯から広がって見える。
+    var rect: CGRect?
+}
+
 // MARK: - SwiftUI からの入口
 
 extension View {
@@ -33,12 +44,12 @@ extension View {
     /// sheet の `.large` detent が上端に空ける 62 pt を塞ぐのが目的で、上角の丸みと下スワイプの
     /// 指追従はこの経路が自分で持つ。iPad の中央 sheet はこれを通さず `.sheet` のままにする。
     /// - Parameters:
-    ///   - source: ミニプレイヤーの矩形（窓座標）。「ミニプレイヤーから展開」方式の出発・帰着に使う。
-    ///     ミニプレイヤーが出ていないときは `nil` を渡す。`nil` のときは方式に関わらずせり上がりへ落とす。
+    ///   - source: ミニプレイヤーの矩形を入れた箱。「ミニプレイヤーから展開」方式の出発・帰着に使い、
+    ///     **中身を読むのは提示・終了の瞬間だけ**。箱が空のときは方式に関わらずせり上がりへ落とす。
     ///   - style: 出入りの見せ方。UIKit 側から `UserDefaults` は読まず、**必ずここから受け取る**。
     func playerPresentation(
         isPresented: Binding<Bool>,
-        source: CGRect?,
+        source: PlayerSourceBox,
         style: PlayerPresentationStyle,
         @ViewBuilder content: @escaping () -> some View
     ) -> some View {
@@ -57,7 +68,7 @@ extension View {
 /// これしか無いので、表示物ではなく橋渡しとして置く。
 private struct PlayerPresentationBridge: UIViewRepresentable {
     let isPresented: Binding<Bool>
-    let source: CGRect?
+    let source: PlayerSourceBox
     let style: PlayerPresentationStyle
     let content: () -> AnyView
 
@@ -128,16 +139,18 @@ private final class PlayerPresentationCoordinator: NSObject {
     func update(
         anchor: UIView,
         isPresented: Binding<Bool>,
-        source: CGRect?,
+        source: PlayerSourceBox,
         style: PlayerPresentationStyle,
         content: AnyView
     ) {
         self.isPresented = isPresented
         self.anchor = anchor
         self.content = content
-        // 出発矩形は**アニメーターを作る瞬間の値**が使われる。ミニプレイヤーは `.expanded` と `.inline` で
-        // 高さが変わるので、提示・終了のたびに最新の矩形を見るようここで持ち替えておく。
-        transitioning.sourceRect = style == .expandFromMiniPlayer ? source : nil
+        // 矩形そのものは渡さず、**箱を覗く手続き**を渡す。ミニプレイヤーは `.expanded` と `.inline` で
+        // 高さが変わるので、提示・終了のたびに最新の矩形が要る。ここで値を写し取ると、
+        // 写すために矩形を SwiftUI の状態へ載せることになり、再レイアウトの輪へ戻ってしまう。
+        transitioning.sourceRectProvider =
+            style == .expandFromMiniPlayer ? { [weak source] in source?.rect } : { nil }
         wantsPresented = isPresented.wrappedValue
         hosting?.rootView = content
         applyDesiredStage()
@@ -415,9 +428,10 @@ private final class PlayerPresentationController: UIPresentationController {
 private final class PlayerTransitioningDelegate: NSObject, UIViewControllerTransitioningDelegate {
     /// 指追従のときだけ入る。`nil` のままなら出入りはアニメーターに任せきりになる。
     var interaction: UIPercentDrivenInteractiveTransition?
-    /// 「ミニプレイヤーから展開」の出発・帰着の矩形（窓座標）。`nil` はせり上がり。
+    /// 「ミニプレイヤーから展開」の出発・帰着の矩形（窓座標）を、**遷移を始める瞬間に**取り出す手続き。
     /// 方式の判定は SwiftUI 側で済ませてあり、ここへ来るのは矩形の有無だけにしてある。
-    var sourceRect: CGRect?
+    /// 手続きにしてあるのは、矩形が変わるたびに SwiftUI へ知らせずに済ませるため。
+    var sourceRectProvider: () -> CGRect? = { nil }
     var onPresentEnded: ((Bool) -> Void)?
     var onDismissEnded: ((Bool) -> Void)?
     /// 進行中の終了アニメーター。取り消しの戻りへ指の速さを渡すためだけに覚える。
@@ -448,7 +462,7 @@ private final class PlayerTransitioningDelegate: NSObject, UIViewControllerTrans
         PlayerTransitionAnimator(
             isPresenting: true,
             isInteractive: false,
-            sourceRect: sourceRect,
+            sourceRect: sourceRectProvider(),
             presentationProvider: { [weak self] in self?.presentation },
             onEnded: onPresentEnded
         )
@@ -458,7 +472,7 @@ private final class PlayerTransitioningDelegate: NSObject, UIViewControllerTrans
         let animator = PlayerTransitionAnimator(
             isPresenting: false,
             isInteractive: interaction != nil,
-            sourceRect: sourceRect,
+            sourceRect: sourceRectProvider(),
             presentationProvider: { [weak self] in self?.presentation },
             onEnded: onDismissEnded
         )
