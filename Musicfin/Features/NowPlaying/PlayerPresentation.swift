@@ -12,6 +12,8 @@ nonisolated enum PlayerPresentationStyle: String, CaseIterable, Identifiable {
     case slideUp
     /// ミニプレイヤーの矩形から画面全面へ、幅と高さの両方を広げる。
     case expandFromMiniPlayer
+    /// UIKit が持つ標準 Zoom。自作の寸法補間と実機で見比べるために残す。
+    case systemZoom
 
     /// `@AppStorage` のキー。設定画面と `RootView` の 2 か所から同じ値を読むので一つ置く。
     static let storageKey = "player.presentation.style"
@@ -22,6 +24,7 @@ nonisolated enum PlayerPresentationStyle: String, CaseIterable, Identifiable {
         switch self {
         case .slideUp: String(localized: "せり上がり（現行）")
         case .expandFromMiniPlayer: String(localized: "ミニプレイヤーから展開")
+        case .systemZoom: String(localized: "システムZoom")
         }
     }
 }
@@ -35,6 +38,42 @@ nonisolated enum PlayerPresentationStyle: String, CaseIterable, Identifiable {
 final class PlayerSourceBox {
     /// ミニプレイヤーが出ていない間は `nil`。古い矩形を残すと、居ない帯から広がって見える。
     var rect: CGRect?
+    /// 標準 Zoom は矩形ではなく実在する view を要求する。帯を SwiftUI から直接渡せないため、
+    /// その内側いっぱいに敷いた透明 view を source として弱く覚える。
+    weak var view: UIView?
+}
+
+/// `tabViewBottomAccessory` の SwiftUI 行を、標準 Zoom が要求する `UIView` へ橋渡しする。
+/// 透明かつ非対話にして、ミニプレイヤーのボタンやスワイプを奪わない。
+struct PlayerZoomSource: UIViewRepresentable {
+    let source: PlayerSourceBox
+
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView(frame: .zero)
+        view.isUserInteractionEnabled = false
+        view.backgroundColor = .clear
+        source.view = view
+        return view
+    }
+
+    func updateUIView(_ uiView: UIView, context: Context) {
+        // SwiftUI の描画本体は representable 自身ではなく親の hosting view が持つ。次の run loop なら
+        // アクセサリ内で寸法が確定しているので、同じ大きさを持つ最寄りの親を source にできる。
+        DispatchQueue.main.async { [weak uiView, weak source] in
+            guard let uiView, let source, uiView.window != nil else { return }
+            let size = uiView.bounds.size
+            var candidate = uiView.superview
+            while let view = candidate {
+                let matchesWidth = abs(view.bounds.width - size.width) < 1
+                let matchesHeight = abs(view.bounds.height - size.height) < 1
+                if matchesWidth && matchesHeight {
+                    source.view = view
+                    return
+                }
+                candidate = view.superview
+            }
+        }
+    }
 }
 
 // MARK: - SwiftUI からの入口
@@ -120,7 +159,11 @@ private final class PlayerPresentationCoordinator: NSObject {
     private var isPresented: Binding<Bool> = .constant(false)
     private weak var anchor: UIView?
     private var content: AnyView?
+    private weak var source: PlayerSourceBox?
+    private var style = PlayerPresentationStyle.slideUp
     private var hosting: UIHostingController<AnyView>?
+    /// 標準 Zoom は custom delegate の完了通知を通らないため、終了処理の入口を分ける。
+    private var usesSystemTransition = false
     private let transitioning = PlayerTransitioningDelegate()
     private var interaction: UIPercentDrivenInteractiveTransition?
     /// 終了 pan を始めた時点の本文の高さ。進行の分母に使う。
@@ -145,6 +188,8 @@ private final class PlayerPresentationCoordinator: NSObject {
         self.isPresented = isPresented
         self.anchor = anchor
         self.content = content
+        self.source = source
+        self.style = style
         // 矩形そのものは渡さず、**箱を覗く手続き**を渡す。ミニプレイヤーは `.expanded` と `.inline` で
         // 高さが変わるので、提示・終了のたびに最新の矩形が要る。ここで値を写し取ると、
         // 写すために矩形を SwiftUI の状態へ載せることになり、再レイアウトの輪へ戻ってしまう。
@@ -176,8 +221,19 @@ private final class PlayerPresentationCoordinator: NSObject {
         else { return }
 
         let controller = UIHostingController(rootView: content)
-        controller.modalPresentationStyle = .custom
-        controller.transitioningDelegate = transitioning
+        usesSystemTransition = style == .systemZoom && validZoomSource() != nil
+        if usesSystemTransition {
+            // 標準 Zoom を custom presentation と混ぜると UIKit の遷移 delegate が勝ってしまう。
+            // source が実在するときだけ full screen の標準経路へ渡し、消えていれば従来のせり上がりへ落とす。
+            controller.modalPresentationStyle = .fullScreen
+            controller.preferredTransition = .zoom { [weak source] _ in
+                guard let view = source?.view, Self.isValidZoomSource(view) else { return nil }
+                return view
+            }
+        } else {
+            controller.modalPresentationStyle = .custom
+            controller.transitioningDelegate = transitioning
+        }
         // 地は SwiftUI 側の帯が safe area を無視して敷くので、UIKit の地は透かす。
         // **静止している間は角を丸めない。**Apple Music のフルプレイヤーは四隅まで中身が詰まっており、
         // 画面の角丸はディスプレイの物理マスクだけが作っている（実機スクショの画素で確認）。
@@ -194,14 +250,22 @@ private final class PlayerPresentationCoordinator: NSObject {
         // `safeAreaRegions` は既定の `.all` のまま。上端を塞ぐのは提示枠の仕事であって、
         // 本文の safe area を削る話ではない（仕様 4.1.1 章）。`additionalSafeAreaInsets` も触らない。
 
-        let pan = PlayerDismissPan(target: self, action: #selector(handleDismissPan))
-        pan.delegate = self
-        pan.maximumNumberOfTouches = 1
-        controller.view.addGestureRecognizer(pan)
+        if controller.transitioningDelegate != nil {
+            let pan = PlayerDismissPan(target: self, action: #selector(handleDismissPan))
+            pan.delegate = self
+            pan.maximumNumberOfTouches = 1
+            controller.view.addGestureRecognizer(pan)
+        }
 
         hosting = controller
         stage = .presenting
-        presenter.present(controller, animated: true)
+        presenter.present(controller, animated: true) { [weak self, weak controller] in
+            guard let self, usesSystemTransition, controller?.presentingViewController != nil else { return }
+            presentEnded(completed: true)
+        }
+        if usesSystemTransition, let presentationController = controller.presentationController {
+            presentationController.delegate = self
+        }
         // 提示が成立すれば関係はこの時点で立っている。立っていなければ覚えたものを捨て、次の更新でやり直す。
         guard controller.presentingViewController != nil else {
             hosting = nil
@@ -214,7 +278,10 @@ private final class PlayerPresentationCoordinator: NSObject {
     private func beginDismiss() {
         guard stage == .presented, let hosting, hosting.presentingViewController != nil else { return }
         stage = .dismissing
-        hosting.dismiss(animated: true)
+        hosting.dismiss(animated: true) { [weak self, weak hosting] in
+            guard let self, usesSystemTransition, hosting?.presentingViewController == nil else { return }
+            dismissEnded(completed: true)
+        }
     }
 
     private func presentEnded(completed: Bool) {
@@ -310,6 +377,21 @@ private final class PlayerPresentationCoordinator: NSObject {
         hosting.dismiss(animated: true)
     }
 
+    /// 標準 Zoom は窓に属し、表示中で、面積を持つ source しか受け取れない。
+    /// 条件を満たさないときは `.custom` のせり上がりへ落とし、空の snapshot を拡大させない。
+    private func validZoomSource() -> UIView? {
+        guard let view = source?.view, Self.isValidZoomSource(view) else { return nil }
+        return view
+    }
+
+    private static func isValidZoomSource(_ view: UIView) -> Bool {
+        guard view.window != nil, !view.isHidden, view.alpha > 0.01 else { return false }
+        let bounds = view.bounds
+        guard bounds.width > 1, bounds.height > 1 else { return false }
+        guard let screen = view.window?.windowScene?.screen else { return false }
+        return view.convert(bounds, to: nil).intersects(screen.bounds)
+    }
+
     /// 提示元。応答の連なりから最も近い controller を取り、その上に何か出ていれば更に上へ登る。
     /// 窓の根から出さないのは、設定などが先に出ているときに「既に提示中」で失敗するため。
     private static func presenter(for view: UIView) -> UIViewController? {
@@ -320,6 +402,20 @@ private final class PlayerPresentationCoordinator: NSObject {
             controller = presented
         }
         return view.window == nil ? nil : controller
+    }
+}
+
+extension PlayerPresentationCoordinator: UIAdaptivePresentationControllerDelegate {
+    func presentationControllerDidDismiss(_ presentationController: UIPresentationController) {
+        // 標準 Zoom の対話終了は UIKit が所有するため、完了だけ delegate から Binding へ戻す。
+        guard usesSystemTransition, stage != .idle else { return }
+        dismissEnded(completed: true)
+    }
+
+    func presentationControllerDidAttemptToDismiss(_ presentationController: UIPresentationController) {
+        // キャンセル後も表示は続く。独自遷移と同じ段階へ戻し、次の操作を受けられるようにする。
+        guard usesSystemTransition, hosting?.presentingViewController != nil else { return }
+        stage = .presented
     }
 }
 
