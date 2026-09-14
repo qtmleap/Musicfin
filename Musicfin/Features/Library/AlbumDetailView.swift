@@ -62,7 +62,7 @@ struct AlbumDetailView: View {
                     .listRowSeparator(.hidden)
                     .listRowBackground(Color.clear)
             } else {
-                trackList(separator: palette.separator)
+                trackList(palette: palette)
             }
         }
         .listStyle(.plain)
@@ -232,11 +232,12 @@ struct AlbumDetailView: View {
     /// 罫線の色を `List` ではなく行ごとに渡すのは、`listRowSeparatorTint` が行の修飾子で、
     /// `List` 全体に掛けても無視されるため。黒を渡して 1 階調も動かないことを撮って確かめた。
     @ViewBuilder
-    private func trackList(separator: Color) -> some View {
+    private func trackList(palette: ArtworkPalette) -> some View {
+        let separator = palette.separator
         if isPlaylist {
             // 取得した順がプレイリストの並び順そのもの。ディスク番号で組み替えると
             // 再生は元の順のまま走るので、表示順と再生順が食い違う（仕様 8 章）。
-            ForEach(tracks) { trackRow($0, separator: separator).id(RowKey($0.id, separator)) }
+            ForEach(tracks) { trackRow($0, palette: palette).id(RowKey($0.id, separator)) }
         } else {
             let grouped = Dictionary(grouping: tracks) { $0.parentIndexNumber ?? 1 }
             let discs = grouped.keys.sorted()
@@ -244,7 +245,7 @@ struct AlbumDetailView: View {
             ForEach(discs, id: \.self) { disc in
                 Section {
                     ForEach(grouped[disc] ?? []) {
-                        trackRow($0, separator: separator).id(RowKey($0.id, separator))
+                        trackRow($0, palette: palette).id(RowKey($0.id, separator))
                     }
                 } header: {
                     // ディスクが 1 枚だけならヘッダーは出さない。
@@ -259,7 +260,7 @@ struct AlbumDetailView: View {
         }
     }
 
-    private func trackRow(_ track: MediaItem, separator: Color) -> some View {
+    private func trackRow(_ track: MediaItem, palette: ArtworkPalette) -> some View {
         HStack(spacing: 0) {
             Button {
                 if let index = tracks.firstIndex(where: { $0.id == track.id }) {
@@ -268,12 +269,16 @@ struct AlbumDetailView: View {
             } label: {
                 // プレイリストの番号は収録アルバム内の位置なので出さず、代わりに画像と
                 // 曲ごとのアーティストで一覧と同じ見分け方にする（仕様 8 章）。
+                // 再生中の行も曲名は他の行と同じ前景色にする。tint（ピンク）のままだと
+                // アートワーク由来の地に埋もれて読めない（仕様 1.2 章）。区別は棒に任せる。
                 TrackRow(
                     track: track,
                     showsArtwork: isPlaylist,
                     artworkSize: Self.playlistArtworkSize,
                     isCurrent: player.currentItem?.id == track.id,
-                    isPlaying: player.isPlaying
+                    isPlaying: player.isPlaying,
+                    currentStyle: AnyShapeStyle(palette.foreground),
+                    currentArtworkScrim: palette.background
                 )
             }
             .buttonStyle(.plain)
@@ -302,7 +307,7 @@ struct AlbumDetailView: View {
             }
         }
         .listRowBackground(Color.clear)
-        .listRowSeparatorTint(separator)
+        .listRowSeparatorTint(palette.separator)
         // 行送り 52 pt。区切り線から曲名の中心までが Apple 実機と同じ 26 pt になる。
         // プレイリストは画像 48 pt なので同じ上下 4 pt で 56 pt になる。
         .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 4, trailing: 20))

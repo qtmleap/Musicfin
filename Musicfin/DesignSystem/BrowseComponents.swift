@@ -46,7 +46,8 @@ struct AlbumCard: View {
     }
 }
 
-/// 曲一覧の 1 行。再生中の曲は tint（ピンク）で示す。
+/// 曲一覧の 1 行。再生中の曲は既定では tint（ピンク）で示す。
+/// アートワーク由来の地に載る画面だけは、地に埋もれないよう `currentStyle` で色を差し替える。
 struct TrackRow: View {
     /// トラック番号の桁幅。曲名（＝アルバム詳細の区切り線）の左端を決めるので外からも参照する。
     /// 揃え位置の計算は `alignmentGuide` の Sendable なクロージャからも引くので分離する。
@@ -55,6 +56,9 @@ struct TrackRow: View {
     nonisolated static let numberTitleSpacing: CGFloat = 9
     /// 画像から曲名までの間隔。罫線の左端も同じ基準で引くので外からも参照する。
     nonisolated static let artworkTitleSpacing: CGFloat = 12
+    /// 曲行の画像の角丸。ライブラリの一覧の行は 5 pt（仕様 1.1 章）。一辺からは計算できず、
+    /// Apple 実機の輪郭を測って決まる値。再生中に重ねる幕も同じ形で切るので定数にまとめる。
+    private static let artworkCornerRadius: CGFloat = 5
 
     /// 番号列の実幅。文字拡大に合わせて 22 pt から伸びる。
     /// 罫線の開始位置も同じ基準（`numberColumnWidth` を `.body` で拡大）で決めれば、拡大時もずれない。
@@ -70,6 +74,12 @@ struct TrackRow: View {
     var isCurrent = false
     /// 再生が進んでいるか。イコライザを動かすかどうかだけに効き、行の見た目は `isCurrent` が決める。
     var isPlaying = false
+    /// 再生中の行の曲名と棒の色。無彩色の地に載る画面（ホーム・ライブラリ・キュー）は tint のままでよいが、
+    /// アートワーク由来の地では固定色が地に埋もれるので、呼び出し側から前景色を渡してもらう（仕様 1.2 章）。
+    var currentStyle: AnyShapeStyle = AnyShapeStyle(.tint)
+    /// 画像付きの行で再生中の目印を出すときに、画像へ敷く幕の色。地の色を渡す。
+    /// `nil` の間は画像に何も重ねない。曲名の色だけで再生中が分かる画面まで見た目を変えないため。
+    var currentArtworkScrim: Color?
 
     var body: some View {
         // アートワークの行は 12 pt のままにし、番号の行だけ Apple 実機の 9 pt に詰める。
@@ -79,7 +89,7 @@ struct TrackRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(track.displayName)
                     .font(.body)
-                    .foregroundStyle(isCurrent ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary))
+                    .foregroundStyle(isCurrent ? currentStyle : AnyShapeStyle(.primary))
                     .lineLimit(1)
                 if showsArtwork, let artist = track.displayArtist {
                     Text(artist)
@@ -99,12 +109,16 @@ struct TrackRow: View {
     @ViewBuilder
     private var leading: some View {
         if showsArtwork {
-            // ライブラリの一覧の行は 5 pt。検索結果だけが 4 pt で、グリッドのカードは 8 pt（仕様 1.1 章）。
-            // どれも一辺からは計算できず、Apple 実機の輪郭を測って個別に決まる値。
-            ArtworkView(item: track, size: artworkSize, cornerRadius: 5)
+            // 検索結果だけが 4 pt で、グリッドのカードは 8 pt（仕様 1.1 章）。一辺からは計算できない。
+            ArtworkView(item: track, size: artworkSize, cornerRadius: Self.artworkCornerRadius)
+                .overlay { currentArtworkMarker }
         } else if isCurrent {
             // 今の曲は番号を伏せて、上下に動く 3 本の棒を出す。止まっているときは動かさない。
-            PlayingEqualizer(width: numberWidth, isAnimating: isPlaying && !reduceMotion)
+            PlayingEqualizer(
+                width: numberWidth,
+                isAnimating: isPlaying && !reduceMotion,
+                style: currentStyle
+            )
         } else {
             // 番号は列の中央に置く。3 桁や文字拡大では切らずに列ごと広げる。
             Text(track.indexNumber.map(String.init) ?? "–")
@@ -113,6 +127,26 @@ struct TrackRow: View {
                 .foregroundStyle(.secondary)
                 .fixedSize()
                 .frame(minWidth: numberWidth, alignment: .center)
+        }
+    }
+
+    /// 画像付きの行の再生中の目印。番号列が無いぶん棒の置き場が無いので、画像の上に重ねる。
+    /// 幕を敷くのは、棒の色が地の前景色（白か黒）で決まるのに対し、画像の明暗は曲ごとに違うため。
+    /// 地の色で覆えば、行の文字と同じ「地の上に前景色」という関係のまま棒を読ませられる。
+    /// 画像がどの曲かも残したいので覆い切らず、棒が読める下限として 0.6 を採る。
+    /// Apple 実機のプレイリストにこの表示は無く、実測ではなくこちらの決定（仕様 8 章）。
+    @ViewBuilder
+    private var currentArtworkMarker: some View {
+        if isCurrent, let currentArtworkScrim {
+            ZStack {
+                currentArtworkScrim.opacity(0.6)
+                PlayingEqualizer(
+                    width: artworkSize,
+                    isAnimating: isPlaying && !reduceMotion,
+                    style: currentStyle
+                )
+            }
+            .clipShape(.rect(cornerRadius: Self.artworkCornerRadius))
         }
     }
 }
@@ -128,9 +162,12 @@ private struct PlayingEqualizer: View {
     private static let tallest: CGFloat = 13
     private static let shortest: CGFloat = 4
 
-    /// 番号列の実幅。文字拡大で列が伸びても棒は太らせず、中央に置いたままにする。
+    /// 置き場の実幅。文字拡大で番号列が伸びても棒は太らせず、中央に置いたままにする。
+    /// 画像へ重ねるときは画像の一辺を受け取り、同じく中央に置く。
     let width: CGFloat
     let isAnimating: Bool
+    /// 棒の色。曲名と同じ色で描かないと、同じ行の中で再生中の印だけ別の配色になる。
+    let style: AnyShapeStyle
 
     var body: some View {
         HStack(alignment: .bottom, spacing: Self.barSpacing) {
@@ -139,7 +176,7 @@ private struct PlayingEqualizer: View {
             }
         }
         .frame(width: width, height: Self.tallest)
-        .foregroundStyle(.tint)
+        .foregroundStyle(style)
     }
 
     /// 止めるときは `PhaseAnimator` ごと外す。繰り返しのアニメーションを状態の切り替えで駆動すると、
