@@ -411,12 +411,6 @@ extension PlayerPresentationCoordinator: UIAdaptivePresentationControllerDelegat
         guard usesSystemTransition, stage != .idle else { return }
         dismissEnded(completed: true)
     }
-
-    func presentationControllerDidAttemptToDismiss(_ presentationController: UIPresentationController) {
-        // キャンセル後も表示は続く。独自遷移と同じ段階へ戻し、次の操作を受けられるようにする。
-        guard usesSystemTransition, hosting?.presentingViewController != nil else { return }
-        stage = .presented
-    }
 }
 
 /// 終了 pan の調停。同時認識は既定の「しない」に任せ、ここでは失敗の依存だけを決める。
