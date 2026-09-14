@@ -32,11 +32,24 @@ extension View {
     /// iPhone のフルプレイヤーを UIKit のカスタム提示で出す（仕様 4.1.1 章）。
     /// sheet の `.large` detent が上端に空ける 62 pt を塞ぐのが目的で、上角の丸みと下スワイプの
     /// 指追従はこの経路が自分で持つ。iPad の中央 sheet はこれを通さず `.sheet` のままにする。
+    /// - Parameters:
+    ///   - source: ミニプレイヤーの矩形（窓座標）。「ミニプレイヤーから展開」方式の出発・帰着に使う。
+    ///     ミニプレイヤーが出ていないときは `nil` を渡す。`nil` のときは方式に関わらずせり上がりへ落とす。
+    ///   - style: 出入りの見せ方。UIKit 側から `UserDefaults` は読まず、**必ずここから受け取る**。
     func playerPresentation(
         isPresented: Binding<Bool>,
+        source: CGRect?,
+        style: PlayerPresentationStyle,
         @ViewBuilder content: @escaping () -> some View
     ) -> some View {
-        background(PlayerPresentationBridge(isPresented: isPresented, content: { AnyView(content()) }))
+        background(
+            PlayerPresentationBridge(
+                isPresented: isPresented,
+                source: source,
+                style: style,
+                content: { AnyView(content()) }
+            )
+        )
     }
 }
 
@@ -44,6 +57,8 @@ extension View {
 /// これしか無いので、表示物ではなく橋渡しとして置く。
 private struct PlayerPresentationBridge: UIViewRepresentable {
     let isPresented: Binding<Bool>
+    let source: CGRect?
+    let style: PlayerPresentationStyle
     let content: () -> AnyView
 
     func makeCoordinator() -> PlayerPresentationCoordinator { PlayerPresentationCoordinator() }
@@ -56,7 +71,13 @@ private struct PlayerPresentationBridge: UIViewRepresentable {
     }
 
     func updateUIView(_ uiView: UIView, context: Context) {
-        context.coordinator.update(anchor: uiView, isPresented: isPresented, content: content())
+        context.coordinator.update(
+            anchor: uiView,
+            isPresented: isPresented,
+            source: source,
+            style: style,
+            content: content()
+        )
     }
 
     /// 橋渡しそのものが捨てられたときの後始末。body の再評価では呼ばれないが、`RootView` の identity が
@@ -102,10 +123,19 @@ private final class PlayerPresentationCoordinator: NSObject {
         }
     }
 
-    func update(anchor: UIView, isPresented: Binding<Bool>, content: AnyView) {
+    func update(
+        anchor: UIView,
+        isPresented: Binding<Bool>,
+        source: CGRect?,
+        style: PlayerPresentationStyle,
+        content: AnyView
+    ) {
         self.isPresented = isPresented
         self.anchor = anchor
         self.content = content
+        // 出発矩形は**アニメーターを作る瞬間の値**が使われる。ミニプレイヤーは `.expanded` と `.inline` で
+        // 高さが変わるので、提示・終了のたびに最新の矩形を見るようここで持ち替えておく。
+        transitioning.sourceRect = style == .expandFromMiniPlayer ? source : nil
         wantsPresented = isPresented.wrappedValue
         hosting?.rootView = content
         applyDesiredStage()
@@ -377,6 +407,9 @@ private final class PlayerPresentationController: UIPresentationController {
 private final class PlayerTransitioningDelegate: NSObject, UIViewControllerTransitioningDelegate {
     /// 指追従のときだけ入る。`nil` のままなら出入りはアニメーターに任せきりになる。
     var interaction: UIPercentDrivenInteractiveTransition?
+    /// 「ミニプレイヤーから展開」の出発・帰着の矩形（窓座標）。`nil` はせり上がり。
+    /// 方式の判定は SwiftUI 側で済ませてあり、ここへ来るのは矩形の有無だけにしてある。
+    var sourceRect: CGRect?
     var onPresentEnded: ((Bool) -> Void)?
     var onDismissEnded: ((Bool) -> Void)?
     /// 進行中の終了アニメーター。取り消しの戻りへ指の速さを渡すためだけに覚える。

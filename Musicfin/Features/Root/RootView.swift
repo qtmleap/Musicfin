@@ -24,6 +24,11 @@ struct RootView: View {
     /// 本来は再生側が持つべき状態だが、`Musicfin/Player/` は指示なしに変えない決まりなので、
     /// 表示側で覚える暫定である。
     @State private var hasStartedPlayback = false
+    /// ミニプレイヤーの矩形（窓座標）。「ミニプレイヤーから展開」方式の出発・帰着に渡す（仕様 4.1.1 章）。
+    /// 報告してくるのは `MiniPlayerView` 自身なので、出ていない間は古い矩形が残る。渡す側で捨てる。
+    @State private var miniPlayerFrame: CGRect?
+    /// フルプレイヤーの開き方。**実機比較のための一時的な切り替え**で、設定画面と同じキーを読む。
+    @AppStorage(PlayerPresentationStyle.storageKey) private var playerStyle = PlayerPresentationStyle.slideUp
 
     var body: some View {
         TabView(selection: $selection) {
@@ -50,14 +55,18 @@ struct RootView: View {
         .environment(catalog)
         .tabBarMinimizeBehavior(.onScrollDown)
         .tabViewBottomAccessory {
-            if player.currentItem != nil, hasStartedPlayback {
-                MiniPlayerView { showsPlayer = true }
+            if showsMiniPlayer {
+                MiniPlayerView(onFrameChange: { miniPlayerFrame = $0 }) { showsPlayer = true }
             }
         }
         // iPhone は UIKit のカスタム提示、iPad は中央 sheet（仕様 4.1.1 章・6 章）。
         // 端末で経路そのものが替わるので、同じ `showsPlayer` を二つの入口へ振り分ける。
         .sheet(isPresented: sheetPlayerPresented) { playerSheet }
-        .playerPresentation(isPresented: customPlayerPresented) { customPlayerContent }
+        .playerPresentation(
+            isPresented: customPlayerPresented,
+            source: playerSource,
+            style: playerStyle
+        ) { customPlayerContent }
         // `initial: true` が要る。この画面が作り直されたときに既に再生中だと、値が真のまま変化せず
         // 通知が来ないので、再生中なのにミニプレイヤーが出ないまま取り残される。
         .onChange(of: player.isPlaying, initial: true) { _, isPlaying in
@@ -79,6 +88,12 @@ struct RootView: View {
     /// 表示中に幅が変わっても経路が替わらないことにも意味があり、替わると一方の終了と他方の提示が
     /// 同時に走って、二つの Binding が `showsPlayer` へ false を書き戻し合う。
     private var isPhonePlayer: Bool { UIDevice.current.userInterfaceIdiom == .phone }
+
+    /// ミニプレイヤーを出しているか。積んだだけでは出さない条件は仕様 3 章のまま。
+    private var showsMiniPlayer: Bool { player.currentItem != nil && hasStartedPlayback }
+
+    /// 展開の出発点。出していない間は矩形を渡さない。**渡すと居ない帯から広がって見える**。
+    private var playerSource: CGRect? { showsMiniPlayer ? miniPlayerFrame : nil }
 
     private var sheetPlayerPresented: Binding<Bool> {
         Binding(get: { showsPlayer && !isPhonePlayer }, set: { showsPlayer = $0 })

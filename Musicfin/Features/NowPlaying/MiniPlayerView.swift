@@ -3,6 +3,9 @@ import SwiftUI
 /// ミニプレイヤー。`tabViewBottomAccessory` に置き、`.expanded` / `.inline` で密度を変える（`docs/ui-spec.md` 3 章）。
 /// ガラスの帯の上に塗りを重ねず、Apple Music と同じく裸のグリフだけを並べる。
 struct MiniPlayerView: View {
+    /// 自分の矩形（窓座標）が変わったときに知らせる。フルプレイヤーを「ここから展開する」方式が
+    /// 出発・帰着に使う（仕様 4.1.1 章）。既定を空にしてあるのは、矩形を要らない呼び出し側のため。
+    var onFrameChange: (CGRect) -> Void = { _ in }
     let openPlayer: () -> Void
 
     @Environment(PlaybackEngine.self) private var player
@@ -75,6 +78,14 @@ struct MiniPlayerView: View {
                     }
                 }
             )
+            // 報告するのは**この行の矩形**で、ガラスの帯そのものではない。帯は
+            // `tabViewBottomAccessory` が UIKit 側で持っており SwiftUI から測れないので、
+            // 内側の余白まで含めたこの矩形を帯の代わりに使う（数 pt 内側に入る）。
+            .onGeometryChange(for: CGRect.self) {
+                $0.frame(in: .global)
+            } action: {
+                onFrameChange($0)
+            }
         }
     }
 
