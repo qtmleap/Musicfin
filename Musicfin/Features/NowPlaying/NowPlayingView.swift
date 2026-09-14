@@ -63,9 +63,10 @@ struct NowPlayingView: View {
     /// 出すほうは臨界制動のばねで ω ≒ 16 rad/s、`2π/ω = 0.39` 秒（当てはめ残差 0.003）。
     /// SwiftUI の `duration` はそのまま `2π/ω` なので 0.4 秒で並ぶ。
     private static let controlsReveal: Animation = .smooth(duration: 0.4, extraBounce: 0)
-    /// 引くほうは実測で 0.12 秒ほどで消え、出すのと同じ長さを往復に使うと戻りが重く見える。
-    /// 余韻を少し残して 0.15 秒。弾みは出す側と揃えて 0。
-    private static let controlsHide: Animation = .smooth(duration: 0.15, extraBounce: 0)
+    /// 引くほうの **0.3 秒は Musicfin の決定値**で、参照録画の実測（0.12 秒ほどで消える）ではない。
+    /// 実測どおりに詰めると実機では視線が追い付かず、帯が消えたというより落ちたように見えた。
+    /// 出す側と同じ長さにはしないので、往復が重く見えることもない。弾みは出す側と揃えて 0。
+    private static let controlsHide: Animation = .smooth(duration: 0.3, extraBounce: 0)
 
     /// 出し入れのどちらを走らせるかは**行き先の状態**で決める。`.animation(_:value:)` は
     /// 値が変わった更新で読まれるので、ここへ渡る `hidden` は既に新しい側になっている。
