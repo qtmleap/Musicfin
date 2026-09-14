@@ -36,11 +36,16 @@ nonisolated enum PlayerPresentationStyle: String, CaseIterable, Identifiable {
 /// **幾何の報告が親の再レイアウトを誘発しない**。
 /// 監視も等値比較も要らない（読むのは提示・終了の瞬間だけ）ので、`@Observable` は付けない。
 final class PlayerSourceBox {
-    /// ミニプレイヤーが出ていない間は `nil`。古い矩形を残すと、居ない帯から広がって見える。
+    /// ミニプレイヤーが出ていない間は `nil`。**帯が出ているかどうかの合図**として使う。
+    /// 展開の幾何そのものには使わない。`MiniPlayerView` が測れるのはガラスの帯ではなく内側の行で、
+    /// 左右が数 pt 内側に入ってしまうため（実測で帯 360 pt に対し行は 344 pt）。
     var rect: CGRect?
     /// 標準 Zoom は矩形ではなく実在する view を要求する。帯を SwiftUI から直接渡せないため、
     /// その内側いっぱいに敷いた透明 view を source として弱く覚える。
     weak var view: UIView?
+    /// 「ミニプレイヤーから展開」で**撮影と計測の両方に使う帯の実体**。`view` とは別に持つ。
+    /// ガラスと角丸を描いているのはその祖先なので、透明な `view` を撮っても何も写らない。
+    weak var bandView: UIView?
 }
 
 /// `tabViewBottomAccessory` の SwiftUI 行を、標準 Zoom が要求する `UIView` へ橋渡しする。
@@ -61,6 +66,7 @@ struct PlayerZoomSource: UIViewRepresentable {
         // アクセサリ内で寸法が確定しているので、同じ大きさを持つ最寄りの親を source にできる。
         DispatchQueue.main.async { [weak uiView, weak source] in
             guard let uiView, let source, uiView.window != nil else { return }
+            source.bandView = Self.bandView(from: uiView)
             let size = uiView.bounds.size
             var candidate = uiView.superview
             while let view = candidate {
@@ -73,6 +79,24 @@ struct PlayerZoomSource: UIViewRepresentable {
                 candidate = view.superview
             }
         }
+    }
+
+    /// ガラスの帯を描いているビューを、**クラス名ではなく構造で**選ぶ。
+    /// `tabViewBottomAccessory` の帯は UIKit 側の private なビューが持っており、外周を返す公開 API が無い。
+    /// 実行時に祖先をたどると「透明な source と同寸法の並び → 帯そのもの → 画面幅の容器（タブバーを含む）」
+    /// の順に並ぶので、**画面幅へ届く手前で最も外側の祖先**がちょうど帯だけを所有する。
+    /// 画面幅で切ることで、タブバーごと隠してしまう祖先は原理的に選ばれない。
+    /// Simulator の iPhone 17 Pro では窓座標 (21, 735, 360, 48) が返り、録画フレームで実測した
+    /// 帯の可視範囲（y 735..783）と一致する。
+    private static func bandView(from origin: UIView) -> UIView? {
+        guard let window = origin.window else { return nil }
+        var band: UIView?
+        var candidate = origin.superview
+        while let view = candidate, view !== window, view.bounds.width < window.bounds.width - 1 {
+            band = view
+            candidate = view.superview
+        }
+        return band
     }
 }
 
@@ -190,11 +214,17 @@ private final class PlayerPresentationCoordinator: NSObject {
         self.content = content
         self.source = source
         self.style = style
-        // 矩形そのものは渡さず、**箱を覗く手続き**を渡す。ミニプレイヤーは `.expanded` と `.inline` で
-        // 高さが変わるので、提示・終了のたびに最新の矩形が要る。ここで値を写し取ると、
-        // 写すために矩形を SwiftUI の状態へ載せることになり、再レイアウトの輪へ戻ってしまう。
-        transitioning.sourceRectProvider =
-            style == .expandFromMiniPlayer ? { [weak source] in source?.rect } : { nil }
+        // 帯そのものは渡さず、**箱を覗く手続き**を渡す。ミニプレイヤーは `.expanded` と `.inline` で
+        // 高さが変わるので、提示・終了のたびに最新の帯が要る。ここで値を写し取ると、
+        // 写すために幾何を SwiftUI の状態へ載せることになり、再レイアウトの輪へ戻ってしまう。
+        transitioning.bandProvider =
+            style == .expandFromMiniPlayer
+            ? { [weak source] in
+                // 弱参照は帯が畳まれた直後でもしばらく生き残る。`rect` は `RootView` が帯を消した
+                // 瞬間に落とすので、**SwiftUI 側が畳んだ合図**として併せて見る。
+                guard let source, source.rect != nil else { return nil }
+                return source.bandView
+            } : { nil }
         wantsPresented = isPresented.wrappedValue
         hosting?.rootView = content
         applyDesiredStage()
@@ -521,10 +551,10 @@ private final class PlayerPresentationController: UIPresentationController {
 private final class PlayerTransitioningDelegate: NSObject, UIViewControllerTransitioningDelegate {
     /// 指追従のときだけ入る。`nil` のままなら出入りはアニメーターに任せきりになる。
     var interaction: UIPercentDrivenInteractiveTransition?
-    /// 「ミニプレイヤーから展開」の出発・帰着の矩形（窓座標）を、**遷移を始める瞬間に**取り出す手続き。
-    /// 方式の判定は SwiftUI 側で済ませてあり、ここへ来るのは矩形の有無だけにしてある。
-    /// 手続きにしてあるのは、矩形が変わるたびに SwiftUI へ知らせずに済ませるため。
-    var sourceRectProvider: () -> CGRect? = { nil }
+    /// 「ミニプレイヤーから展開」の出発・帰着になる帯を、**遷移を始める瞬間に**取り出す手続き。
+    /// 方式の判定は SwiftUI 側で済ませてあり、ここへ来るのは帯の有無だけにしてある。
+    /// 手続きにしてあるのは、帯が作り直されるたびに SwiftUI へ知らせずに済ませるため。
+    var bandProvider: () -> UIView? = { nil }
     var onPresentEnded: ((Bool) -> Void)?
     var onDismissEnded: ((Bool) -> Void)?
     /// 進行中の終了アニメーター。取り消しの戻りへ指の速さを渡すためだけに覚える。
@@ -555,7 +585,7 @@ private final class PlayerTransitioningDelegate: NSObject, UIViewControllerTrans
         PlayerTransitionAnimator(
             isPresenting: true,
             isInteractive: false,
-            sourceRect: sourceRectProvider(),
+            band: bandProvider(),
             presentationProvider: { [weak self] in self?.presentation },
             onEnded: onPresentEnded
         )
@@ -565,7 +595,7 @@ private final class PlayerTransitioningDelegate: NSObject, UIViewControllerTrans
         let animator = PlayerTransitionAnimator(
             isPresenting: false,
             isInteractive: interaction != nil,
-            sourceRect: sourceRectProvider(),
+            band: bandProvider(),
             presentationProvider: { [weak self] in self?.presentation },
             onEnded: onDismissEnded
         )
@@ -609,11 +639,136 @@ private final class PlayerContinuationAnimator: UIViewPropertyAnimator {
     }
 }
 
+/// 「ミニプレイヤーから展開」の見た目一式。**寸法が動くのは角丸のクリップだけ**で、本文は
+/// 全画面のままレイアウトしたスナップショットを一様に拡縮する。
+/// 本文の frame を帯まで縮めていた頃は、縮んだ枠に対して SwiftUI が毎フレーム組み直すので
+/// 中身が拡大されず、しかも全画面ぶんの safe area（上 59 pt）だけが残っていた（録画の実測）。
+/// 実体の寸法と safe area を最後まで動かさないことが、この作り直しを断つ唯一の手になる。
+private final class PlayerExpansionVisuals {
+    /// 帯 ⇄ 全面で寸法が動く唯一のビュー。角丸もここが一手に持つ。
+    /// `layer.mask` ではなく `clipsToBounds` にしてあるのは、マスク用のレイヤーを別途
+    /// 同じ曲線で補間する手間を作らないため。
+    private let clipView = UIView()
+    /// 全画面でレイアウトした本文の写し。**bounds は全画面のまま固定**し、transform だけで縮める。
+    private let fullSnapshot: UIView
+    /// ガラスの帯の写し。撮れなかったときは本文の淡入だけになる。
+    private let miniSnapshot: UIView?
+    private let openRect: CGRect
+    private let bandRect: CGRect
+    private let bandRadius: CGFloat
+    private let presented: UIView
+    private let presentedAlpha: CGFloat
+    private weak var bandView: UIView?
+    private let bandAlpha: CGFloat
+    private var isRestored = false
+
+    /// 撮影と差し替えをここで済ませる。帰着先が空・画面外なら作らず、呼び手をせり上がりへ落とす。
+    init?(presented: UIView, band: UIView, container: UIView, isPresenting: Bool) {
+        let openRect = container.bounds
+        let bandRect = band.convert(band.bounds, to: container)
+        guard bandRect.width > 1, bandRect.height > 1, bandRect.intersects(openRect) else { return nil }
+
+        // 撮る前に全画面で組み上げさせる。ここで寸法が確定していないと safe area が入らない本文を撮る。
+        // transform を畳んでから bounds/center で置くのは、前の遷移が移動で終わっていることがあるため。
+        presented.transform = .identity
+        presented.bounds = CGRect(origin: .zero, size: openRect.size)
+        presented.center = CGPoint(x: openRect.midX, y: openRect.midY)
+        presented.layer.cornerRadius = 0
+        presented.layoutIfNeeded()
+        // 開くときの本文はまだ画面に出ていないので強制描画が要る。閉じるときは既に出ており、
+        // 強制するとその 1 コミットが表へ漏れかねないので頼まない。
+        guard let full = presented.snapshotView(afterScreenUpdates: isPresenting) else { return nil }
+
+        self.openRect = openRect
+        self.bandRect = bandRect
+        self.presented = presented
+        fullSnapshot = full
+        presentedAlpha = presented.alpha
+        // 実体は小さい親へ移さず、描画だけ写しへ引き継ぐ。移すと寸法と safe area の変化が本文へ伝わる。
+        presented.alpha = 0
+
+        bandView = band
+        bandAlpha = band.alpha
+        // 帯は既に画面に出ているので強制描画は要らない。
+        miniSnapshot = band.snapshotView(afterScreenUpdates: false)
+        band.alpha = 0
+        bandRadius = Self.radius(of: band, rect: bandRect)
+
+        clipView.clipsToBounds = true
+        clipView.backgroundColor = .clear
+        clipView.isUserInteractionEnabled = false
+        clipView.layer.cornerCurve = .continuous
+        // 帯は四隅とも丸い。上 2 角だけに絞ると、帯の姿のときに下 2 角が角張って見える。
+        clipView.layer.maskedCorners = [
+            .layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMinXMaxYCorner, .layerMaxXMaxYCorner,
+        ]
+        full.bounds = CGRect(origin: .zero, size: openRect.size)
+        clipView.addSubview(full)
+        if let miniSnapshot {
+            miniSnapshot.bounds = CGRect(origin: .zero, size: bandRect.size)
+            // 帯を本文より上に重ねる。交差の途中で本文の地が帯を透かしてしまわないように。
+            clipView.addSubview(miniSnapshot)
+        }
+        container.addSubview(clipView)
+    }
+
+    /// 開いた姿と帯の姿を書き分ける。**幾何も透明度も角丸もここ 1 か所**にまとめてあるので、
+    /// 同じアニメーターへ載せるだけで、対話中の取り消しでも全部が一緒に戻る。
+    func apply(open isOpen: Bool) {
+        let rect = isOpen ? openRect : bandRect
+        clipView.bounds = CGRect(origin: .zero, size: rect.size)
+        clipView.center = CGPoint(x: rect.midX, y: rect.midY)
+        clipView.layer.cornerRadius = isOpen ? 0 : bandRadius
+
+        let center = CGPoint(x: rect.width / 2, y: rect.height / 2)
+        // **非等方に潰さない。**帯の幅へ合わせた一様縮小なので本文の上下は帯からはみ出し、
+        // 帯の高さの窓に隠れる。縦も潰すと中身の比率が壊れて、拡大ではなく変形に見える。
+        let scale = isOpen ? 1 : bandRect.width / openRect.width
+        fullSnapshot.center = center
+        fullSnapshot.transform = CGAffineTransform(scaleX: scale, y: scale)
+        fullSnapshot.alpha = isOpen ? 1 : 0
+        miniSnapshot?.center = center
+        miniSnapshot?.alpha = isOpen ? 0 : 1
+    }
+
+    /// 展開経路だけの後始末。**何度呼んでも安全**にしてあるのは、完了・`animationEnded`・`tearDown` の
+    /// どこから来ても取りこぼしを作らないため。取り消しても実体が戻らず黒い帯が残る、という
+    /// 録画で見えた症状を「寸法を動かすのをやめたから自然に直る」で済ませない。
+    /// 実体を先に全画面へ戻してから写しを外す。逆にすると、戻す前の 1 フレームが表に出る。
+    func restore() {
+        guard !isRestored else { return }
+        isRestored = true
+        UIView.performWithoutAnimation {
+            presented.transform = .identity
+            presented.bounds = CGRect(origin: .zero, size: openRect.size)
+            presented.center = CGPoint(x: openRect.midX, y: openRect.midY)
+            presented.layer.cornerRadius = 0
+            presented.alpha = presentedAlpha
+            presented.layoutIfNeeded()
+        }
+        clipView.removeFromSuperview()
+        bandView?.alpha = bandAlpha
+    }
+
+    /// 帯の角の半径。**画面側の concentric 値（Simulator で 62 pt）は流用しない。**あれは
+    /// `UIDropShadowView` が持つ画面の丸みで、帯の丸みとは別物である。
+    /// 帯を描くビューは `cornerConfiguration` が `.unspecified`、`layer.cornerRadius` が NaN で、
+    /// 解決値を返す公開 API が無い（実行時ダンプで確認）。取れたときだけそれを使い、
+    /// 取れなければ高さの半分＝カプセルに落とす。録画フレームの帯の左端を円で当てると
+    /// 高さ 48 pt に対し半径 24 pt が最良適合で、カプセルであることは実測で裏が取れている。
+    private static func radius(of band: UIView, rect: CGRect) -> CGFloat {
+        let capsule = min(rect.width, rect.height) / 2
+        let resolved = band.effectiveRadius(corner: .topLeft)
+        guard resolved.isFinite, resolved > 0 else { return capsule }
+        return min(resolved, capsule)
+    }
+}
+
 /// 出入りのアニメーター。動かすのは**姿の 1 つだけ**にする（仕様 4.1.1 章）。上 2 角の丸みだけは
 /// 例外で、指追従の終了のときに姿と同じアニメーターへ相乗りさせる。
-/// 動かす姿は出発矩形の有無で決まり、無ければ移動（transform）、
-/// あればミニプレイヤーの矩形との間の寸法（frame）になる。**選ぶのは幾何だけ**で、
-/// 曲線・取り消しのばね・完了時の置き直しは 2 方式で共通にする。
+/// 動かす姿は出発の帯の有無で決まり、無ければ本文そのものの移動（transform）、
+/// あればスナップショットを収めたクリップの拡縮（`PlayerExpansionVisuals`）になる。
+/// **選ぶのは幾何だけ**で、曲線・取り消しのばね・完了時の置き直しは 2 方式で共通にする。
 /// UIKit は遷移中に同じインスタンスを返すことを要求するので、
 /// `animateTransition(using:)` も `interruptibleAnimator(using:)` の結果をそのまま使う。
 private final class PlayerTransitionAnimator: NSObject, UIViewControllerAnimatedTransitioning {
@@ -637,26 +792,29 @@ private final class PlayerTransitionAnimator: NSObject, UIViewControllerAnimated
 
     private let isPresenting: Bool
     private let isInteractive: Bool
-    /// 出発（＝帰着）の矩形（窓座標）。`nil` なら完成した寸法のまま画面の外へ出し入れする。
-    private let sourceRect: CGRect?
+    /// 出発（＝帰着）になるミニプレイヤーの帯。`nil` なら完成した寸法のまま画面の外へ出し入れする。
+    /// **遷移を始める瞬間に一度だけ受け取り、その遷移の間は差し替えない。**
+    private weak var sourceBand: UIView?
     private let onEnded: ((Bool) -> Void)?
     /// 提示枠を後から引く手。**作られる順に依存しないよう**、初期化時ではなくアニメーターを作る
     /// 時点で呼ぶ。寸法を動かす方式でしか使わない。
     private let presentationProvider: () -> PlayerPresentationController?
     private var animator: PlayerContinuationAnimator?
-    /// 寸法を動かす間だけ枠の書き直しを止めてもらう相手。
+    /// 遷移中だけ枠の書き直しを止めてもらう相手。
     private weak var presentation: PlayerPresentationController?
+    /// 「ミニプレイヤーから展開」のときだけ作られる。後始末の入口もこれが持つ。
+    private var expansion: PlayerExpansionVisuals?
 
     init(
         isPresenting: Bool,
         isInteractive: Bool,
-        sourceRect: CGRect?,
+        band: UIView?,
         presentationProvider: @escaping () -> PlayerPresentationController?,
         onEnded: ((Bool) -> Void)?
     ) {
         self.isPresenting = isPresenting
         self.isInteractive = isInteractive
-        self.sourceRect = sourceRect
+        sourceBand = band
         self.presentationProvider = presentationProvider
         self.onEnded = onEnded
     }
@@ -701,6 +859,9 @@ private final class PlayerTransitionAnimator: NSObject, UIViewControllerAnimated
 
     func animationEnded(_ transitionCompleted: Bool) {
         animator = nil
+        // 完了通知が来ないまま終わる経路（割り込み・強制終了）でも取りこぼさない。何度呼んでも安全。
+        expansion?.restore()
+        expansion = nil
         // 止めていた枠の書き直しを戻す。忘れると回転や幅の変化で提示枠が追従しなくなる。
         presentation?.isAnimatingFrame = false
         presentation = nil
@@ -728,33 +889,30 @@ private final class PlayerTransitionAnimator: NSObject, UIViewControllerAnimated
         // 動かす姿を 1 つ選ぶ。開いた姿はどちらも容器いっぱい（＝提示枠と同じ）で、
         // 閉じた姿だけが方式で変わる。**置き直しをこの 1 つの関数に集めるので、
         // 完了・取り消しの扱いは 2 方式で一字も変わらない。**
-        let openRect = container.bounds
-        let offscreen = CGAffineTransform(translationX: 0, y: openRect.height)
-        let move: (Bool) -> Void
-        if let collapsedRect = collapsedRect(in: container) {
-            // 寸法を動かすので、途中のレイアウトに枠を書き直させない。提示枠は遷移の始まりに
-            // 作られているので、**アニメーターを作るこの時点で引けば取り違えない**。
+        let settle: (Bool) -> Void
+        if let presented, let expansion = makeExpansion(presented: presented, container: container) {
+            self.expansion = expansion
+            // 実体の寸法は動かさないが、遷移中に提示枠から書き直されると撮影済みの写しと食い違う。
+            // 提示枠は遷移の始まりに作られているので、**アニメーターを作るこの時点で引けば取り違えない**。
             presentation = presentationProvider()
             presentation?.isAnimatingFrame = true
-            // 前の遷移が移動で終わっていることがあるので、寸法へ移る前に移動を畳んでおく。
-            presented?.transform = .identity
-            move = { staysOpen in presented?.frame = staysOpen ? openRect : collapsedRect }
+            settle = { staysOpen in expansion.apply(open: staysOpen) }
         } else {
-            move = { staysOpen in presented?.transform = staysOpen ? .identity : offscreen }
-        }
-        // 引いている間だけ上 2 角を丸める。静止時は 0、引き切った時点で終端値になるように
-        // **姿と同じアニメーターへ相乗りさせる**ので、`update(_:)` だけで移動と丸みが一緒に進む。
-        // pan の `.changed` から半径を書かないのが要点で、書くと進行が二重になり取り消しでずれる。
-        // 自動で出入りするときは丸めない（要件は「引いているときだけ」）。
-        let settle: (Bool) -> Void
-        if isInteractive, let presented {
-            let radius = Self.concentricRadius(of: presented)
-            settle = { staysOpen in
-                move(staysOpen)
-                presented.layer.cornerRadius = staysOpen ? 0 : radius
+            let offscreen = CGAffineTransform(translationX: 0, y: container.bounds.height)
+            let move: (Bool) -> Void = { staysOpen in presented?.transform = staysOpen ? .identity : offscreen }
+            // せり上がりでは引いている間だけ上 2 角を丸める。静止時は 0、引き切った時点で終端値に
+            // なるように**姿と同じアニメーターへ相乗りさせる**ので、`update(_:)` だけで移動と丸みが
+            // 一緒に進む。pan の `.changed` から半径を書かないのが要点で、書くと進行が二重になり
+            // 取り消しでずれる。自動で出入りするときは丸めない（要件は「引いているときだけ」）。
+            if isInteractive, let presented {
+                let radius = Self.concentricRadius(of: presented)
+                settle = { staysOpen in
+                    move(staysOpen)
+                    presented.layer.cornerRadius = staysOpen ? 0 : radius
+                }
+            } else {
+                settle = move
             }
-        } else {
-            settle = move
         }
         // 提示は閉じた姿から始めて開いた姿へ、終了はその逆へ動かす。
         settle(!isPresenting)
@@ -778,19 +936,33 @@ private final class PlayerTransitionAnimator: NSObject, UIViewControllerAnimated
         animator.addAnimations { [isPresenting] in
             settle(isPresenting)
         }
-        animator.addCompletion { [isPresenting] _ in
+        animator.addCompletion { [isPresenting, weak self] _ in
             // 取り消しでは始まりの側、完了では終わりの側へ明示的に置き直す。
             // 提示ビューと地は取り消しでも階層から外さない（仕様 4.1.1 章）。
             let isCancelled = context.transitionWasCancelled
             let staysOpen = isPresenting != isCancelled
             settle(staysOpen)
+            // 展開経路の実体・帯・写しは、取り消しでも成功でもこの 1 か所を通して戻す。
+            self?.expansion?.restore()
             if !staysOpen, !isPresenting { presented?.removeFromSuperview() }
             context.completeTransition(!isCancelled)
         }
         return animator
     }
 
-    /// 引き切ったときの上 2 角の半径。**数を直書きしない。**画面の角は端末ごとに違うので、
+    /// 展開の道具を用意する。帯が居ない・画面に出ていない・空のときは `nil` を返して
+    /// **せり上がりへ落とす**（居ない帯から広がって見えるより良い）。
+    private func makeExpansion(presented: UIView, container: UIView) -> PlayerExpansionVisuals? {
+        guard let band = sourceBand, band.window != nil, !band.isHidden, band.alpha > 0.01 else { return nil }
+        return PlayerExpansionVisuals(
+            presented: presented,
+            band: band,
+            container: container,
+            isPresenting: isPresenting
+        )
+    }
+
+    /// せり上がりで引き切ったときの上 2 角の半径。**数を直書きしない。**画面の角は端末ごとに違うので、
     /// 書くと機種依存の食い違いになる。`containerConcentric` を**値を読むためだけに**一度当て、
     /// 解決後の実数を `effectiveRadius(corner:)` で取り出して設定は元へ戻す。
     /// 以後の丸みは `layer.cornerRadius` だけが持つ（`cornerConfiguration` と併用しない）。
@@ -804,13 +976,5 @@ private final class PlayerTransitionAnimator: NSObject, UIViewControllerAnimated
         let radius = view.effectiveRadius(corner: .topLeft)
         view.cornerConfiguration = previous
         return radius
-    }
-
-    /// ミニプレイヤーの矩形を容器の座標へ直す。`nil`・空・容器と重ならない矩形は
-    /// **渡されなかったものとして扱う**（画面の外から広がって見えるより、せり上がりへ落ちるほうが良い）。
-    private func collapsedRect(in container: UIView) -> CGRect? {
-        guard let sourceRect, sourceRect.width > 0, sourceRect.height > 0 else { return nil }
-        let rect = container.convert(sourceRect, from: nil)
-        return rect.intersects(container.bounds) ? rect : nil
     }
 }
