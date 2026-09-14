@@ -58,6 +58,9 @@ struct NowPlayingView: View {
     /// 縮みながら動く画像だと行き過ぎて戻る揺れが見えるので使わない。
     /// **0.35 秒は Musicfin の決定値で、Apple 実機を実測した値ではない。**
     private static let modeTransition: Animation = .smooth(duration: 0.35, extraBounce: 0)
+    /// 退避した操作帯の縮み（仕様 5.1 章 第 4 版）。停止中のアートワークと同じ 0.9 に揃える。
+    /// これ以上縮めると抜けきる前に記号が細くなって読めず、これ以下だと移動だけの動きと見分けが付かない。
+    private static let hiddenControlsScale: CGFloat = 0.9
 
     /// 配色を取り出すためだけに頼む画像の一辺。画面に出す大きさとは別に決める。
     /// 走査は 32×32 まで縮めてから行うので大きな画像は要らず、一方で画面側の一辺は
@@ -114,6 +117,11 @@ struct NowPlayingView: View {
                         volumeRow.frame(height: layout.volume, alignment: .bottom)
                         bottomControls(palette: palette).frame(height: layout.bottom, alignment: .top)
                     }
+                    // 退避と復帰は**縮んで抜け、膨らんで戻る**。平行移動だけだと板がそのまま滑る動きで、
+                    // 読むために退いた／操作へ戻ったという合図が弱い。`scaleEffect` は配置を変えないので、
+                    // 3 状態で帯の高さと identity を保つという第 4 版の条件はそのまま満たす。
+                    // 縮む向きは中心、つまり上端は下へ動くので、覗きを増やす側には働かない。
+                    .scaleEffect(controlsHidden ? Self.hiddenControlsScale : 1)
                     // 帯の高さだけでは下端の余白ぶんが残って記号の頭が覗く。安全域を足して抜け切らせる。
                     .offset(y: detailExtra)
                     // 見えない操作を押せたり読み上げられたりしないようにする。位置だけずらしても残るため。
