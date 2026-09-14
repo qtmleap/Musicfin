@@ -42,6 +42,15 @@ nonisolated enum LyricsScrollAnimation: String, CaseIterable, Identifiable {
     }
 }
 
+/// 操作帯の判定に使う `ScrollView` の幾何（仕様 5.1 章 第 4 版）。
+/// 縦位置と器の大きさを**同じ観測で一緒に受け取る**ためだけの型で、両者の届く順序に
+/// 判定が左右されないようにする。
+private nonisolated struct LyricsScrollProbe: Equatable {
+    /// `contentInsets.top` を足して内容の先頭を 0 に揃えた縦位置。
+    var offset: CGFloat
+    var containerSize: CGSize
+}
+
 /// 読む位置を安定させるため、強調は文字の濃淡に留め、行の大きさを変えない。
 struct LyricsView: View {
     let track: MediaItem
@@ -76,6 +85,11 @@ struct LyricsView: View {
     @State private var resumeTask: Task<Void, Never>?
     /// プログラムが動かしているスクロールの猶予。走っている間は操作帯の判定を丸ごと止める。
     @State private var programmaticScroll: Task<Void, Never>?
+    /// 操作帯の出し入れが落ち着くまでの猶予（仕様 5.1 章 第 4 版）。帯を退避させると
+    /// **この本文自身の器が 300 pt 伸び縮みする**ので、その間に届く位置の変化は利用者が送ったものではない。
+    /// `programmaticScroll` と分けて持つのは、あちらが**指が触れた時点で打ち切られる**ため。
+    /// 帯を動かすのは指が送っている最中なので、同じ器に載せると立てた端から消える。
+    @State private var controlsSettling: Task<Void, Never>?
     /// 操作帯の判定に使う縦位置と、同じ向きへ積んだ量（仕様 5.1 章 第 4 版）。
     @State private var lastJudgedOffset: CGFloat?
     @State private var scrollAccumulation: CGFloat = 0
@@ -93,6 +107,13 @@ struct LyricsView: View {
     /// `.animating` が `.idle` へ落ちた時点で解く手もあるが、「視差効果を減らす」設定では
     /// `withAnimation(nil)` になって `.animating` を経由しないので、段階ではなく時間で区切る。
     private static let programmaticScrollGrace = Duration.milliseconds(450)
+
+    /// 操作帯の出し入れを判定から外しておく時間（仕様 5.1 章 第 4 版）。
+    /// **本文の器が伸び縮みするのは即時だが、そこから出る位置の押し戻しは即時では終わらない。**
+    /// 行き過ぎたぶんは弾みを伴って数フレームに渡って戻ってくるうえ、指はまだ送っている。
+    /// 長さは帯の 0.4 秒に `programmaticScrollGrace` と同じ余裕を足した値にして、
+    /// 2 つの猶予を同じ組みの数値で揃えた。**Apple 実機の実測値ではない。**
+    private static let controlsSettleGrace = Duration.milliseconds(550)
 
     /// 下へ 32 pt 送ったら操作帯を隠し、上へ 16 pt 戻したら出す（仕様 5.1 章 第 4 版）。
     /// **どちらも Musicfin の決定値で、Apple 実機の実測値ではない。**
@@ -226,19 +247,26 @@ struct LyricsView: View {
             }
             // 位置は段階ではなくここで読む。`.interacting` の間は phase が変わらないので、
             // 段階の変化だけを見ていると送った量が分からない（仕様 5.1 章 第 4 版）。
-            // `contentInsets.top` を足して**内容の先頭を 0** に揃える。そうしないと先頭でも 0 にならず、
-            // 「先頭まで戻したら操作帯を出す」が成立しない。
-            .onScrollGeometryChange(for: CGFloat.self) { geometry in
-                geometry.contentOffset.y + geometry.contentInsets.top
-            } action: { _, offset in
-                judgeControls(offset: offset)
-            }
-            // 文字の大きさや画面の向きが変わると位置が飛ぶ。積算を持ち越すと、送ってもいないのに閾値へ届く。
-            .onScrollGeometryChange(for: CGSize.self) { geometry in
-                geometry.containerSize
-            } action: { _, _ in
-                scrollAccumulation = 0
-                lastJudgedOffset = nil
+            // **位置と器の大きさは 1 つの観測にまとめる。**別々の `onScrollGeometryChange` に
+            // 分けていたときは、同じ更新で両方が変わってもどちらの処理が先に走るか決まらず、
+            // 器が伸びたせいの位置の変化を先に「送った量」として数えてしまう隙があった。
+            .onScrollGeometryChange(for: LyricsScrollProbe.self) { geometry in
+                // `contentInsets.top` を足して**内容の先頭を 0** に揃える。そうしないと先頭でも 0 にならず、
+                // 「先頭まで戻したら操作帯を出す」が成立しない。
+                LyricsScrollProbe(
+                    offset: geometry.contentOffset.y + geometry.contentInsets.top,
+                    containerSize: geometry.containerSize
+                )
+            } action: { old, new in
+                // 器の大きさが変わった回は数えない。文字の拡大や画面の向きに加え、
+                // **操作帯の退避でこの本文自身が伸び縮みする**ときもここへ来る。
+                // その回の差分は送った量ではないので、基準だけ置き直して捨てる。
+                guard old.containerSize == new.containerSize else {
+                    lastJudgedOffset = new.offset
+                    scrollAccumulation = 0
+                    return
+                }
+                judgeControls(offset: new.offset)
             }
             // **`isFollowing` が止めるのはスクロールだけ**（仕様 5.2 章）。過去の歌詞を手で読んでいる間も
             // 現在行の算出と強調は続くので、ここの `guard` は `scroll` の手前にしか置かない。
@@ -260,6 +288,8 @@ struct LyricsView: View {
                 resumeTask = nil
                 programmaticScroll?.cancel()
                 programmaticScroll = nil
+                controlsSettling?.cancel()
+                controlsSettling = nil
             }
         }
     }
@@ -267,6 +297,18 @@ struct LyricsView: View {
     /// 送った向きと量だけで操作帯の出し入れを決める（仕様 5.1 章 第 4 版）。
     /// 速度を見ないのは、同じだけ送ったのに弾きの強さで結果が変わるのを避けるため。
     private func judgeControls(offset: CGFloat) {
+        // **帯を動かした直後も判定を止める**（仕様 5.1 章 第 4 版）。帯の退避は本文の高さを
+        // 300 pt 変えるので、下まで読んでいると収まりきらなくなった位置がまとめて押し戻される。
+        // これを送りと取り違えると、隠した直後に「上へ 16 pt 戻した」と読んで帯が出直し、
+        // 出しては隠すの往復が始まる。器の大きさで弾くだけでは足りないのは、**高さの変更は即時でも
+        // 押し戻しは弾みを伴い**、大きさの変化とは別の回に届くため。
+        // **先頭へ戻したときの近道より手前**に置く。あちらは積算を見ないので、押し戻しで
+        // 0 付近まで下がっただけでも帯を出してしまう。
+        guard controlsSettling == nil else {
+            lastJudgedOffset = offset
+            scrollAccumulation = 0
+            return
+        }
         // **プログラムが動かしている間は判定そのものを止める。**追従の復帰・初回の位置合わせ・
         // 行タップ後の合わせは位置を大きく飛ばすので、利用者の送りと取り違えると帯が勝手に消える。
         // 呼び出し元ごとに積算を戻して回ると必ずどれか漏れるため、`scroll(to:proxy:)` に一本化した
@@ -308,6 +350,16 @@ struct LyricsView: View {
     private func setControlsHidden(_ hidden: Bool) {
         guard controlsHidden != hidden else { return }
         controlsHidden = hidden
+        // 猶予は**外へ渡す前**に立てる。渡した先で本文の高さが変わり、その位置の変化が
+        // 同じ更新のうちに返ってくることがあるので、後から立てると 1 回ぶん取りこぼす。
+        controlsSettling?.cancel()
+        controlsSettling = Task {
+            try? await Task.sleep(for: Self.controlsSettleGrace)
+            guard !Task.isCancelled else { return }
+            controlsSettling = nil
+            // 明けた時点の位置を次の基準にし直すのは `judgeControls` の側。ここで積算だけ捨てておく。
+            scrollAccumulation = 0
+        }
         onControlsVisibilityChange(hidden)
     }
 
@@ -382,6 +434,8 @@ struct LyricsView: View {
         resumeTask = nil
         programmaticScroll?.cancel()
         programmaticScroll = nil
+        controlsSettling?.cancel()
+        controlsSettling = nil
         isJudgingScroll = false
         scrollAccumulation = 0
         lastJudgedOffset = nil

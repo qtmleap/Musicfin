@@ -105,6 +105,8 @@ struct NowPlayingView: View {
             // 逃がしたぶんは**歌詞本文だけを下へ伸ばして**埋める（仕様 5.1 章 第 4 版）。
             // 本文を据え置くと下に 300 pt の空白が残るだけで、帯を隠しても読める行が 1 行も増えない。
             // 帯の移動量と同じ値を使うので、伸びた本文の下端は帯が抜けた先とぴったり合う。
+            // **この値は補間しない。**指が送っている最中に本文の器を 0.4 秒かけて伸ばすと、
+            // 指の下で内容が動き続ける。伸ばすのは一度きりにして、動いて見せるのは帯だけにする。
             let detailExtra = controlsHidden ? layout.controlsHeight + geometry.safeAreaInsets.bottom : 0
             ScrollView {
                 VStack(spacing: 0) {
@@ -249,9 +251,10 @@ struct NowPlayingView: View {
         // **切り抜きは当たり判定を決めない。**`.clipped()` も `.clipShape` も形を描くだけなので、
         // これを付けないと伸ばした領域でスクロールも行タップも効かない。切り抜きと同じ形にする。
         .contentShape(.interaction, BottomExtendedRect(extra: detailExtra))
-        // 伸縮は帯の退避と同じ動き方に揃える（仕様 5.1 章 第 4 版）。本文の高さと切り抜きが
-        // 同じ値・同じ曲線で動くので、途中の一瞬でも本文が切り落とされない。
-        .animation(reduceMotion ? nil : Self.controlsTransition, value: detailExtra)
+        // **ここに `.animation(value: detailExtra)` は置かない**（仕様 5.1 章 第 4 版の差し替え）。
+        // 置いていたときは、`.animation` が subtree 全体に掛かるせいで帯が動くのと同じ更新で
+        // 現在行が移ると、行の濃さとぼかしまで帯の 0.4 秒のばねに乗って遅れて追い付いた。
+        // 本文の高さ・切り抜き・当たり判定は**即時に**変える。補間するのは帯だけにする。
     }
 
     /// アートワーク。**大きさも角丸も同じ View の上で変える**ので、状態を切り替えても
@@ -835,8 +838,10 @@ private struct PlayerLayout {
 private struct BottomExtendedRect: Shape {
     var extra: CGFloat
 
-    /// 伸縮の途中の値で切り抜けるようにする。補間できないと、本文の高さだけが動いて
-    /// 切り抜きが先に最終形へ飛び、伸び始めと縮み終わりで下端がちらつく。
+    /// 途中の値で切り抜けるようにする。帯の出し入れでは本文も切り抜きも即時に変わるので
+    /// ここは使われないが、**歌詞から離れる切り替えだけは `withAnimation` の中で
+    /// `detailExtra` が 0 へ戻る**（`switchMode(to:)`）。補間できないと、そのとき本文の高さだけが
+    /// 動いて切り抜きが先に最終形へ飛び、縮み終わりで下端がちらつく。
     nonisolated var animatableData: CGFloat {
         get { extra }
         set { extra = newValue }
