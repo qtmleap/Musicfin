@@ -179,14 +179,18 @@ private final class PlayerPresentationCoordinator: NSObject {
         controller.modalPresentationStyle = .custom
         controller.transitioningDelegate = transitioning
         // 地は SwiftUI 側の帯が safe area を無視して敷くので、UIKit の地は透かす。
-        // 角丸は**画面の角と同じ丸みで持ち続ける**。`containerConcentric` は容器（＝窓）の角から
-        // 決まり、iPhone 17 Pro では 62 pt に解決される（Simulator 実測）。下へずらしても値が変わらないので、
-        // 上端が画面の角から連続して剥がれて見える。丸みをドラッグ量で動かしていたときは、
-        // 動き始めた瞬間の丸みが画面の角と合わず段差に見えていた（実機報告 #2）。
-        // 丸みの曲線は `cornerConfiguration` 側が持つので、`cornerCurve` を別に指定しない。
+        // **静止している間は角を丸めない。**Apple Music のフルプレイヤーは四隅まで中身が詰まっており、
+        // 画面の角丸はディスプレイの物理マスクだけが作っている（実機スクショの画素で確認）。
+        // 自分で丸めると、公開 API で物理マスクの半径を正確に取る保証が無い以上どうしても食い違い、
+        // **角の外側に下の画面が細い筋で覗く**。0 にしてしまえばその現象は原理的に起きない。
+        // 丸めるのは引いている最中の上 2 角だけなので、下 2 角はマスクから外したままにする。
+        // 半径は `layer.cornerRadius` で駆動する（公式に animatable で、遷移の進行に乗せられる）。
+        // `cornerConfiguration` とは**併用しない**。
         controller.view.backgroundColor = .clear
         controller.view.layer.masksToBounds = true
-        controller.view.cornerConfiguration = .uniformCorners(radius: .containerConcentric())
+        controller.view.layer.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner]
+        controller.view.layer.cornerCurve = .continuous
+        controller.view.layer.cornerRadius = 0
         // `safeAreaRegions` は既定の `.all` のまま。上端を塞ぐのは提示枠の仕事であって、
         // 本文の safe area を削る話ではない（仕様 4.1.1 章）。`additionalSafeAreaInsets` も触らない。
 
@@ -515,8 +519,8 @@ private final class PlayerContinuationAnimator: UIViewPropertyAnimator {
     }
 }
 
-/// 出入りのアニメーター。動かすのは**姿の 1 つだけ**にする（仕様 4.1.1 章）。上角の丸みは提示ビューの
-/// `cornerConfiguration` が画面の角と同じ値で持ち続けるので、遷移の側で触る対象ではなくなった。
+/// 出入りのアニメーター。動かすのは**姿の 1 つだけ**にする（仕様 4.1.1 章）。上 2 角の丸みだけは
+/// 例外で、指追従の終了のときに姿と同じアニメーターへ相乗りさせる。
 /// 動かす姿は出発矩形の有無で決まり、無ければ移動（transform）、
 /// あればミニプレイヤーの矩形との間の寸法（frame）になる。**選ぶのは幾何だけ**で、
 /// 曲線・取り消しのばね・完了時の置き直しは 2 方式で共通にする。
@@ -636,7 +640,7 @@ private final class PlayerTransitionAnimator: NSObject, UIViewControllerAnimated
         // 完了・取り消しの扱いは 2 方式で一字も変わらない。**
         let openRect = container.bounds
         let offscreen = CGAffineTransform(translationX: 0, y: openRect.height)
-        let settle: (Bool) -> Void
+        let move: (Bool) -> Void
         if let collapsedRect = collapsedRect(in: container) {
             // 寸法を動かすので、途中のレイアウトに枠を書き直させない。提示枠は遷移の始まりに
             // 作られているので、**アニメーターを作るこの時点で引けば取り違えない**。
@@ -644,9 +648,23 @@ private final class PlayerTransitionAnimator: NSObject, UIViewControllerAnimated
             presentation?.isAnimatingFrame = true
             // 前の遷移が移動で終わっていることがあるので、寸法へ移る前に移動を畳んでおく。
             presented?.transform = .identity
-            settle = { staysOpen in presented?.frame = staysOpen ? openRect : collapsedRect }
+            move = { staysOpen in presented?.frame = staysOpen ? openRect : collapsedRect }
         } else {
-            settle = { staysOpen in presented?.transform = staysOpen ? .identity : offscreen }
+            move = { staysOpen in presented?.transform = staysOpen ? .identity : offscreen }
+        }
+        // 引いている間だけ上 2 角を丸める。静止時は 0、引き切った時点で終端値になるように
+        // **姿と同じアニメーターへ相乗りさせる**ので、`update(_:)` だけで移動と丸みが一緒に進む。
+        // pan の `.changed` から半径を書かないのが要点で、書くと進行が二重になり取り消しでずれる。
+        // 自動で出入りするときは丸めない（要件は「引いているときだけ」）。
+        let settle: (Bool) -> Void
+        if isInteractive, let presented {
+            let radius = Self.concentricRadius(of: presented)
+            settle = { staysOpen in
+                move(staysOpen)
+                presented.layer.cornerRadius = staysOpen ? 0 : radius
+            }
+        } else {
+            settle = move
         }
         // 提示は閉じた姿から始めて開いた姿へ、終了はその逆へ動かす。
         settle(!isPresenting)
@@ -680,6 +698,22 @@ private final class PlayerTransitionAnimator: NSObject, UIViewControllerAnimated
             context.completeTransition(!isCancelled)
         }
         return animator
+    }
+
+    /// 引き切ったときの上 2 角の半径。**数を直書きしない。**画面の角は端末ごとに違うので、
+    /// 書くと機種依存の食い違いになる。`containerConcentric` を**値を読むためだけに**一度当て、
+    /// 解決後の実数を `effectiveRadius(corner:)` で取り出して設定は元へ戻す。
+    /// 以後の丸みは `layer.cornerRadius` だけが持つ（`cornerConfiguration` と併用しない）。
+    /// これは concentric の解決値であって、物理マスクと一致することを保証するものではない。
+    /// 静止時が 0 なので、一致していなくても角から地が覗くことはない。
+    /// 寸法が決まる前は 0 に解決されるため、**呼ぶのは提示が済んだあと**に限る
+    /// （Simulator の iPhone 17 Pro で 62.0 pt、レイアウト前は 0.0）。
+    private static func concentricRadius(of view: UIView) -> CGFloat {
+        let previous = view.cornerConfiguration
+        view.cornerConfiguration = .uniformCorners(radius: .containerConcentric())
+        let radius = view.effectiveRadius(corner: .topLeft)
+        view.cornerConfiguration = previous
+        return radius
     }
 
     /// ミニプレイヤーの矩形を容器の座標へ直す。`nil`・空・容器と重ならない矩形は
