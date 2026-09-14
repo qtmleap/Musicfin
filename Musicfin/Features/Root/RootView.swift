@@ -24,9 +24,10 @@ struct RootView: View {
     /// 本来は再生側が持つべき状態だが、`Musicfin/Player/` は指示なしに変えない決まりなので、
     /// 表示側で覚える暫定である。
     @State private var hasStartedPlayback = false
-    /// ミニプレイヤーの矩形（窓座標）。「ミニプレイヤーから展開」方式の出発・帰着に渡す（仕様 4.1.1 章）。
-    /// 報告してくるのは `MiniPlayerView` 自身なので、出ていない間は古い矩形が残る。渡す側で捨てる。
-    @State private var miniPlayerFrame: CGRect?
+    /// ミニプレイヤーの矩形（窓座標）を入れる箱。「ミニプレイヤーから展開」方式の出発・帰着に渡す（仕様 4.1.1 章）。
+    /// **矩形を `@State` の値として持たない**のが要点で、持つと幾何の報告がこの画面全体の再評価を呼び、
+    /// `tabViewBottomAccessory` の作り直し → 再計測、と輪になる。箱の作り直しを防ぐために `@State` で 1 度だけ作る。
+    @State private var miniPlayerSource = PlayerSourceBox()
     /// フルプレイヤーの開き方。**実機比較のための一時的な切り替え**で、設定画面と同じキーを読む。
     @AppStorage(PlayerPresentationStyle.storageKey) private var playerStyle = PlayerPresentationStyle.slideUp
 
@@ -56,7 +57,7 @@ struct RootView: View {
         .tabBarMinimizeBehavior(.onScrollDown)
         .tabViewBottomAccessory {
             if showsMiniPlayer {
-                MiniPlayerView(onFrameChange: { miniPlayerFrame = $0 }) { showsPlayer = true }
+                MiniPlayerView(onFrameChange: { miniPlayerSource.rect = $0 }) { showsPlayer = true }
             }
         }
         // iPhone は UIKit のカスタム提示、iPad は中央 sheet（仕様 4.1.1 章・6 章）。
@@ -64,7 +65,7 @@ struct RootView: View {
         .sheet(isPresented: sheetPlayerPresented) { playerSheet }
         .playerPresentation(
             isPresented: customPlayerPresented,
-            source: playerSource,
+            source: miniPlayerSource,
             style: playerStyle
         ) { customPlayerContent }
         // `initial: true` が要る。この画面が作り直されたときに既に再生中だと、値が真のまま変化せず
@@ -75,6 +76,11 @@ struct RootView: View {
         // 待ち行列が空になったら忘れる（仕様 3 章）。次に積んだだけの曲でまた出てしまわないように。
         .onChange(of: player.queue.isEmpty) { _, isEmpty in
             if isEmpty { hasStartedPlayback = false }
+        }
+        // 帯が消えたら矩形を捨てる。報告してくるのは `MiniPlayerView` 自身なので、
+        // 消えたあとは古い矩形が残り、**居ない帯から広がって見える**（仕様 4.1.1 章）。
+        .onChange(of: showsMiniPlayer) { _, shows in
+            if !shows { miniPlayerSource.rect = nil }
         }
         .onChange(of: player.currentItem?.id) { _, id in
             if id == nil { showsPlayer = false }
@@ -91,9 +97,6 @@ struct RootView: View {
 
     /// ミニプレイヤーを出しているか。積んだだけでは出さない条件は仕様 3 章のまま。
     private var showsMiniPlayer: Bool { player.currentItem != nil && hasStartedPlayback }
-
-    /// 展開の出発点。出していない間は矩形を渡さない。**渡すと居ない帯から広がって見える**。
-    private var playerSource: CGRect? { showsMiniPlayer ? miniPlayerFrame : nil }
 
     private var sheetPlayerPresented: Binding<Bool> {
         Binding(get: { showsPlayer && !isPhonePlayer }, set: { showsPlayer = $0 })
