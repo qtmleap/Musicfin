@@ -125,7 +125,6 @@ private final class PlayerPresentationCoordinator: NSObject {
     private var interaction: UIPercentDrivenInteractiveTransition?
     /// 終了 pan を始めた時点の本文の高さ。進行の分母に使う。
     private var dismissHeight: CGFloat = 1
-
     override init() {
         super.init()
         transitioning.onPresentEnded = { [weak self] completed in
@@ -492,21 +491,27 @@ private final class PlayerTransitioningDelegate: NSObject, UIViewControllerTrans
 /// **離した瞬間の速さをそこから持ち込めない。**UIKit が「残りを進めてくれ」と頼む窓口はこの 1 つなので、
 /// ここで受け取ったばねに置き換える。`continuation` が無いときは頼まれたとおりに進める。
 private final class PlayerContinuationAnimator: UIViewPropertyAnimator {
-    /// 次の継続で使うばね。1 回使ったら捨てて、以降は既定の曲線に戻す。
-    var continuation: UITimingCurveProvider?
+    /// 次の継続で使うばねと、それを収める時間。1 回使ったら捨てて、以降は既定の曲線に戻す。
+    /// **時間まで持つのが要点**である。`durationFactor` に 0 を渡せばばね自身の時間で進む、というのは
+    /// 誤りで、Simulator で測ると続きの所要時間は `duration × durationFactor` そのものだった
+    /// （factor 1 → 0.353 秒、5 → 1.752 秒、20 → 7.017 秒。`duration` は 0.35）。
+    /// **0 を渡していた間は 0.066 秒で終わっており、ばねに差し替えた意味が無かった**（実機報告 build 9）。
+    var continuation: (timing: UITimingCurveProvider, duration: TimeInterval)?
 
     override func continueAnimation(
         withTimingParameters parameters: UITimingCurveProvider?,
         durationFactor: CGFloat
     ) {
-        guard let continuation else {
+        guard let continuation, duration > 0 else {
             super.continueAnimation(withTimingParameters: parameters, durationFactor: durationFactor)
             return
         }
         self.continuation = nil
-        // 0 はばね自身が決める時間で進める指定。ここで残り時間を掛けると、
-        // 引いた割合に比例して縮むという直したかった性質がそのまま戻ってくる。
-        super.continueAnimation(withTimingParameters: continuation, durationFactor: 0)
+        // 欲しい時間を `duration` との比に直して渡す。UIKit はばねの形を保ったままこの時間へ伸縮する。
+        super.continueAnimation(
+            withTimingParameters: continuation.timing,
+            durationFactor: CGFloat(continuation.duration / duration)
+        )
     }
 }
 
@@ -519,15 +524,19 @@ private final class PlayerContinuationAnimator: UIViewPropertyAnimator {
 /// `animateTransition(using:)` も `interruptibleAnimator(using:)` の結果をそのまま使う。
 private final class PlayerTransitionAnimator: NSObject, UIViewControllerAnimatedTransitioning {
     /// 取り消しの戻りに使うばねの応答時間と減衰比。**Musicfin の決定値で、Apple 実機の実測ではない。**
-    /// 既定の完了曲線では戻りが `0.35 秒 × 引いた割合`＝浅い引きで 0.1 秒前後しかなく、
-    /// 指を離した瞬間に消えるように見える（実機報告）。0.5 秒の応答なら 0.6 秒ほどで落ち着く。
-    /// 0.85 は行き過ぎがかすかに出るだけの値で、戻り際に一度だけ息を継ぐように見える。
-    private static let cancelResponse = 0.5
-    private static let cancelDampingRatio = 0.85
+    /// 0.5 / 0.85 では実機で「戻りが速いまま」と言われた（実機報告 build 9）。
+    /// 0.8 秒の応答へはっきり緩めて、離してから落ち着くまでを目に見える長さにする。
+    private static let cancelResponse = 0.8
+    private static let cancelDampingRatio = 0.8
+    /// 戻りに掛ける時間。**ばねの形と別に時間を決めなければならない**（`PlayerContinuationAnimator` の註）。
+    /// 上の応答・減衰だと振幅が 1 % を切るのは `-ln(0.01) / (減衰比 × 固有角振動数)` ≒ 0.73 秒なので、
+    /// ここを 0.7 秒にすればばねはほぼ等倍で鳴り、目で見て止まった時点で継続も終わる。
+    /// これ以上伸ばすと、止まって見えてから掴み直せるまでの間（`Stage` が `.dismissing` の間）が空く。
+    private static let cancelDuration = 0.7
     /// 引き継ぐ初速の上限（戻り距離の何倍／秒まで許すか）。行き過ぎの量はおよそ `初速 ÷ 固有角振動数`
-    /// なので、`cancelResponse` から決まる 12.6 rad/s に対して 4 なら戻り距離の 3 割で頭を打つ。
+    /// なので、`cancelResponse` から決まる 7.9 rad/s に対して 3 なら戻り距離の 4 割で頭を打つ。
     /// 浅く引いて速く離したときに、家の位置を大きく越えて跳ね上がるのを防ぐ。
-    private static let cancelVelocityLimit: CGFloat = 4
+    private static let cancelVelocityLimit: CGFloat = 3
 
     private let isPresenting: Bool
     private let isInteractive: Bool
@@ -571,12 +580,15 @@ private final class PlayerTransitionAnimator: NSObject, UIViewControllerAnimated
         let normalized = -velocity / distance
         let limit = Self.cancelVelocityLimit
         let omega = 2 * CGFloat.pi / Self.cancelResponse
-        animator?.continuation = UISpringTimingParameters(
+        let spring = UISpringTimingParameters(
             mass: 1,
             stiffness: omega * omega,
             damping: 2 * Self.cancelDampingRatio * omega,
             initialVelocity: CGVector(dx: 0, dy: min(max(normalized, -limit), limit))
         )
+        // **ばねと一緒に時間も渡す。**渡さないと UIKit は残り時間で進めてしまい、
+        // 浅く引いたときほど戻りが短いという、直したかった性質がそのまま残る。
+        animator?.continuation = (spring, Self.cancelDuration)
     }
 
     func interruptibleAnimator(
