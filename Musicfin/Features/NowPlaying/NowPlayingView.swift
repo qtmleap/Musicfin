@@ -76,6 +76,10 @@ struct NowPlayingView: View {
     /// 帯が消えたその時点で本文が場所を受け取るようにする。別の値にすると、
     /// 短ければ重なりが残り、長ければ帯が消えたあとに空白の帯が居座る。
     private static let controlsRetireDelay: Duration = .milliseconds(400)
+    /// 背景の暗色域は操作帯の実寸そのものではなく、グラデーションの 60% 停止点で境界が見える。
+    /// 参照 720×1560 px では帯が約 596 px、境界の移動は 100–150 px なので、全量を延ばすと
+    /// `0.6 × 596 ≈ 358 px` と過剰になる。1/3 なら約 119 px で参照範囲の中央に合う。
+    private static let controlsBackgroundExtensionRatio = 1.0 / 3.0
 
     /// 配色を取り出すためだけに頼む画像の一辺。画面に出す大きさとは別に決める。
     /// 走査は 32×32 まで縮めてから行うので大きな画像は要らず、一方で画面側の一辺は
@@ -91,14 +95,8 @@ struct NowPlayingView: View {
     /// 円の地と記号の両方を配色から引くので、背景以外にも配色そのものを下へ渡す。
     /// **地は不透明のまま**にする。半透明にすると sheet の下のアルバム詳細が本文に重なって読めなくなる。
     var body: some View {
-        ArtworkBackdrop(item: player.currentItem, band: .player, artworkSize: Self.paletteArtworkSize) { palette in
-            content(palette: palette)
-        }
-    }
-
-    private func content(palette: ArtworkPalette) -> some View {
         GeometryReader { geometry in
-            // アートワークは左右 24 pt を引いた幅いっぱいが基準（Apple 実機は `画面幅 − 48` ちょうど）。
+            // 背景と前景が同じ操作帯の距離を使えるよう、配分は背景を敷く手前で一度だけ決める。
             let artworkSide = geometry.size.width - 48
             let layout = PlayerLayout(
                 height: geometry.size.height,
@@ -106,73 +104,96 @@ struct NowPlayingView: View {
                 titleMinimum: minimumTitleHeight,
                 seekMinimum: minimumSeekHeight
             )
-            // 外側の `ScrollView` も、シーク以降の 4 帯も **3 状態で同じものを使い回す**（仕様 5.1 章）。
-            // 以前は状態ごとに構成ごと組み替えていたが、それだと外側が入れ替わるたびに操作帯まで
-            // 挿入・削除として消えて現れ、上部が動く裏で画面全体がちらつく。
-            // 組み替えるのは上部の配置だけにする。
-            // 歌詞を読み進めている間だけ操作帯を画面外へ逃がす（仕様 5.1 章 第 4 版）。
             let controlsHidden = mode == .lyrics && lyricsControlsHidden
-            // 帯が抜けていく距離。帯の退避（補間する）と本文の拡張（補間しない）で同じ値を使うので、
-            // 伸びた本文の下端は帯が抜けた先とぴったり合う。
             let controlsInset = layout.controlsHeight + geometry.safeAreaInsets.bottom
-            // 逃がしたぶんは**歌詞本文だけを下へ伸ばして**埋める（仕様 5.1 章 第 4 版）。
-            // 本文を据え置くと下に 300 pt の空白が残るだけで、帯を隠しても読める行が 1 行も増えない。
-            // **この値は補間しない。**指が送っている最中に本文の器を 0.4 秒かけて伸ばすと、
-            // 指の下で内容が動き続ける。伸ばすのは一度きりにして、動いて見せるのは帯だけにする。
-            // **切り替える時点は帯とずらす**（仕様 5.1 章 第 5 版）。補間しない以上、帯と同じ時点で
-            // 伸ばすと、まだ濃さの残っている帯の記号の上に本文が描かれて 0.4 秒ぶん重なる。
-            // 隠すときは帯が退き切ってから受け取り、出すときは帯が育ち始める前に返す。
-            let detailExtra = mode == .lyrics && lyricsControlsRetired ? controlsInset : 0
-            ScrollView {
-                topArea(artworkSide: artworkSide, layout: layout, detailExtra: detailExtra)
-                    // 重ねた操作帯を通常時の全高へ含め、文字拡大時の外側スクロール範囲は変えない。
-                    // 歌詞本文だけが `detailExtra` ではみ出すため、上部の高さと位置はこの枠でも動かない。
-                    .frame(height: layout.media + layout.title + layout.controlsHeight, alignment: .top)
-                    .overlay(alignment: .bottom) {
-                        // シーク以降の 4 帯は **1 つの塊にまとめ、3 状態で同じものを保つ**（仕様 5.1 章 第 4 版）。
-                        // 上部との `VStack` に置くと、見た目を 0 まで畳んでも元の高さが兄弟領域として残り、
-                        // はみ出して伸ばした歌詞本文がその場所を実際の表示領域として使えない。
-                        // 通常時と同じ位置へ重ねれば identity と高さを保ったまま、本文へ場所を譲れる。
-                        VStack(spacing: 0) {
-                            seekControls.frame(height: layout.seek)
-                            transport.frame(height: layout.transport)
-                            // 音量は帯の下端へ、下部の記号は帯の上端へ寄せる。この 2 つを中央に置いたままだと
-                            // 音量記号から選択円までが (volume + bottom) / 2 で決まってしまい、
-                            // 最小値だけで目標を 15 pt 超えるので比率をいくら下げても届かない（仕様 4 章）。
-                            // 寄せるのは 44 pt の操作行ごとで、記号だけを動かすのではない。
-                            volumeRow.frame(height: layout.volume, alignment: .bottom)
-                            bottomControls(palette: palette).frame(height: layout.bottom, alignment: .top)
-                        }
-                        // 退避と復帰は**縦だけ 0 と 1 の間で伸縮させる**。隠れている間の見た目の高さは 0 で、
-                        // 戻るときは下端を置いたまま上へ育って通常の高さになる。横は縮めない——
-                        // 幅まで縮むと帯が中央へ吸い込まれる別の動きに見え、4 帯が横に並ぶ組みが崩れて見える。
-                        // 下端を基準にするのは参照録画の実測（伸びている間、帯の下端はほぼ動かない）。
-                        .scaleEffect(x: 1, y: controlsHidden ? 0 : 1, anchor: .bottom)
-                        // 伸び縮みと**同じ速さで濃さも動かす**。参照録画では高さが 5 割の時点で
-                        // まだ半透明で、縦の伸びだけだと畳まれた帯の輪郭が最初から出てしまう。
-                        .opacity(controlsHidden ? 0 : 1)
-                        // 帯の高さだけでは下端の余白ぶんが残って記号の頭が覗く。安全域を足して抜け切らせる。
-                        // 距離は本文と同じだが、**見るのは帯自身の状態**（仕様 5.1 章 第 5 版）。
-                        // 本文の `detailExtra` を使い回すと、ずらした切り替え時点がこの移動にも伝わり、
-                        // 帯が消えたあとに 0.4 秒かけて滑り落ちる二重の動きになる。
-                        .offset(y: controlsHidden ? controlsInset : 0)
-                        // 見えない操作を押せたり読み上げられたりしないようにする。位置だけずらしても残るため。
-                        .allowsHitTesting(!controlsHidden)
-                        .accessibilityHidden(controlsHidden)
-                        // 出し入れは状態の切り替えとは別の速さ（仕様 5.1 章 第 4 版）。
-                        // 「視差効果を減らす」設定では補間しない。
-                        .animation(reduceMotion ? nil : Self.controlsTransition, value: controlsHidden)
-                    }
-                    .padding(.horizontal, 24)
+            ArtworkBackdrop(
+                item: player.currentItem,
+                band: .player,
+                artworkSize: Self.paletteArtworkSize,
+                // 画面高ではなく帯の実寸へ比例させるので、iPhone / iPad と文字拡大で同じ関係を保つ。
+                backgroundBottomExtension:
+                    controlsHidden ? controlsInset * Self.controlsBackgroundExtensionRatio : 0,
+                backgroundAnimation: reduceMotion ? nil : Self.controlsTransition
+            ) { palette in
+                content(
+                    palette: palette,
+                    artworkSide: artworkSide,
+                    layout: layout,
+                    controlsInset: controlsInset
+                )
             }
-            // 中身は通常ちょうど画面の高さなので、ここは余分に動かない。文字を大きくして
-            // 入り切らなくなったときだけ操作部へ届く退避先になる（仕様 5.1 章）。
-            // **`.scrollDisabled(true)` は付けない。**内側の歌詞・キューの本文まで無効化が伝わる。
-            .scrollBounceBehavior(.basedOnSize)
-            .scrollIndicators(.hidden)
         }
-        // iPad では 560pt を目安にした中央の sheet にする（6 章）。
+        // iPad の fitted sheet が理想寸法を読めるよう、寸法指定はルートの読み取り器より外へ置く（6 章）。
         .frame(idealWidth: 560, maxWidth: .infinity, idealHeight: 800)
+    }
+
+    private func content(
+        palette: ArtworkPalette,
+        artworkSide: CGFloat,
+        layout: PlayerLayout,
+        controlsInset: CGFloat
+    ) -> some View {
+        // 外側の `ScrollView` も、シーク以降の 4 帯も **3 状態で同じものを使い回す**（仕様 5.1 章）。
+        // 以前は状態ごとに構成ごと組み替えていたが、それだと外側が入れ替わるたびに操作帯まで
+        // 挿入・削除として消えて現れ、上部が動く裏で画面全体がちらつく。
+        // 組み替えるのは上部の配置だけにする。
+        // 歌詞を読み進めている間だけ操作帯を画面外へ逃がす（仕様 5.1 章 第 4 版）。
+        let controlsHidden = mode == .lyrics && lyricsControlsHidden
+        // 逃がしたぶんは**歌詞本文だけを下へ伸ばして**埋める（仕様 5.1 章 第 4 版）。
+        // 本文を据え置くと下に 300 pt の空白が残るだけで、帯を隠しても読める行が 1 行も増えない。
+        // **この値は補間しない。**指が送っている最中に本文の器を 0.4 秒かけて伸ばすと、
+        // 指の下で内容が動き続ける。伸ばすのは一度きりにして、動いて見せるのは帯だけにする。
+        // **切り替える時点は帯とずらす**（仕様 5.1 章 第 5 版）。補間しない以上、帯と同じ時点で
+        // 伸ばすと、まだ濃さの残っている帯の記号の上に本文が描かれて 0.4 秒ぶん重なる。
+        // 隠すときは帯が退き切ってから受け取り、出すときは帯が育ち始める前に返す。
+        let detailExtra = mode == .lyrics && lyricsControlsRetired ? controlsInset : 0
+        return ScrollView {
+            topArea(artworkSide: artworkSide, layout: layout, detailExtra: detailExtra)
+                // 重ねた操作帯を通常時の全高へ含め、文字拡大時の外側スクロール範囲は変えない。
+                // 歌詞本文だけが `detailExtra` ではみ出すため、上部の高さと位置はこの枠でも動かない。
+                .frame(height: layout.media + layout.title + layout.controlsHeight, alignment: .top)
+                .overlay(alignment: .bottom) {
+                    // シーク以降の 4 帯は **1 つの塊にまとめ、3 状態で同じものを保つ**（仕様 5.1 章 第 4 版）。
+                    // 上部との `VStack` に置くと、見た目を 0 まで畳んでも元の高さが兄弟領域として残り、
+                    // はみ出して伸ばした歌詞本文がその場所を実際の表示領域として使えない。
+                    // 通常時と同じ位置へ重ねれば identity と高さを保ったまま、本文へ場所を譲れる。
+                    VStack(spacing: 0) {
+                        seekControls.frame(height: layout.seek)
+                        transport.frame(height: layout.transport)
+                        // 音量は帯の下端へ、下部の記号は帯の上端へ寄せる。この 2 つを中央に置いたままだと
+                        // 音量記号から選択円までが (volume + bottom) / 2 で決まってしまい、
+                        // 最小値だけで目標を 15 pt 超えるので比率をいくら下げても届かない（仕様 4 章）。
+                        // 寄せるのは 44 pt の操作行ごとで、記号だけを動かすのではない。
+                        volumeRow.frame(height: layout.volume, alignment: .bottom)
+                        bottomControls(palette: palette).frame(height: layout.bottom, alignment: .top)
+                    }
+                    // 退避と復帰は**縦だけ 0 と 1 の間で伸縮させる**。隠れている間の見た目の高さは 0 で、
+                    // 戻るときは下端を置いたまま上へ育って通常の高さになる。横は縮めない——
+                    // 幅まで縮むと帯が中央へ吸い込まれる別の動きに見え、4 帯が横に並ぶ組みが崩れて見える。
+                    // 下端を基準にするのは参照録画の実測（伸びている間、帯の下端はほぼ動かない）。
+                    .scaleEffect(x: 1, y: controlsHidden ? 0 : 1, anchor: .bottom)
+                    // 伸び縮みと**同じ速さで濃さも動かす**。参照録画では高さが 5 割の時点で
+                    // まだ半透明で、縦の伸びだけだと畳まれた帯の輪郭が最初から出てしまう。
+                    .opacity(controlsHidden ? 0 : 1)
+                    // 帯の高さだけでは下端の余白ぶんが残って記号の頭が覗く。安全域を足して抜け切らせる。
+                    // 距離は本文と同じだが、**見るのは帯自身の状態**（仕様 5.1 章 第 5 版）。
+                    // 本文の `detailExtra` を使い回すと、ずらした切り替え時点がこの移動にも伝わり、
+                    // 帯が消えたあとに 0.4 秒かけて滑り落ちる二重の動きになる。
+                    .offset(y: controlsHidden ? controlsInset : 0)
+                    // 見えない操作を押せたり読み上げられたりしないようにする。位置だけずらしても残るため。
+                    .allowsHitTesting(!controlsHidden)
+                    .accessibilityHidden(controlsHidden)
+                    // 出し入れは状態の切り替えとは別の速さ（仕様 5.1 章 第 4 版）。
+                    // 「視差効果を減らす」設定では補間しない。
+                    .animation(reduceMotion ? nil : Self.controlsTransition, value: controlsHidden)
+                }
+                .padding(.horizontal, 24)
+        }
+        // 中身は通常ちょうど画面の高さなので、ここは余分に動かない。文字を大きくして
+        // 入り切らなくなったときだけ操作部へ届く退避先になる（仕様 5.1 章）。
+        // **`.scrollDisabled(true)` は付けない。**内側の歌詞・キューの本文まで無効化が伝わる。
+        .scrollBounceBehavior(.basedOnSize)
+        .scrollIndicators(.hidden)
         .overlay(alignment: .top) { grabber }
         // 地が常に暗い帯になったので、明るい外観の端末でも文字と記号は白のままにする（仕様 1.2 章）。
         // 個々の `.primary` / `.secondary` を白に置き換えて回らないのは、選択中の記号が地の色へ
