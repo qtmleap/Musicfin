@@ -345,6 +345,7 @@ struct NowPlayingView: View {
                     LyricsView(
                         track: track,
                         isSettled: !isTopTransitioning,
+                        bottomExtension: extra,
                         onControlsVisibilityChange: { setLyricsControlsHidden($0) }
                     )
                     .id(track.id)
