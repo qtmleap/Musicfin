@@ -84,6 +84,9 @@ struct LyricsView: View {
     let track: MediaItem
     /// 上部の切り替えが終わっているか（仕様 5.1 章）。false の間は初回の位置合わせを保留する。
     var isSettled = true
+    /// 操作帯の退避後に本文が下へ伸びた量。初期位置の上余白は伸びる前の高さから決め、
+    /// 本文が場所を受け取っても上部と読む位置を動かさない。
+    var bottomExtension: CGFloat = 0
     /// 操作帯を隠すかどうかの変化だけを外へ知らせる（仕様 5.1 章 第 4 版）。
     /// 帯を実際に動かすのは `NowPlayingView` 側で、ここは「読み進めたか / 戻ったか」の判定だけを持つ。
     var onControlsVisibilityChange: (Bool) -> Void = { _ in }
@@ -156,7 +159,8 @@ struct LyricsView: View {
 
     /// 現在行を本文の上端寄りに置く（仕様 5.2 章）。`.top` ちょうどだと現在行が縁に貼り付いて窮屈で、
     /// 直前に歌った行も見えなくなる。1 行ぶんだけ上を覗かせる位置として 0.15 を採る。
-    private static let activeLineAnchor = UnitPoint(x: 0, y: 0.15)
+    private static let activeLineTopRatio: CGFloat = 0.15
+    private static let activeLineAnchor = UnitPoint(x: 0, y: activeLineTopRatio)
 
     private var isSynced: Bool { lines.contains { $0.startSeconds != nil } }
 
@@ -205,133 +209,135 @@ struct LyricsView: View {
     }
 
     private func lyricsList(activeIndex active: Int?) -> some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: lyricSpacing) {
-                    // 時刻の無い歌詞では現在行が決まらない。全行を強調して「どれも現在行」に見せるより、
-                    // 追従できない歌詞だと先に断る（仕様 5.2 章）。時刻は作らない。
-                    if !isSynced {
-                        Text("この歌詞には時間情報がありません。再生に合わせた自動追従は行いません。")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.bottom, 8)
-                    }
-                    ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
-                        Group {
-                            if let start = line.startSeconds {
-                                Button {
-                                    // 行タップは「ここへ飛ぶ」意思表示なので、追従を切ったままにしない。
-                                    // タップでも指は触れるので `.tracking` で `isFollowing` が落ちており、
-                                    // ここで戻さないと飛び先へ合わせ直すのが復帰の 3 秒後になる（仕様 5.2 章）。
-                                    isFollowing = true
-                                    resumeTask?.cancel()
-                                    resumeTask = nil
-                                    player.seek(to: start)
-                                } label: {
-                                    lineText(line, active: index == active, hasActiveLine: active != nil)
-                                }
-                                .buttonStyle(.plain)
-                                .accessibilityHint("この行の再生位置へ移動")
-                                .accessibilityAddTraits(index == active ? .isSelected : [])
-                            } else {
-                                // 時刻が無ければ飛び先も無いので、押せる行にしない（仕様 5.2 章）。
-                                lineText(line, active: false, hasActiveLine: active != nil)
-                            }
+        GeometryReader { viewport in
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: lyricSpacing) {
+                        // 時刻の無い歌詞では現在行が決まらない。全行を強調して「どれも現在行」に見せるより、
+                        // 追従できない歌詞だと先に断る（仕様 5.2 章）。時刻は作らない。
+                        if !isSynced {
+                            Text("この歌詞には時間情報がありません。再生に合わせた自動追従は行いません。")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.bottom, 8)
                         }
-                        .id(index)
+                        ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
+                            Group {
+                                if let start = line.startSeconds {
+                                    Button {
+                                        // 行タップは「ここへ飛ぶ」意思表示なので、追従を切ったままにしない。
+                                        // タップでも指は触れるので `.tracking` で `isFollowing` が落ちており、
+                                        // ここで戻さないと飛び先へ合わせ直すのが復帰の 3 秒後になる（仕様 5.2 章）。
+                                        isFollowing = true
+                                        resumeTask?.cancel()
+                                        resumeTask = nil
+                                        player.seek(to: start)
+                                    } label: {
+                                        lineText(line, active: index == active, hasActiveLine: active != nil)
+                                    }
+                                    .buttonStyle(.plain)
+                                    .accessibilityHint("この行の再生位置へ移動")
+                                    .accessibilityAddTraits(index == active ? .isSelected : [])
+                                } else {
+                                    // 時刻が無ければ飛び先も無いので、押せる行にしない（仕様 5.2 章）。
+                                    lineText(line, active: false, hasActiveLine: active != nil)
+                                }
+                            }
+                            .id(index)
+                        }
                     }
+                    // 先頭行にも同じ 0.15 の位置を渡せるだけのスクロール可能な余白を作る。
+                    // 外側へ padding すると本文の見える上端まで下がるので、内容側だけを延ばす。
+                    .padding(.top, max(0, viewport.size.height - bottomExtension) * Self.activeLineTopRatio)
+                    // 下の 24 pt は最終行が操作帯へ貼り付かないための余白なので残す。
+                    .padding(.bottom, 24)
+                    // 同じ画面の小アートワークや曲名と同じ左右 32 pt に載せる（仕様 5 章）。外側の 24 pt との差。
+                    .padding(.horizontal, 8)
                 }
-                // **上に余白は置かない**（仕様 5.2 章）。参照では上の小アートワークの帯から本文が
-                // そのまま続いていて、先頭行は帯のすぐ下から入って上端へ抜けていく。ここへ余白を足すと
-                // 帯の下に空白の段ができ、抜けていく行が途中から現れる別の見え方になる。
-                // 下の 24 pt は最終行が操作帯へ貼り付かないための余白なので残す。
-                .padding(.bottom, 24)
-                // 同じ画面の小アートワークや曲名と同じ左右 32 pt に載せる（仕様 5 章）。外側の 24 pt との差。
-                .padding(.horizontal, 8)
-            }
-            .scrollIndicators(.hidden)
-            .onScrollPhaseChange { _, phase in
-                // 自動追従のアニメーションでは止めず、ユーザーが触れた時点で読む位置を尊重する。
-                if phase == .tracking || phase == .interacting {
-                    isFollowing = false
-                    // まだ触っている間は数えない。指を置き直すたびに待ち時間を測り直す。
+                .scrollIndicators(.hidden)
+                .onScrollPhaseChange { _, phase in
+                    // 自動追従のアニメーションでは止めず、ユーザーが触れた時点で読む位置を尊重する。
+                    if phase == .tracking || phase == .interacting {
+                        isFollowing = false
+                        // まだ触っている間は数えない。指を置き直すたびに待ち時間を測り直す。
+                        resumeTask?.cancel()
+                        resumeTask = nil
+                        // 指が触れた以上、プログラムが動かしていたスクロールはそこで終わり。猶予を残したままだと
+                        // 利用者が送っているぶんまで判定から外れる（仕様 5.1 章 第 4 版）。
+                        programmaticScroll?.cancel()
+                        programmaticScroll = nil
+                    }
+                    // 操作帯の判定は「指が送っている `.interacting`」と、**それに続く惰性**だけで行う。
+                    // 指が乗っただけの `.tracking`、プログラムの `.animating`、静止した `.idle` は数えない。
+                    // 惰性を直前の送りの続きとしてだけ認めるので、`isJudgingScroll` を条件に噛ませる。
+                    let judging = phase == .interacting || (phase == .decelerating && isJudgingScroll)
+                    if judging != isJudgingScroll {
+                        isJudgingScroll = judging
+                        // 数え始めと数え終わりで積算を捨てる。前の送りの残りを次の送りへ持ち越さない。
+                        scrollAccumulation = 0
+                    }
+                    // 慣性が止まりきってからが「手を止めた」時点。`.decelerating` の間はまだ数えない。
+                    if phase == .idle { scheduleFollowResume(proxy: proxy) }
+                }
+                // 位置は段階ではなくここで読む。`.interacting` の間は phase が変わらないので、
+                // 段階の変化だけを見ていると送った量が分からない（仕様 5.1 章 第 4 版）。
+                // **位置と器の大きさは 1 つの観測にまとめる。**別々の `onScrollGeometryChange` に
+                // 分けていたときは、同じ更新で両方が変わってもどちらの処理が先に走るか決まらず、
+                // 器が伸びたせいの位置の変化を先に「送った量」として数えてしまう隙があった。
+                .onScrollGeometryChange(for: LyricsScrollProbe.self) { geometry in
+                    // `contentInsets.top` を足して**内容の先頭を 0** に揃える。そうしないと先頭でも 0 にならず、
+                    // 「先頭まで戻したら操作帯を出す」が成立しない。
+                    LyricsScrollProbe(
+                        offset: geometry.contentOffset.y + geometry.contentInsets.top,
+                        containerSize: geometry.containerSize,
+                        contentHeight: geometry.contentSize.height,
+                        verticalInsets: geometry.contentInsets.top + geometry.contentInsets.bottom
+                    )
+                } action: { old, new in
+                    // 器の大きさが変わった回は数えない。文字の拡大や画面の向きに加え、
+                    // **操作帯の退避でこの本文自身が伸び縮みする**ときもここへ来る。
+                    // その回の差分は送った量ではないので、基準だけ置き直して捨てる。
+                    // **末尾で境界そのものが動いた回も同じ**（仕様 5.1 章 第 5 版）。`LazyVStack` が見積もりを
+                    // 実測へ入れ替えたときなど、器はそのままでも境界だけが下がることがあり、
+                    // 末尾で引き伸ばされている最中なら指が止まっていても挟んだ位置が一緒に下がる。
+                    // それを「上へ送った」と読むと操作帯が勝手に戻るので、ここで基準を置き直す。
+                    guard old.containerSize == new.containerSize,
+                        !LyricsScrollProbe.boundaryMoved(from: old, to: new)
+                    else {
+                        lastJudgedOffset = new.judgedOffset
+                        scrollAccumulation = 0
+                        // 器や境界が変わった**あと**に来る押し戻しも数えない（仕様 5.1 章 第 5 版）。
+                        // 帯の状態を変えた時点から測るだけでは、本文が伸びるのが帯の 0.4 秒より後になった今、
+                        // 押し戻しが猶予の外へはみ出す。実際に器が動いた時点から測り直す。
+                        beginControlsSettling()
+                        return
+                    }
+                    judgeControls(offset: new.judgedOffset)
+                }
+                // **`isFollowing` が止めるのはスクロールだけ**（仕様 5.2 章）。過去の歌詞を手で読んでいる間も
+                // 現在行の算出と強調は続くので、ここの `guard` は `scroll` の手前にしか置かない。
+                .onChange(of: active) { _, index in
+                    guard hasAligned, isFollowing, let index else { return }
+                    scroll(to: index, proxy: proxy)
+                }
+                // 初回だけは上部の切り替えが終わってから合わせる（仕様 5.1 章）。
+                // 遷移中に動かすと、対応付けた画像と本文が別の速さで流れて二重に見える。
+                .onChange(of: isSettled, initial: true) { _, settled in
+                    guard settled, !hasAligned else { return }
+                    hasAligned = true
+                    guard isFollowing, let active else { return }
+                    scroll(to: active, proxy: proxy)
+                }
+                // 画面外へ出た本文の待ちは残さない。曲を跨いだ復帰は `load()` 側で断つ。
+                .onDisappear {
                     resumeTask?.cancel()
                     resumeTask = nil
-                    // 指が触れた以上、プログラムが動かしていたスクロールはそこで終わり。猶予を残したままだと
-                    // 利用者が送っているぶんまで判定から外れる（仕様 5.1 章 第 4 版）。
                     programmaticScroll?.cancel()
                     programmaticScroll = nil
+                    controlsSettling?.cancel()
+                    controlsSettling = nil
                 }
-                // 操作帯の判定は「指が送っている `.interacting`」と、**それに続く惰性**だけで行う。
-                // 指が乗っただけの `.tracking`、プログラムの `.animating`、静止した `.idle` は数えない。
-                // 惰性を直前の送りの続きとしてだけ認めるので、`isJudgingScroll` を条件に噛ませる。
-                let judging = phase == .interacting || (phase == .decelerating && isJudgingScroll)
-                if judging != isJudgingScroll {
-                    isJudgingScroll = judging
-                    // 数え始めと数え終わりで積算を捨てる。前の送りの残りを次の送りへ持ち越さない。
-                    scrollAccumulation = 0
-                }
-                // 慣性が止まりきってからが「手を止めた」時点。`.decelerating` の間はまだ数えない。
-                if phase == .idle { scheduleFollowResume(proxy: proxy) }
-            }
-            // 位置は段階ではなくここで読む。`.interacting` の間は phase が変わらないので、
-            // 段階の変化だけを見ていると送った量が分からない（仕様 5.1 章 第 4 版）。
-            // **位置と器の大きさは 1 つの観測にまとめる。**別々の `onScrollGeometryChange` に
-            // 分けていたときは、同じ更新で両方が変わってもどちらの処理が先に走るか決まらず、
-            // 器が伸びたせいの位置の変化を先に「送った量」として数えてしまう隙があった。
-            .onScrollGeometryChange(for: LyricsScrollProbe.self) { geometry in
-                // `contentInsets.top` を足して**内容の先頭を 0** に揃える。そうしないと先頭でも 0 にならず、
-                // 「先頭まで戻したら操作帯を出す」が成立しない。
-                LyricsScrollProbe(
-                    offset: geometry.contentOffset.y + geometry.contentInsets.top,
-                    containerSize: geometry.containerSize,
-                    contentHeight: geometry.contentSize.height,
-                    verticalInsets: geometry.contentInsets.top + geometry.contentInsets.bottom
-                )
-            } action: { old, new in
-                // 器の大きさが変わった回は数えない。文字の拡大や画面の向きに加え、
-                // **操作帯の退避でこの本文自身が伸び縮みする**ときもここへ来る。
-                // その回の差分は送った量ではないので、基準だけ置き直して捨てる。
-                // **末尾で境界そのものが動いた回も同じ**（仕様 5.1 章 第 5 版）。`LazyVStack` が見積もりを
-                // 実測へ入れ替えたときなど、器はそのままでも境界だけが下がることがあり、
-                // 末尾で引き伸ばされている最中なら指が止まっていても挟んだ位置が一緒に下がる。
-                // それを「上へ送った」と読むと操作帯が勝手に戻るので、ここで基準を置き直す。
-                guard old.containerSize == new.containerSize,
-                    !LyricsScrollProbe.boundaryMoved(from: old, to: new)
-                else {
-                    lastJudgedOffset = new.judgedOffset
-                    scrollAccumulation = 0
-                    // 器や境界が変わった**あと**に来る押し戻しも数えない（仕様 5.1 章 第 5 版）。
-                    // 帯の状態を変えた時点から測るだけでは、本文が伸びるのが帯の 0.4 秒より後になった今、
-                    // 押し戻しが猶予の外へはみ出す。実際に器が動いた時点から測り直す。
-                    beginControlsSettling()
-                    return
-                }
-                judgeControls(offset: new.judgedOffset)
-            }
-            // **`isFollowing` が止めるのはスクロールだけ**（仕様 5.2 章）。過去の歌詞を手で読んでいる間も
-            // 現在行の算出と強調は続くので、ここの `guard` は `scroll` の手前にしか置かない。
-            .onChange(of: active) { _, index in
-                guard hasAligned, isFollowing, let index else { return }
-                scroll(to: index, proxy: proxy)
-            }
-            // 初回だけは上部の切り替えが終わってから合わせる（仕様 5.1 章）。
-            // 遷移中に動かすと、対応付けた画像と本文が別の速さで流れて二重に見える。
-            .onChange(of: isSettled, initial: true) { _, settled in
-                guard settled, !hasAligned else { return }
-                hasAligned = true
-                guard isFollowing, let active else { return }
-                scroll(to: active, proxy: proxy)
-            }
-            // 画面外へ出た本文の待ちは残さない。曲を跨いだ復帰は `load()` 側で断つ。
-            .onDisappear {
-                resumeTask?.cancel()
-                resumeTask = nil
-                programmaticScroll?.cancel()
-                programmaticScroll = nil
-                controlsSettling?.cancel()
-                controlsSettling = nil
             }
         }
     }
