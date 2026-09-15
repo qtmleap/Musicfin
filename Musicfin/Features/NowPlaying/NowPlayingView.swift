@@ -124,43 +124,46 @@ struct NowPlayingView: View {
             // 隠すときは帯が退き切ってから受け取り、出すときは帯が育ち始める前に返す。
             let detailExtra = mode == .lyrics && lyricsControlsRetired ? controlsInset : 0
             ScrollView {
-                VStack(spacing: 0) {
-                    topArea(artworkSide: artworkSide, layout: layout, detailExtra: detailExtra)
-                    // シーク以降の 4 帯は **1 つの塊にまとめ、3 状態で同じものを保つ**（仕様 5.1 章 第 4 版）。
-                    // 退避は `offset` だけで行い、帯を取り除いたり高さを 0 にしたりはしない。
-                    // 高さが動くと `PlayerLayout` の配分ごと組み替わり、上部のアートワークまで動く。
-                    VStack(spacing: 0) {
-                        seekControls.frame(height: layout.seek)
-                        transport.frame(height: layout.transport)
-                        // 音量は帯の下端へ、下部の記号は帯の上端へ寄せる。この 2 つを中央に置いたままだと
-                        // 音量記号から選択円までが (volume + bottom) / 2 で決まってしまい、
-                        // 最小値だけで目標を 15 pt 超えるので比率をいくら下げても届かない（仕様 4 章）。
-                        // 寄せるのは 44 pt の操作行ごとで、記号だけを動かすのではない。
-                        volumeRow.frame(height: layout.volume, alignment: .bottom)
-                        bottomControls(palette: palette).frame(height: layout.bottom, alignment: .top)
+                topArea(artworkSide: artworkSide, layout: layout, detailExtra: detailExtra)
+                    // 重ねた操作帯を通常時の全高へ含め、文字拡大時の外側スクロール範囲は変えない。
+                    // 歌詞本文だけが `detailExtra` ではみ出すため、上部の高さと位置はこの枠でも動かない。
+                    .frame(height: layout.media + layout.title + layout.controlsHeight, alignment: .top)
+                    .overlay(alignment: .bottom) {
+                        // シーク以降の 4 帯は **1 つの塊にまとめ、3 状態で同じものを保つ**（仕様 5.1 章 第 4 版）。
+                        // 上部との `VStack` に置くと、見た目を 0 まで畳んでも元の高さが兄弟領域として残り、
+                        // はみ出して伸ばした歌詞本文がその場所を実際の表示領域として使えない。
+                        // 通常時と同じ位置へ重ねれば identity と高さを保ったまま、本文へ場所を譲れる。
+                        VStack(spacing: 0) {
+                            seekControls.frame(height: layout.seek)
+                            transport.frame(height: layout.transport)
+                            // 音量は帯の下端へ、下部の記号は帯の上端へ寄せる。この 2 つを中央に置いたままだと
+                            // 音量記号から選択円までが (volume + bottom) / 2 で決まってしまい、
+                            // 最小値だけで目標を 15 pt 超えるので比率をいくら下げても届かない（仕様 4 章）。
+                            // 寄せるのは 44 pt の操作行ごとで、記号だけを動かすのではない。
+                            volumeRow.frame(height: layout.volume, alignment: .bottom)
+                            bottomControls(palette: palette).frame(height: layout.bottom, alignment: .top)
+                        }
+                        // 退避と復帰は**縦だけ 0 と 1 の間で伸縮させる**。隠れている間の見た目の高さは 0 で、
+                        // 戻るときは下端を置いたまま上へ育って通常の高さになる。横は縮めない——
+                        // 幅まで縮むと帯が中央へ吸い込まれる別の動きに見え、4 帯が横に並ぶ組みが崩れて見える。
+                        // 下端を基準にするのは参照録画の実測（伸びている間、帯の下端はほぼ動かない）。
+                        .scaleEffect(x: 1, y: controlsHidden ? 0 : 1, anchor: .bottom)
+                        // 伸び縮みと**同じ速さで濃さも動かす**。参照録画では高さが 5 割の時点で
+                        // まだ半透明で、縦の伸びだけだと畳まれた帯の輪郭が最初から出てしまう。
+                        .opacity(controlsHidden ? 0 : 1)
+                        // 帯の高さだけでは下端の余白ぶんが残って記号の頭が覗く。安全域を足して抜け切らせる。
+                        // 距離は本文と同じだが、**見るのは帯自身の状態**（仕様 5.1 章 第 5 版）。
+                        // 本文の `detailExtra` を使い回すと、ずらした切り替え時点がこの移動にも伝わり、
+                        // 帯が消えたあとに 0.4 秒かけて滑り落ちる二重の動きになる。
+                        .offset(y: controlsHidden ? controlsInset : 0)
+                        // 見えない操作を押せたり読み上げられたりしないようにする。位置だけずらしても残るため。
+                        .allowsHitTesting(!controlsHidden)
+                        .accessibilityHidden(controlsHidden)
+                        // 出し入れは状態の切り替えとは別の速さ（仕様 5.1 章 第 4 版）。
+                        // 「視差効果を減らす」設定では補間しない。
+                        .animation(reduceMotion ? nil : Self.controlsTransition, value: controlsHidden)
                     }
-                    // 退避と復帰は**縦だけ 0 と 1 の間で伸縮させる**。隠れている間の見た目の高さは 0 で、
-                    // 戻るときは下端を置いたまま上へ育って通常の高さになる。横は縮めない——
-                    // 幅まで縮むと帯が中央へ吸い込まれる別の動きに見え、4 帯が横に並ぶ組みが崩れて見える。
-                    // 下端を基準にするのは参照録画の実測（伸びている間、帯の下端はほぼ動かない）。
-                    // `scaleEffect` は配置を変えないので、レイアウト上の帯の高さと identity は 3 状態で同じまま。
-                    .scaleEffect(x: 1, y: controlsHidden ? 0 : 1, anchor: .bottom)
-                    // 伸び縮みと**同じ速さで濃さも動かす**。参照録画では高さが 5 割の時点で
-                    // まだ半透明で、縦の伸びだけだと畳まれた帯の輪郭が最初から出てしまう。
-                    .opacity(controlsHidden ? 0 : 1)
-                    // 帯の高さだけでは下端の余白ぶんが残って記号の頭が覗く。安全域を足して抜け切らせる。
-                    // 距離は本文と同じだが、**見るのは帯自身の状態**（仕様 5.1 章 第 5 版）。
-                    // 本文の `detailExtra` を使い回すと、ずらした切り替え時点がこの移動にも伝わり、
-                    // 帯が消えたあとに 0.4 秒かけて滑り落ちる二重の動きになる。
-                    .offset(y: controlsHidden ? controlsInset : 0)
-                    // 見えない操作を押せたり読み上げられたりしないようにする。位置だけずらしても残るため。
-                    .allowsHitTesting(!controlsHidden)
-                    .accessibilityHidden(controlsHidden)
-                    // 出し入れは状態の切り替えとは別の速さ（仕様 5.1 章 第 4 版）。
-                    // 「視差効果を減らす」設定では補間しない。
-                    .animation(reduceMotion ? nil : Self.controlsTransition, value: controlsHidden)
-                }
-                .padding(.horizontal, 24)
+                    .padding(.horizontal, 24)
             }
             // 中身は通常ちょうど画面の高さなので、ここは余分に動かない。文字を大きくして
             // 入り切らなくなったときだけ操作部へ届く退避先になる（仕様 5.1 章）。
