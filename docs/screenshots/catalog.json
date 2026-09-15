@@ -1,0 +1,135 @@
+{
+  "device": "iPhone",
+  "stories": [
+    {
+      "id": "home",
+      "category": "Home",
+      "title": "Home",
+      "description": "ホームの通常表示",
+      "reference": "references/home.webp",
+      "current": "current/home.png",
+      "capture": "home",
+      "counterpart": "iPad"
+    },
+    {
+      "id": "apple-account-sheet",
+      "category": "Account",
+      "title": "Apple Account",
+      "description": "Apple Accountのフルハイトシート",
+      "reference": "references/apple-account-sheet.webp",
+      "current": null,
+      "capture": null,
+      "counterpart": null
+    },
+    {
+      "id": "library",
+      "category": "Library",
+      "title": "Library",
+      "description": "ライブラリのルート",
+      "reference": "references/library.webp",
+      "current": "current/library.png",
+      "capture": "library",
+      "counterpart": null
+    },
+    {
+      "id": "library-playlists",
+      "category": "Library",
+      "title": "Playlists",
+      "description": "プレイリスト一覧",
+      "reference": "references/library-playlists.webp",
+      "current": "current/playlists.png",
+      "capture": "playlists",
+      "counterpart": null
+    },
+    {
+      "id": "library-artists",
+      "category": "Library",
+      "title": "Artists",
+      "description": "アーティスト一覧",
+      "reference": "references/library-artists.webp",
+      "current": "current/artists.png",
+      "capture": "artists",
+      "counterpart": null
+    },
+    {
+      "id": "library-albums",
+      "category": "Library",
+      "title": "Albums",
+      "description": "アルバム一覧",
+      "reference": "references/library-albums.webp",
+      "current": "current/albums.png",
+      "capture": "albums",
+      "counterpart": "iPad"
+    },
+    {
+      "id": "library-downloaded",
+      "category": "Library",
+      "title": "Downloaded",
+      "description": "ダウンロード済みのルート",
+      "reference": "references/library-downloaded.webp",
+      "current": null,
+      "capture": null,
+      "counterpart": null
+    },
+    {
+      "id": "album-detail-cosmic-princess-kaguya",
+      "category": "Album",
+      "title": "Cosmic Princess Kaguya",
+      "description": "アルバム詳細",
+      "reference": "references/album-detail-cosmic-princess-kaguya.webp",
+      "current": "current/album.png",
+      "capture": "album",
+      "counterpart": "iPad"
+    },
+    {
+      "id": "now-playing-controls",
+      "category": "Now Playing",
+      "title": "Controls",
+      "description": "メイン再生コントロール",
+      "reference": "references/now-playing-controls.webp",
+      "current": "current/nowplaying.png",
+      "capture": "nowplaying",
+      "counterpart": "iPad"
+    },
+    {
+      "id": "now-playing-queue",
+      "category": "Now Playing",
+      "title": "Queue",
+      "description": "次に再生する曲のパネル",
+      "reference": "references/now-playing-queue.webp",
+      "current": "current/queue.png",
+      "capture": "queue",
+      "counterpart": "iPad"
+    },
+    {
+      "id": "now-playing-output-picker",
+      "category": "Now Playing",
+      "title": "Output Picker",
+      "description": "出力先選択ポップオーバー",
+      "reference": "references/now-playing-output-picker.webp",
+      "current": null,
+      "capture": null,
+      "counterpart": null
+    },
+    {
+      "id": "now-playing-lyrics-loading",
+      "category": "Now Playing",
+      "title": "Lyrics — Loading",
+      "description": "歌詞の読み込み状態",
+      "reference": "references/now-playing-lyrics-loading.webp",
+      "current": "current/lyrics-loading.png",
+      "capture": "lyrics-loading",
+      "counterpart": "iPad"
+    },
+    {
+      "id": "now-playing-lyrics",
+      "category": "Now Playing",
+      "title": "Lyrics",
+      "description": "同期歌詞の表示状態",
+      "reference": "references/now-playing-lyrics.webp",
+      "current": "current/lyrics.png",
+      "capture": "lyrics",
+      "counterpart": "iPad"
+    }
+  ]
+}
