@@ -1,0 +1,103 @@
+#!/usr/bin/env python3
+"""Apple Music参照とMusicfin撮影をStorybook風カタログへまとめる。"""
+
+from __future__ import annotations
+
+import json
+import shutil
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+CATALOG = ROOT / "docs" / "app" / "catalog.json"
+REPORTS = {
+    "iPhone": ROOT / "docs" / "screenshots",
+    "iPad": ROOT / "docs" / "screenshots" / "ipad-report",
+}
+
+
+def load_catalog() -> dict:
+    catalog = json.loads(CATALOG.read_text())
+    ids: set[str] = set()
+    referenced: set[Path] = set()
+    for story in catalog["stories"]:
+        story_id = story["id"]
+        if story_id in ids:
+            raise SystemExit(f"story id が重複しています: {story_id}")
+        ids.add(story_id)
+        for device, item in story["devices"].items():
+            if device not in REPORTS:
+                raise SystemExit(f"不明なdeviceです: {device}")
+            reference = ROOT / "docs" / "app" / item["reference"]
+            if not reference.is_file():
+                raise SystemExit(f"reference がありません: {reference}")
+            if reference in referenced:
+                raise SystemExit(f"reference が重複しています: {reference}")
+            referenced.add(reference)
+    return catalog
+
+
+def report_stories(catalog: dict, device: str, report: Path) -> list[dict]:
+    stories = []
+    for story in catalog["stories"]:
+        item = story["devices"].get(device)
+        if not item:
+            continue
+        reference = ROOT / "docs" / "app" / item["reference"]
+        reference_target = report / "references" / f"{story['id']}{reference.suffix.lower()}"
+        reference_target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(reference, reference_target)
+        capture = item.get("capture")
+        current = report / "current" / f"{capture}.png" if capture else None
+        stories.append(
+            {
+                "id": story["id"],
+                "category": story["category"],
+                "title": story["title"],
+                "description": story["description"],
+                "reference": reference_target.relative_to(report).as_posix(),
+                "current": current.relative_to(report).as_posix() if current else None,
+                "capture": capture,
+                "counterpart": next(
+                    (other for other in REPORTS if other != device and other in story["devices"]),
+                    None,
+                ),
+            }
+        )
+    return stories
+
+
+def document(device: str, stories: list[dict]) -> str:
+    data = json.dumps(stories, ensure_ascii=False).replace("</", "<\\/")
+    return f'''<!doctype html>
+<html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Musicfin UI Catalog — {device}</title>
+<style>
+:root{{--bg:#0b0c0f;--panel:#121419;--line:#292c34;--text:#f5f6f8;--muted:#979ca8;--accent:#ff375f;--missing:#ff9f0a;color-scheme:dark;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}}*{{box-sizing:border-box}}body{{margin:0;background:var(--bg);color:var(--text);overflow:hidden}}button,input{{font:inherit}}.shell{{display:grid;grid-template-columns:280px minmax(0,1fr);height:100dvh}}aside{{border-right:1px solid var(--line);background:#0e1014;overflow:auto;padding:18px 14px}}.brand{{display:flex;align-items:center;gap:10px;margin:0 6px 18px;font-weight:750;font-size:18px}}.mark{{width:24px;height:24px;border-radius:7px;background:linear-gradient(145deg,#ff6482,var(--accent));box-shadow:0 8px 24px #ff375f55}}#search{{width:100%;border:1px solid var(--line);border-radius:9px;background:var(--panel);color:var(--text);padding:9px 11px;outline:none}}#search:focus{{border-color:#606674}}.category{{margin:20px 7px 7px;color:var(--muted);font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase}}.story{{display:block;width:100%;border:0;border-radius:8px;background:transparent;color:var(--muted);text-align:left;padding:8px 9px;cursor:pointer}}.story:hover{{background:#191c22;color:var(--text)}}.story.active{{background:#272a32;color:var(--text);box-shadow:inset 2px 0 var(--accent)}}main{{min-width:0;display:grid;grid-template-rows:auto minmax(0,1fr)}}header{{display:flex;align-items:center;gap:12px;border-bottom:1px solid var(--line);padding:12px 18px;background:#0e1014}}.crumb{{min-width:0;margin-right:auto}}.crumb b{{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}.crumb span{{font-size:12px;color:var(--muted)}}.segmented{{display:flex;padding:3px;background:#1a1d23;border:1px solid var(--line);border-radius:9px}}.segmented button,.device{{border:0;background:transparent;color:var(--muted);padding:6px 10px;border-radius:6px;cursor:pointer}}.segmented button.active{{background:#343842;color:var(--text)}}.device{{border:1px solid var(--line);color:var(--text)}}.stage{{overflow:auto;padding:22px}}.notes{{max-width:1480px;margin:0 auto 14px;color:var(--muted);font-size:13px}}.compare{{max-width:1480px;margin:auto;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px;align-items:start}}.pane{{min-width:0}}.pane-head{{display:flex;justify-content:space-between;align-items:baseline;margin:0 2px 8px}}.pane-head b{{font-size:13px}}.pane-head span{{font-size:11px;color:var(--muted)}}.frame{{position:relative;min-height:240px;border:1px solid var(--line);border-radius:12px;background:#050506;overflow:auto;display:grid;place-items:center}}.frame img{{display:block;max-width:100%;height:auto}}.frame img[hidden]{{display:none}}.frame.native img,.frame.native canvas{{max-width:none}}.missing{{padding:50px 24px;text-align:center;color:var(--missing)}}#compositePane{{display:none;grid-column:1/-1}}#composite{{display:block;max-width:100%;height:auto}}.metrics{{max-width:1480px;margin:14px auto 0;display:flex;gap:18px;color:var(--muted);font:12px ui-monospace,SFMono-Regular,monospace}}@media(max-width:760px){{body{{overflow:auto}}.shell{{display:block;height:auto}}aside{{position:sticky;top:0;z-index:3;border-right:0;border-bottom:1px solid var(--line);padding:10px 14px;max-height:42dvh}}.brand{{margin-bottom:10px}}main{{min-height:58dvh}}header{{position:sticky;top:0;z-index:2;flex-wrap:wrap}}.compare{{grid-template-columns:1fr}}#compositePane{{grid-column:auto}}.stage{{padding:16px}}}}
+</style></head>
+<body><div class="shell"><aside><div class="brand"><i class="mark"></i>Musicfin UI</div><input id="search" type="search" placeholder="Search stories…" aria-label="ストーリーを検索"><nav id="stories"></nav></aside><main><header><div class="crumb"><b id="title"></b><span id="path"></span></div><button class="device" id="device">{device}</button><div class="segmented" id="modes"><button data-mode="side" class="active">Side by side</button><button data-mode="overlay">Overlay</button><button data-mode="difference">Difference</button></div><button class="device" id="zoom">Fit</button></header><div class="stage"><p class="notes" id="description"></p><div class="compare"><section class="pane" id="currentPane"><div class="pane-head"><b>Musicfin</b><span id="currentLabel"></span></div><div class="frame"><div class="missing" id="missing">撮影画像がありません</div><img id="current" alt="Musicfin current"></div></section><section class="pane" id="referencePane"><div class="pane-head"><b>Apple Music</b><span>{device} reference</span></div><div class="frame"><img id="reference" alt="Apple Music reference"></div></section><section class="pane" id="compositePane"><div class="pane-head"><b id="compositeTitle"></b><span>normalized to Musicfin dimensions</span></div><div class="frame"><canvas id="composite"></canvas></div></section></div><div class="metrics" id="metrics"></div></div></main></div>
+<script>
+const stories={data}, device={json.dumps(device)}, nav=document.querySelector('#stories');let selected,mode='side',native=false;
+function groups(list){{const result=new Map;for(const s of list){{if(!result.has(s.category))result.set(s.category,[]);result.get(s.category).push(s)}}return result}}
+function renderNav(query=''){{nav.innerHTML='';const filtered=stories.filter(s=>(s.title+' '+s.id+' '+s.category).toLowerCase().includes(query.toLowerCase()));for(const [category,items] of groups(filtered)){{const h=document.createElement('div');h.className='category';h.textContent=category;nav.append(h);for(const s of items){{const b=document.createElement('button');b.className='story'+(selected?.id===s.id?' active':'');b.textContent=s.title;b.onclick=()=>openStory(s.id);nav.append(b)}}}}}}
+function openStory(id){{selected=stories.find(s=>s.id===id)||stories[0];if(!selected)return;const canvas=document.querySelector('#composite');canvas.width=0;canvas.height=0;location.hash=selected.id;document.querySelector('#title').textContent=selected.title;document.querySelector('#path').textContent=selected.category+' / '+selected.id;document.querySelector('#description').textContent=selected.description;document.querySelector('#reference').src=selected.reference;const current=document.querySelector('#current'),missing=document.querySelector('#missing');if(selected.current){{current.hidden=false;missing.hidden=true;current.src=selected.current;current.onerror=()=>{{current.hidden=true;selected.current=null;missing.hidden=false;missing.textContent='Musicfin capture missing: '+selected.capture+'.png';setMode('side')}}}}else{{current.hidden=true;current.removeAttribute('src');missing.hidden=false;missing.textContent='Apple Music reference only'}}document.querySelector('#currentLabel').textContent=selected.capture||'reference only';document.querySelector('#device').textContent=selected.counterpart?device+' ↔ '+selected.counterpart:device;renderNav(document.querySelector('#search').value);setMode(mode)}}
+async function bitmap(img){{await img.decode();return img}}
+async function drawComposite(kind){{const a=document.querySelector('#current'),b=document.querySelector('#reference');if(a.hidden)return;try{{await Promise.all([bitmap(a),bitmap(b)]);const c=document.querySelector('#composite'),ctx=c.getContext('2d'),w=a.naturalWidth,h=a.naturalHeight;c.width=w;c.height=h;ctx.drawImage(a,0,0,w,h);if(kind==='overlay'){{ctx.globalAlpha=.5;ctx.drawImage(b,0,0,w,h);ctx.globalAlpha=1;document.querySelector('#metrics').textContent='Overlay opacity 50%'}}else{{const left=ctx.getImageData(0,0,w,h);ctx.clearRect(0,0,w,h);ctx.drawImage(b,0,0,w,h);const right=ctx.getImageData(0,0,w,h),out=ctx.createImageData(w,h);let total=0,changed=0;for(let i=0;i<out.data.length;i+=4){{let hit=false;for(let j=0;j<3;j++){{const d=Math.abs(left.data[i+j]-right.data[i+j]);out.data[i+j]=Math.min(255,d*4);total+=d;if(d>8)hit=true}}out.data[i+3]=255;if(hit)changed++}}ctx.putImageData(out,0,0);document.querySelector('#metrics').textContent='RGB MAE '+(total/(w*h*3*255)).toFixed(5)+' · mismatch >8 '+(changed/(w*h)*100).toFixed(2)+'%'}}}}catch(e){{document.querySelector('#currentPane').hidden=false;document.querySelector('#referencePane').hidden=false;document.querySelector('#compositePane').style.display='none';document.querySelector('#metrics').textContent='比較画像を読み込めません: '+e.message}}}}
+function setMode(next){{mode=next;document.querySelectorAll('#modes button').forEach(b=>b.classList.toggle('active',b.dataset.mode===mode));const composite=mode!=='side'&&selected?.current;document.querySelector('#currentPane').hidden=!!composite;document.querySelector('#referencePane').hidden=!!composite;document.querySelector('#compositePane').style.display=composite?'block':'none';document.querySelector('#metrics').textContent=selected?.current?'':'Musicfinの対応キャプチャがないため参照のみ表示';if(composite){{document.querySelector('#compositeTitle').textContent=mode==='overlay'?'Overlay':'Pixel difference';drawComposite(mode)}}}}
+document.querySelector('#search').oninput=e=>renderNav(e.target.value);document.querySelector('#modes').onclick=e=>{{if(e.target.dataset.mode)setMode(e.target.dataset.mode)}};document.querySelector('#zoom').onclick=()=>{{native=!native;document.querySelectorAll('.frame').forEach(x=>x.classList.toggle('native',native));document.querySelector('#zoom').textContent=native?'1:1':'Fit'}};document.querySelector('#device').onclick=()=>{{if(!selected?.counterpart)return;if(device==='iPhone')location.href='ipad-report/#'+selected.id;else if(location.port==='18756')location.href='http://127.0.0.1:18755/#'+selected.id;else location.href='../#'+selected.id}};addEventListener('hashchange',()=>openStory(location.hash.slice(1)));addEventListener('keydown',e=>{{if(!selected||!['ArrowUp','ArrowDown'].includes(e.key))return;const i=stories.indexOf(selected)+(e.key==='ArrowDown'?1:-1);if(stories[i])openStory(stories[i].id)}});renderNav();openStory(location.hash.slice(1));
+</script></body></html>'''
+
+
+def main() -> None:
+    catalog = load_catalog()
+    for device, report in REPORTS.items():
+        report.mkdir(parents=True, exist_ok=True)
+        stories = report_stories(catalog, device, report)
+        report.joinpath("index.html").write_text(document(device, stories))
+        report.joinpath("catalog.json").write_text(
+            json.dumps({"device": device, "stories": stories}, ensure_ascii=False, indent=2) + "\n"
+        )
+        print(f"{device}: {len(stories)} stories -> {report / 'index.html'}")
+
+
+if __name__ == "__main__":
+    main()

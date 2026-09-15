@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "defaults": {
+    "locale": "en_US",
+    "appearance": "dark"
+  },
+  "stories": [
+    {"id":"home","category":"Home","title":"Home","description":"ホームの通常表示","devices":{"iPhone":{"reference":"iPhone/home.webp","capture":"home"},"iPad":{"reference":"iPad/home.webp","capture":"home"}}},
+    {"id":"apple-account-sheet","category":"Account","title":"Apple Account","description":"Apple Accountのフルハイトシート","devices":{"iPhone":{"reference":"iPhone/apple-account-sheet.webp"}}},
+    {"id":"music-account-sheet","category":"Account","title":"Music Account","description":"Music Accountのコンパクトシート","devices":{"iPad":{"reference":"iPad/music-account-sheet.webp","capture":"account"}}},
+    {"id":"library","category":"Library","title":"Library","description":"ライブラリのルート","devices":{"iPhone":{"reference":"iPhone/library.webp","capture":"library"}}},
+    {"id":"library-playlists","category":"Library","title":"Playlists","description":"プレイリスト一覧","devices":{"iPhone":{"reference":"iPhone/library-playlists.webp","capture":"playlists"}}},
+    {"id":"library-artists","category":"Library","title":"Artists","description":"アーティスト一覧","devices":{"iPhone":{"reference":"iPhone/library-artists.webp","capture":"artists"}}},
+    {"id":"library-artists-selected-togenashi","category":"Library","title":"Artists — Selected","description":"アーティスト一覧と選択済み詳細のスプリット表示","devices":{"iPad":{"reference":"iPad/library-artists-selected-togenashi.webp","capture":"artists"}}},
+    {"id":"library-albums","category":"Library","title":"Albums","description":"アルバム一覧","devices":{"iPhone":{"reference":"iPhone/library-albums.webp","capture":"albums"},"iPad":{"reference":"iPad/library-albums.webp","capture":"albums"}}},
+    {"id":"library-songs","category":"Library","title":"Songs","description":"曲一覧","devices":{"iPad":{"reference":"iPad/library-songs.webp","capture":"songs"}}},
+    {"id":"library-downloaded","category":"Library","title":"Downloaded","description":"ダウンロード済みのルート","devices":{"iPhone":{"reference":"iPhone/library-downloaded.webp"}}},
+    {"id":"album-detail-cosmic-princess-kaguya","category":"Album","title":"Cosmic Princess Kaguya","description":"アルバム詳細","devices":{"iPhone":{"reference":"iPhone/album-detail-cosmic-princess-kaguya.webp","capture":"album"},"iPad":{"reference":"iPad/album-detail-cosmic-princess-kaguya.webp","capture":"album"}}},
+    {"id":"album-detail-ill-live-with-my-heart-on-my-sleeve-search-context","category":"Album","title":"I'll live with my heart on my sleeve","description":"検索コンテキストのアルバム詳細","devices":{"iPad":{"reference":"iPad/album-detail-ill-live-with-my-heart-on-my-sleeve-search-context.webp","capture":"search-album-detail"}}},
+    {"id":"artist-detail-togenashi-top-search-context","category":"Artist","title":"TOGENASHI TOGEARI — Search Top","description":"検索コンテキストのアーティスト上部","devices":{"iPad":{"reference":"iPad/artist-detail-togenashi-top-search-context.webp","capture":"search-artist"}}},
+    {"id":"artist-detail-togenashi-bottom-search-context","category":"Artist","title":"TOGENASHI TOGEARI — Search Bottom","description":"検索コンテキストのアーティスト下部","devices":{"iPad":{"reference":"iPad/artist-detail-togenashi-bottom-search-context.webp","capture":"search-artist-bottom"}}},
+    {"id":"artist-detail-togenashi-top-library-context","category":"Artist","title":"TOGENASHI TOGEARI — Library","description":"ライブラリコンテキストのアーティスト上部","devices":{"iPad":{"reference":"iPad/artist-detail-togenashi-top-library-context.webp","capture":"artist"}}},
+    {"id":"now-playing-not-playing","category":"Now Playing","title":"Not Playing","description":"再生項目がないプレイヤー","devices":{"iPad":{"reference":"iPad/now-playing-not-playing.webp","capture":"playing"}}},
+    {"id":"now-playing-controls","category":"Now Playing","title":"Controls","description":"メイン再生コントロール","devices":{"iPhone":{"reference":"iPhone/now-playing-controls.webp","capture":"nowplaying"},"iPad":{"reference":"iPad/now-playing-controls.webp","capture":"nowplaying"}}},
+    {"id":"now-playing-queue","category":"Now Playing","title":"Queue","description":"次に再生する曲のパネル","devices":{"iPhone":{"reference":"iPhone/now-playing-queue.webp","capture":"queue"},"iPad":{"reference":"iPad/now-playing-queue.webp","capture":"queue"}}},
+    {"id":"now-playing-output-picker","category":"Now Playing","title":"Output Picker","description":"出力先選択ポップオーバー","devices":{"iPhone":{"reference":"iPhone/now-playing-output-picker.webp"}}},
+    {"id":"now-playing-lyrics-loading","category":"Now Playing","title":"Lyrics — Loading","description":"歌詞の読み込み状態","devices":{"iPhone":{"reference":"iPhone/now-playing-lyrics-loading.webp","capture":"lyrics-loading"},"iPad":{"reference":"iPad/now-playing-lyrics-loading.webp","capture":"lyrics-loading"}}},
+    {"id":"now-playing-lyrics","category":"Now Playing","title":"Lyrics","description":"同期歌詞の表示状態","devices":{"iPhone":{"reference":"iPhone/now-playing-lyrics.webp","capture":"lyrics"},"iPad":{"reference":"iPad/now-playing-lyrics.webp","capture":"lyrics"}}}
+  ]
+}
