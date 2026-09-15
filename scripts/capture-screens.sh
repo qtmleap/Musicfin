@@ -3,6 +3,7 @@
 #
 #   ./scripts/capture-screens.sh
 #   ./scripts/capture-screens.sh --version 0.1.0-r5
+#   ./scripts/capture-screens.sh --ipad
 #   MUSICFIN_CONTENT_SIZE=UICTContentSizeCategoryAccessibilityXXXL \
 #     MUSICFIN_SHOT_ROOT=/tmp/shots-ax ./scripts/capture-screens.sh
 set -euo pipefail
@@ -10,7 +11,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 device_name="iPhone 17 Pro"
-destination="platform=iOS Simulator,name=$device_name"
+ipad=0
 shot_root="${MUSICFIN_SHOT_ROOT:-docs/screenshots/current}"
 # 文字サイズ。未指定なら空のまま渡し、テスト側は起動引数を足さない（既定の撮影は今までどおり）。
 content_size="${MUSICFIN_CONTENT_SIZE:-}"
@@ -18,6 +19,14 @@ version=""
 
 while [ $# -gt 0 ]; do
     case "$1" in
+    --ipad)
+        ipad=1
+        device_name="Musicfin iPad Pro 12.9 6th"
+        if [ "${MUSICFIN_SHOT_ROOT+x}" != x ]; then
+            shot_root="docs/screenshots/ipad-report/current"
+        fi
+        shift
+        ;;
     --version)
         version="$2"
         shift 2
@@ -33,6 +42,7 @@ while [ $# -gt 0 ]; do
     esac
 done
 
+destination="platform=iOS Simulator,name=$device_name"
 if [ -z "$version" ]; then
     version="$(grep -m1 'MARKETING_VERSION = ' Musicfin.xcodeproj/project.pbxproj | cut -d= -f2 | tr -d ' ;')"
 fi
@@ -63,10 +73,15 @@ status=0
 # 撮影が1枚も走らなくても前回のPNGが残るので、更新の有無は時刻で見分ける。
 stamp="$(mktemp)"
 trap 'rm -f "$stamp"' EXIT
-for test_method in testCaptureLoginScreens testCaptureAppScreens; do
+test_methods=(testCaptureLoginScreens testCaptureAppScreens)
+if [ "$ipad" -eq 1 ]; then
+    test_methods=(testCaptureAppScreens testCaptureIPadPlayer)
+fi
+for test_method in "${test_methods[@]}"; do
     echo "==> capture: $version / en_US / dark / ${content_size:-default} / $test_method -> $shot_dir"
     if ! TEST_RUNNER_MUSICFIN_SHOT_DIR="$shot_dir" \
         TEST_RUNNER_MUSICFIN_CONTENT_SIZE="$content_size" \
+        TEST_RUNNER_MUSICFIN_IPAD_CAPTURE="$ipad" \
         TEST_RUNNER_AppleLanguages="(en)" \
         TEST_RUNNER_AppleLocale="en_US" \
         xcodebuild test \
@@ -97,6 +112,23 @@ manifest = {
 (root / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n")
 print(f"{len(shots)} shots")
 PY
+
+# 撮影直後にカタログを再生成し、追加されたcurrentを再読込だけで比較できるようにする。
+python3 scripts/generate-screenshot-catalog.py
+
+if [ "$ipad" -eq 1 ]; then
+    python3 - "$shot_root" <<'PY'
+import pathlib, struct, sys
+root = pathlib.Path(sys.argv[1])
+for path in root.glob("*.png"):
+    data = path.read_bytes()[:24]
+    if data[:8] != b"\x89PNG\r\n\x1a\n":
+        raise SystemExit(f"PNG ではありません: {path}")
+    size = struct.unpack(">II", data[16:24])
+    if size != (2732, 2048):
+        raise SystemExit(f"2732x2048 ではありません: {path} ({size[0]}x{size[1]})")
+PY
+fi
 
 printf '\n==> generated\n'
 find "$shot_root" -maxdepth 1 -name '*.png' -newer "$stamp" | sort
