@@ -34,12 +34,6 @@ struct NowPlayingView: View {
     /// 判定は歌詞本文が持ち、ここは受け取った結果を帯の位置へ反映するだけにする。
     /// キューは第 3 版のまま常時表示なので、`mode == .lyrics` と併せてしか効かせない。
     @State private var lyricsControlsHidden = false
-    /// 操作帯が画面から**退き切ったか**（仕様 5.1 章 第 5 版）。歌詞本文が帯の場所を受け取るのは
-    /// この印が立ってからで、`lyricsControlsHidden` とは 0.4 秒ずれる。
-    /// 2 つを 1 つの状態で兼ねていたときは、帯がまだ濃いうちに本文が伸びて文字と記号が重なった。
-    @State private var lyricsControlsRetired = false
-    /// 帯が退き切るのを待つ猶予。向きが変われば途中で捨てるので、常に 1 本だけ持って差し替える。
-    @State private var controlsRetireTask: Task<Void, Never>?
     @State private var scrubTime = 0.0
     /// 確定させたシーク先。指を離した直後は 0.2 秒間隔の時刻監視がまだ**古い再生位置**を流してくるので、
     /// 実際の再生位置がここへ追いつくまでは表示側を正とする。`Player/` を触らずに吸収するための状態。
@@ -72,14 +66,6 @@ struct NowPlayingView: View {
     /// 帯が消えたというより落ちたように見えた。往復で速さが違うと、同じ 1 つの帯の出し入れが
     /// 別々の仕掛けに見えてしまうので、向きで値を変えるのはやめて 1 つに揃える。
     private static let controlsTransition: Animation = .smooth(duration: 0.4, extraBounce: 0)
-    /// 帯が退き切るまで（仕様 5.1 章 第 5 版）。`controlsTransition` の 0.4 秒と**同じ長さ**にして、
-    /// 帯が消えたその時点で本文が場所を受け取るようにする。別の値にすると、
-    /// 短ければ重なりが残り、長ければ帯が消えたあとに空白の帯が居座る。
-    private static let controlsRetireDelay: Duration = .milliseconds(400)
-    /// 背景の暗色域は操作帯の実寸そのものではなく、グラデーションの 60% 停止点で境界が見える。
-    /// 参照 720×1560 px では帯が約 596 px、境界の移動は 100–150 px なので、全量を延ばすと
-    /// `0.6 × 596 ≈ 358 px` と過剰になる。1/3 なら約 119 px で参照範囲の中央に合う。
-    private static let controlsBackgroundExtensionRatio = 1.0 / 3.0
 
     /// 配色を取り出すためだけに頼む画像の一辺。画面に出す大きさとは別に決める。
     /// 走査は 32×32 まで縮めてから行うので大きな画像は要らず、一方で画面側の一辺は
@@ -104,23 +90,24 @@ struct NowPlayingView: View {
                 titleMinimum: minimumTitleHeight,
                 seekMinimum: minimumSeekHeight
             )
-            let controlsHidden = mode == .lyrics && lyricsControlsHidden
             let controlsInset = layout.controlsHeight + geometry.safeAreaInsets.bottom
-            ArtworkBackdrop(
-                item: player.currentItem,
-                band: .player,
-                artworkSize: Self.paletteArtworkSize,
-                // 画面高ではなく帯の実寸へ比例させるので、iPhone / iPad と文字拡大で同じ関係を保つ。
-                backgroundBottomExtension:
-                    controlsHidden ? controlsInset * Self.controlsBackgroundExtensionRatio : 0,
-                backgroundAnimation: reduceMotion ? nil : Self.controlsTransition
-            ) { palette in
-                content(
-                    palette: palette,
-                    artworkSide: artworkSide,
-                    layout: layout,
-                    controlsInset: controlsInset
-                )
+            ArtworkBackdrop(item: player.currentItem, band: .player, artworkSize: Self.paletteArtworkSize) { palette in
+                ControlsTransition(
+                    // モード自体の 0.35 秒ではなく、この状態を変えた 0.4 秒の transaction だけで帯を動かす。
+                    progress: lyricsControlsHidden ? 0 : 1,
+                    controlsInset: controlsInset,
+                    safeAreaInset: geometry.safeAreaInsets.bottom
+                ) { progress, detailExtra, controlsOffset in
+                    content(
+                        palette: palette,
+                        artworkSide: artworkSide,
+                        layout: layout,
+                        controlsInset: controlsInset,
+                        controlsProgress: progress,
+                        detailExtra: detailExtra,
+                        controlsOffset: controlsOffset
+                    )
+                }
             }
         }
         // iPad の fitted sheet が理想寸法を読めるよう、寸法指定はルートの読み取り器より外へ置く（6 章）。
@@ -131,7 +118,10 @@ struct NowPlayingView: View {
         palette: ArtworkPalette,
         artworkSide: CGFloat,
         layout: PlayerLayout,
-        controlsInset: CGFloat
+        controlsInset: CGFloat,
+        controlsProgress: CGFloat,
+        detailExtra: CGFloat,
+        controlsOffset: CGFloat
     ) -> some View {
         // 外側の `ScrollView` も、シーク以降の 4 帯も **3 状態で同じものを使い回す**（仕様 5.1 章）。
         // 以前は状態ごとに構成ごと組み替えていたが、それだと外側が入れ替わるたびに操作帯まで
@@ -139,14 +129,9 @@ struct NowPlayingView: View {
         // 組み替えるのは上部の配置だけにする。
         // 歌詞を読み進めている間だけ操作帯を画面外へ逃がす（仕様 5.1 章 第 4 版）。
         let controlsHidden = mode == .lyrics && lyricsControlsHidden
-        // 逃がしたぶんは**歌詞本文だけを下へ伸ばして**埋める（仕様 5.1 章 第 4 版）。
-        // 本文を据え置くと下に 300 pt の空白が残るだけで、帯を隠しても読める行が 1 行も増えない。
-        // **この値は補間しない。**指が送っている最中に本文の器を 0.4 秒かけて伸ばすと、
-        // 指の下で内容が動き続ける。伸ばすのは一度きりにして、動いて見せるのは帯だけにする。
-        // **切り替える時点は帯とずらす**（仕様 5.1 章 第 5 版）。補間しない以上、帯と同じ時点で
-        // 伸ばすと、まだ濃さの残っている帯の記号の上に本文が描かれて 0.4 秒ぶん重なる。
-        // 隠すときは帯が退き切ってから受け取り、出すときは帯が育ち始める前に返す。
-        let detailExtra = mode == .lyrics && lyricsControlsRetired ? controlsInset : 0
+        // 本文の下端は、帯の見えている上端へ毎フレーム接続する（仕様 5.1 章 第 6 版）。
+        // 二値で遅らせると、短い反転では待ちが完了せず、消えた帯の全高が空白として残る。
+        // 同じ補間値から本文の延長量と帯の見た目を作れば、向きを変えても途中の位置から連続する。
         return ScrollView {
             topArea(artworkSide: artworkSide, layout: layout, detailExtra: detailExtra)
                 // 重ねた操作帯を通常時の全高へ含め、文字拡大時の外側スクロール範囲は変えない。
@@ -171,21 +156,16 @@ struct NowPlayingView: View {
                     // 戻るときは下端を置いたまま上へ育って通常の高さになる。横は縮めない——
                     // 幅まで縮むと帯が中央へ吸い込まれる別の動きに見え、4 帯が横に並ぶ組みが崩れて見える。
                     // 下端を基準にするのは参照録画の実測（伸びている間、帯の下端はほぼ動かない）。
-                    .scaleEffect(x: 1, y: controlsHidden ? 0 : 1, anchor: .bottom)
+                    .scaleEffect(x: 1, y: controlsProgress, anchor: .bottom)
                     // 伸び縮みと**同じ速さで濃さも動かす**。参照録画では高さが 5 割の時点で
                     // まだ半透明で、縦の伸びだけだと畳まれた帯の輪郭が最初から出てしまう。
-                    .opacity(controlsHidden ? 0 : 1)
-                    // 帯の高さだけでは下端の余白ぶんが残って記号の頭が覗く。安全域を足して抜け切らせる。
-                    // 距離は本文と同じだが、**見るのは帯自身の状態**（仕様 5.1 章 第 5 版）。
-                    // 本文の `detailExtra` を使い回すと、ずらした切り替え時点がこの移動にも伝わり、
-                    // 帯が消えたあとに 0.4 秒かけて滑り落ちる二重の動きになる。
-                    .offset(y: controlsHidden ? controlsInset : 0)
+                    .opacity(controlsProgress)
+                    // 下端基準の縮小だけで帯本体の退避量は作れるので、ここで重ねるのは安全域だけにする。
+                    // 本文と同じ全量をずらすと帯本体の高さを二重に数え、両者の間へ空白が残る。
+                    .offset(y: controlsOffset)
                     // 見えない操作を押せたり読み上げられたりしないようにする。位置だけずらしても残るため。
                     .allowsHitTesting(!controlsHidden)
                     .accessibilityHidden(controlsHidden)
-                    // 出し入れは状態の切り替えとは別の速さ（仕様 5.1 章 第 4 版）。
-                    // 「視差効果を減らす」設定では補間しない。
-                    .animation(reduceMotion ? nil : Self.controlsTransition, value: controlsHidden)
                 }
                 .padding(.horizontal, 24)
         }
@@ -620,30 +600,14 @@ struct NowPlayingView: View {
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
-    /// 帯の退避と、本文がその場所を受け取る時点を組にして動かす（仕様 5.1 章 第 5 版）。
-    /// **隠すときだけ本文を待たせる。**帯は 0.4 秒かけて畳まれるので、その間に本文が伸びると
-    /// まだ見えている記号の上に文字が乗る。出すときは逆に、帯が育ち始める前に本文を戻す。
-    /// どちらも本文の高さは補間しないままで、動いて見せるのは帯だけという第 4 版の決めは変えない。
+    /// 帯と本文は同じ補間値で動くため、ここでは目標だけを切り替える（仕様 5.1 章 第 6 版）。
+    /// 途中で向きが変わっても SwiftUI が現在の提示値から次の目標へ補間し直す。
     private func setLyricsControlsHidden(_ hidden: Bool) {
         guard lyricsControlsHidden != hidden else { return }
-        // 向きが変わったら前の待ちは捨てる。残しておくと、出し直した直後に本文だけが伸びる。
-        controlsRetireTask?.cancel()
-        controlsRetireTask = nil
-        lyricsControlsHidden = hidden
-        // 「視差効果を減らす」設定では帯が補間されず一瞬で消えるので、待たせる理由もない。
-        guard !reduceMotion else {
-            lyricsControlsRetired = hidden
-            return
-        }
-        guard hidden else {
-            lyricsControlsRetired = false
-            return
-        }
-        controlsRetireTask = Task {
-            try? await Task.sleep(for: Self.controlsRetireDelay)
-            guard !Task.isCancelled else { return }
-            controlsRetireTask = nil
-            lyricsControlsRetired = true
+        if reduceMotion {
+            lyricsControlsHidden = hidden
+        } else {
+            withAnimation(Self.controlsTransition) { lyricsControlsHidden = hidden }
         }
     }
 
@@ -656,25 +620,21 @@ struct NowPlayingView: View {
         guard next != mode else { return }
         transitionGeneration += 1
         let generation = transitionGeneration
-        // 帯を出し直すので、本文が受け取っていた場所も返させる。待ちを残すと、
-        // 切り替えた先で帯が出ているのに本文だけが伸び直す（仕様 5.1 章 第 5 版）。
-        controlsRetireTask?.cancel()
-        controlsRetireTask = nil
         // 歌詞を離れたら操作帯は出した状態へ戻す（仕様 5.1 章 第 4 版）。歌詞で隠したまま移ると、
         // 判定を持たないキューやアートワークで操作が消えたきりになる。
         // 「視差効果を減らす」設定では位置・大きさを補間しないので、待たせる理由もない（仕様 5.1 章）。
         guard !reduceMotion else {
             mode = next
             lyricsControlsHidden = false
-            lyricsControlsRetired = false
             isTopTransitioning = false
             return
         }
         isTopTransitioning = true
+        // 操作帯の復帰は出し入れ固有の 0.4 秒を保つ。モードの 0.35 秒へ同居させると、
+        // 歌詞から離れる経路だけ復帰速度が変わり、通常の表示操作と別の帯に見える。
+        withAnimation(Self.controlsTransition) { lyricsControlsHidden = false }
         withAnimation(Self.modeTransition) {
             mode = next
-            lyricsControlsHidden = false
-            lyricsControlsRetired = false
         } completion: {
             guard transitionGeneration == generation, mode == next else { return }
             isTopTransitioning = false
@@ -843,6 +803,31 @@ final class SeekGestureRecognizer: UIGestureRecognizer {
     override func shouldBeRequiredToFail(by other: UIGestureRecognizer) -> Bool {
         guard let scrollView = other.view as? UIScrollView else { return false }
         return other === scrollView.panGestureRecognizer
+    }
+}
+
+/// 操作帯の見た目と、歌詞が受け取る高さを同じ補間値から作る（仕様 5.1 章 第 6 版）。
+/// 通常の `@State` だけではレイアウトへ最終値しか渡らないため、この View 自身を補間対象にして
+/// 毎フレーム本文の frame・clip・当たり判定へ同じ `detailExtra` を提案し直す。
+private struct ControlsTransition<Content: View>: View, Animatable {
+    var progress: CGFloat
+    let controlsInset: CGFloat
+    let safeAreaInset: CGFloat
+    @ViewBuilder let content: (CGFloat, CGFloat, CGFloat) -> Content
+
+    nonisolated var animatableData: CGFloat {
+        get { progress }
+        set { progress = newValue }
+    }
+
+    var body: some View {
+        let visibleProgress = min(max(progress, 0), 1)
+        let hiddenProgress = 1 - visibleProgress
+        content(
+            visibleProgress,
+            controlsInset * hiddenProgress,
+            safeAreaInset * hiddenProgress
+        )
     }
 }
 

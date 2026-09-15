@@ -116,18 +116,20 @@ struct LyricsView: View {
     @State private var resumeTask: Task<Void, Never>?
     /// プログラムが動かしているスクロールの猶予。走っている間は操作帯の判定を丸ごと止める。
     @State private var programmaticScroll: Task<Void, Never>?
-    /// 操作帯の出し入れが落ち着くまでの猶予（仕様 5.1 章 第 4 版）。帯を退避させると
-    /// **この本文自身の器が 300 pt 伸び縮みする**ので、その間に届く位置の変化は利用者が送ったものではない。
-    /// `programmaticScroll` と分けて持つのは、あちらが**指が触れた時点で打ち切られる**ため。
-    /// 帯を動かすのは指が送っている最中なので、同じ器に載せると立てた端から消える。
-    @State private var controlsSettling: Task<Void, Never>?
     /// 操作帯の判定に使う縦位置と、同じ向きへ積んだ量（仕様 5.1 章 第 4 版）。
     @State private var lastJudgedOffset: CGFloat?
     @State private var scrollAccumulation: CGFloat = 0
     /// いま操作帯を隠しているか。外へ渡すのはこの値が変わったときだけにする。
     @State private var controlsHidden = false
-    /// 指が送っている最中か。`.tracking` や `.animating` を除くための印。
+    /// 指の送りと、それに続く惰性を判定しているか。通常の長い歌詞では惰性も送りとして数える。
     @State private var isJudgingScroll = false
+    /// 指が画面上で実際に送っている間だけの印。通常の geometry は惰性も届くため分けて持つ。
+    @State private var isInteractingScroll = false
+    /// スクロール幅が無い短い歌詞では、器の補間と `contentOffset` の押し戻しを実指と区別できない。
+    /// `DragGesture` 自身の translation を差分にするため、直前値と最新の幅を保持する。
+    @State private var lastDragTranslationY: CGFloat?
+    @State private var dragAccumulation: CGFloat = 0
+    @State private var hasScrollableRange = true
 
     /// 手を止めてから自動追従へ戻るまで（仕様 5.2 章）。**Apple 実機の実測値ではない暫定値。**
     /// 読み返している最中に画面を奪い返さず、かつ放置されたまま追従が死なない長さとして置いた。
@@ -138,15 +140,6 @@ struct LyricsView: View {
     /// `.animating` が `.idle` へ落ちた時点で解く手もあるが、「視差効果を減らす」設定では
     /// `withAnimation(nil)` になって `.animating` を経由しないので、段階ではなく時間で区切る。
     private static let programmaticScrollGrace = Duration.milliseconds(450)
-
-    /// 操作帯の出し入れを判定から外しておく時間（仕様 5.1 章 第 4 版）。
-    /// **本文の器が伸び縮みするのは即時だが、そこから出る位置の押し戻しは即時では終わらない。**
-    /// 行き過ぎたぶんは弾みを伴って数フレームに渡って戻ってくるうえ、指はまだ送っている。
-    /// 長さは帯の 0.4 秒に `programmaticScrollGrace` と同じ余裕を足した値にして、
-    /// 2 つの猶予を同じ組みの数値で揃えた。**Apple 実機の実測値ではない。**
-    /// 起点は帯の状態を変えた時点**と、器が実際に動いた時点の両方**（仕様 5.1 章 第 5 版）。
-    /// 本文が場所を受け取るのが帯より後になったので、前者だけでは押し戻しが猶予の外へはみ出す。
-    private static let controlsSettleGrace = Duration.milliseconds(550)
 
     /// 下へ 32 pt 送ったら操作帯を隠し、上へ 16 pt 戻したら出す（仕様 5.1 章 第 4 版）。
     /// **どちらも Musicfin の決定値で、Apple 実機の実測値ではない。**
@@ -256,6 +249,30 @@ struct LyricsView: View {
                     .padding(.horizontal, 8)
                 }
                 .scrollIndicators(.hidden)
+                // 幅 0 の短い歌詞だけは geometry の位置を使えない。器の補間とゴム戻りから独立した
+                // 指そのものの移動量を取り、通常と同じ閾値へ渡す。ScrollView のスクロールは妨げない。
+                .simultaneousGesture(
+                    DragGesture(minimumDistance: 0)
+                        .onChanged { value in
+                            guard !hasScrollableRange else { return }
+                            let translation = value.translation.height
+                            guard let previous = lastDragTranslationY else {
+                                // ScrollView が phase を出さない短い歌詞では、ここが独立した判定の開始点になる。
+                                lastDragTranslationY = translation
+                                dragAccumulation = 0
+                                return
+                            }
+                            lastDragTranslationY = translation
+                            judgeDragControls(delta: previous - translation)
+                        }
+                        .onEnded { _ in
+                            guard !hasScrollableRange else { return }
+                            // 次の指へ前回の translation と積算を持ち越さない。長い歌詞では geometry 側が
+                            // この後の惰性も数えるので、そちらの積算には触れない。
+                            lastDragTranslationY = nil
+                            dragAccumulation = 0
+                        }
+                )
                 .onScrollPhaseChange { _, phase in
                     // 自動追従のアニメーションでは止めず、ユーザーが触れた時点で読む位置を尊重する。
                     if phase == .tracking || phase == .interacting {
@@ -271,7 +288,8 @@ struct LyricsView: View {
                     // 操作帯の判定は「指が送っている `.interacting`」と、**それに続く惰性**だけで行う。
                     // 指が乗っただけの `.tracking`、プログラムの `.animating`、静止した `.idle` は数えない。
                     // 惰性を直前の送りの続きとしてだけ認めるので、`isJudgingScroll` を条件に噛ませる。
-                    let judging = phase == .interacting || (phase == .decelerating && isJudgingScroll)
+                    isInteractingScroll = phase == .interacting
+                    let judging = isInteractingScroll || (phase == .decelerating && isJudgingScroll)
                     if judging != isJudgingScroll {
                         isJudgingScroll = judging
                         // 数え始めと数え終わりで積算を捨てる。前の送りの残りを次の送りへ持ち越さない。
@@ -297,23 +315,42 @@ struct LyricsView: View {
                 } action: { old, new in
                     // 器の大きさが変わった回は数えない。文字の拡大や画面の向きに加え、
                     // **操作帯の退避でこの本文自身が伸び縮みする**ときもここへ来る。
-                    // その回の差分は送った量ではないので、基準だけ置き直して捨てる。
+                    // その回の差分は送った量ではないので、基準だけ置き直す。器は補間中に毎フレーム
+                    // 変わるため、時間の猶予を立て直すと反対向きの指操作まで捨て続けてしまう。
                     // **末尾で境界そのものが動いた回も同じ**（仕様 5.1 章 第 5 版）。`LazyVStack` が見積もりを
                     // 実測へ入れ替えたときなど、器はそのままでも境界だけが下がることがあり、
                     // 末尾で引き伸ばされている最中なら指が止まっていても挟んだ位置が一緒に下がる。
                     // それを「上へ送った」と読むと操作帯が勝手に戻るので、ここで基準を置き直す。
-                    guard old.containerSize == new.containerSize,
-                        !LyricsScrollProbe.boundaryMoved(from: old, to: new)
-                    else {
-                        lastJudgedOffset = new.judgedOffset
+                    let boundaryMoved = LyricsScrollProbe.boundaryMoved(from: old, to: new)
+                    let containerChanged = old.containerSize != new.containerSize
+                    // 所有者は常に**現在**の幅で決める。early return より前に更新し、0 ↔ 正の切り替えでは
+                    // 前の所有者の translation と積算を次の経路へ持ち越さない。
+                    let scrollable = new.maximumOffset > 0
+                    if hasScrollableRange != scrollable {
+                        hasScrollableRange = scrollable
+                        lastDragTranslationY = nil
+                        dragAccumulation = 0
                         scrollAccumulation = 0
-                        // 器や境界が変わった**あと**に来る押し戻しも数えない（仕様 5.1 章 第 5 版）。
-                        // 帯の状態を変えた時点から測るだけでは、本文が伸びるのが帯の 0.4 秒より後になった今、
-                        // 押し戻しが猶予の外へはみ出す。実際に器が動いた時点から測り直す。
-                        beginControlsSettling()
+                    }
+                    if boundaryMoved || (containerChanged && !isJudgingScroll) {
+                        lastJudgedOffset = new.judgedOffset
+                        // 短い歌詞の指操作は別の積算器が所有するので、器の毎フレーム更新では消さない。
+                        if scrollable { scrollAccumulation = 0 }
                         return
                     }
-                    judgeControls(offset: new.judgedOffset)
+                    // 指が送っている間は、器の補間と同じ回でも offset の差を読む。器は 0.4 秒間
+                    // 毎フレーム変わるため、この差まで捨てると途中で反転した操作を一度も認識できない。
+                    // ただし先頭の近道は、器が伸びて末尾が 0 へ潰れた結果ではなく、実際に指が
+                    // 上へ戻した回だけに限る。短い歌詞が自動で 0 に挟まれて帯を出すのを防ぐ。
+                    let movedTowardTop = isJudgingScroll && new.offset < old.offset
+                    // スクロールできない短い歌詞では `maximumOffset == 0` が先頭と末尾を兼ねる。
+                    // そこで近道を使わず、実指の上向き積算が 16 pt に届いた場合だけ復帰させる。
+                    // 幅 0 は `DragGesture` からだけ数える。geometry 側は器の補間とゴム戻りも含むため、
+                    // 実指の差分として重ねて渡さない。
+                    judgeControls(
+                        offset: new.judgedOffset,
+                        allowTopShortcut: !containerChanged && movedTowardTop && scrollable
+                    )
                 }
                 // **`isFollowing` が止めるのはスクロールだけ**（仕様 5.2 章）。過去の歌詞を手で読んでいる間も
                 // 現在行の算出と強調は続くので、ここの `guard` は `scroll` の手前にしか置かない。
@@ -335,8 +372,6 @@ struct LyricsView: View {
                     resumeTask = nil
                     programmaticScroll?.cancel()
                     programmaticScroll = nil
-                    controlsSettling?.cancel()
-                    controlsSettling = nil
                 }
             }
         }
@@ -346,19 +381,7 @@ struct LyricsView: View {
     /// 速度を見ないのは、同じだけ送ったのに弾きの強さで結果が変わるのを避けるため。
     /// 受け取るのは **`LyricsScrollProbe.judgedOffset`（先頭と末尾で挟んだ位置）**で、
     /// 器の外へ引き伸ばされたぶんはここへ届く前に落ちている（仕様 5.1 章 第 5 版）。
-    private func judgeControls(offset: CGFloat) {
-        // **帯を動かした直後も判定を止める**（仕様 5.1 章 第 4 版）。帯の退避は本文の高さを
-        // 300 pt 変えるので、下まで読んでいると収まりきらなくなった位置がまとめて押し戻される。
-        // これを送りと取り違えると、隠した直後に「上へ 16 pt 戻した」と読んで帯が出直し、
-        // 出しては隠すの往復が始まる。器の大きさで弾くだけでは足りないのは、**高さの変更は即時でも
-        // 押し戻しは弾みを伴い**、大きさの変化とは別の回に届くため。
-        // **先頭へ戻したときの近道より手前**に置く。あちらは積算を見ないので、押し戻しで
-        // 0 付近まで下がっただけでも帯を出してしまう。
-        guard controlsSettling == nil else {
-            lastJudgedOffset = offset
-            scrollAccumulation = 0
-            return
-        }
+    private func judgeControls(offset: CGFloat, allowTopShortcut: Bool) {
         // **プログラムが動かしている間は判定そのものを止める。**追従の復帰・初回の位置合わせ・
         // 行タップ後の合わせは位置を大きく飛ばすので、利用者の送りと取り違えると帯が勝手に消える。
         // 呼び出し元ごとに積算を戻して回ると必ずどれか漏れるため、`scroll(to:proxy:)` に一本化した
@@ -370,7 +393,7 @@ struct LyricsView: View {
         }
         // 先頭まで戻したら、積算がいくつでも操作帯を出す。先頭は読み進めている途中ではなく、
         // 曲を見渡している位置なので、ここで隠れたままにする理由がない。
-        if offset <= Self.topSlack {
+        if allowTopShortcut, offset <= Self.topSlack {
             lastJudgedOffset = offset
             scrollAccumulation = 0
             setControlsHidden(false)
@@ -397,26 +420,27 @@ struct LyricsView: View {
         }
     }
 
+    /// スクロール幅 0 の指操作は geometry の状態から独立して積む。符号と閾値は通常経路と同じ。
+    private func judgeDragControls(delta: CGFloat) {
+        guard programmaticScroll == nil, delta != 0 else {
+            dragAccumulation = 0
+            return
+        }
+        if dragAccumulation * delta < 0 { dragAccumulation = 0 }
+        dragAccumulation += delta
+        if dragAccumulation >= Self.hideThreshold {
+            setControlsHidden(true)
+            dragAccumulation = 0
+        } else if dragAccumulation <= -Self.showThreshold {
+            setControlsHidden(false)
+            dragAccumulation = 0
+        }
+    }
+
     private func setControlsHidden(_ hidden: Bool) {
         guard controlsHidden != hidden else { return }
         controlsHidden = hidden
-        // 猶予は**外へ渡す前**に立てる。渡した先で本文の高さが変わり、その位置の変化が
-        // 同じ更新のうちに返ってくることがあるので、後から立てると 1 回ぶん取りこぼす。
-        beginControlsSettling()
         onControlsVisibilityChange(hidden)
-    }
-
-    /// 帯や器が動いたあとの落ち着くまでを判定から外す（仕様 5.1 章 第 4・5 版）。
-    /// 立て直しなので、走っている猶予があれば必ず差し替える。
-    private func beginControlsSettling() {
-        controlsSettling?.cancel()
-        controlsSettling = Task {
-            try? await Task.sleep(for: Self.controlsSettleGrace)
-            guard !Task.isCancelled else { return }
-            controlsSettling = nil
-            // 明けた時点の位置を次の基準にし直すのは `judgeControls` の側。ここで積算だけ捨てておく。
-            scrollAccumulation = 0
-        }
     }
 
     /// 手で読んでいる間は追従を止めるが、そのままだと二度と戻らない。
@@ -490,9 +514,11 @@ struct LyricsView: View {
         resumeTask = nil
         programmaticScroll?.cancel()
         programmaticScroll = nil
-        controlsSettling?.cancel()
-        controlsSettling = nil
         isJudgingScroll = false
+        isInteractingScroll = false
+        lastDragTranslationY = nil
+        dragAccumulation = 0
+        hasScrollableRange = true
         scrollAccumulation = 0
         lastJudgedOffset = nil
         // 曲が替わったら操作帯は出した状態から始める。`.id(track.id)` で作り直される側は
