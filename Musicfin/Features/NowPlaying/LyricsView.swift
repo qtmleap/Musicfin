@@ -44,11 +44,39 @@ nonisolated enum LyricsScrollAnimation: String, CaseIterable, Identifiable {
 
 /// 操作帯の判定に使う `ScrollView` の幾何（仕様 5.1 章 第 4 版）。
 /// 縦位置と器の大きさを**同じ観測で一緒に受け取る**ためだけの型で、両者の届く順序に
-/// 判定が左右されないようにする。
+/// 判定が左右されないようにする。**末尾の境界もここで出す**ので、内容の高さと差し込みも同じ観測に含める。
 private nonisolated struct LyricsScrollProbe: Equatable {
     /// `contentInsets.top` を足して内容の先頭を 0 に揃えた縦位置。
     var offset: CGFloat
     var containerSize: CGSize
+    var contentHeight: CGFloat
+    /// 上下の差し込みの合計。器の高さから引くと、内容が実際に動ける幅が出る。
+    var verticalInsets: CGFloat
+
+    /// 末尾まで送り切った位置。`offset` がこれを超えている間は、ゴムで引き伸ばされているだけで
+    /// 内容の続きを見ている訳ではない。
+    var maximumOffset: CGFloat { max(0, contentHeight + verticalInsets - containerSize.height) }
+
+    /// 末尾の境界に張り付いているか。ここに居る間だけ、境界が動くと指を止めていても `judgedOffset` が動く。
+    var isAtBottomBoundary: Bool { offset >= maximumOffset }
+
+    /// 境界が動いたせいで判定に使う位置が動く回かどうか（仕様 5.1 章 第 5 版）。
+    /// **境界の内側を普通に読んでいる間は数え続ける。**そこでは `judgedOffset` が `offset` そのもので、
+    /// `LazyVStack` が行の見積もりを実測へ入れ替えて境界が動いても判定は揺れない。
+    /// この区別を付けずに境界の変化だけで基準を捨てると、速い送りの最中は見積もりの入れ替えが続くので
+    /// 積算が溜まる前に何度も捨てられ、**帯が隠れなくなる**（実機大の録画で確認）。
+    static func boundaryMoved(from old: Self, to new: Self) -> Bool {
+        // 末尾で挟まれている回だけが危ない。入る直前と出た直後のどちらも拾えるよう両方を見る。
+        // 境界の比較には許容を入れない。小さな単調変化でも積もれば帯を出す量になるため、
+        // `CGFloat` が別の値になった回をその都度捨てて累積への入口を塞ぐ。
+        return old.maximumOffset != new.maximumOffset
+            && (old.isAtBottomBoundary || new.isAtBottomBoundary)
+    }
+
+    /// 判定に使う位置。**器の外へ出たぶんは境界へ張り付かせる**（仕様 5.1 章 第 5 版）。
+    /// 末尾で弾んで戻ってくる間はこの値が動かないので、戻りを「上へ送った」と読むことがなくなる。
+    /// 末尾から本当に指で戻せば境界の内側へ入るため、利用者の意思はそのまま残る。
+    var judgedOffset: CGFloat { min(max(offset, 0), maximumOffset) }
 }
 
 /// 読む位置を安定させるため、強調は文字の濃淡に留め、行の大きさを変えない。
@@ -113,6 +141,8 @@ struct LyricsView: View {
     /// 行き過ぎたぶんは弾みを伴って数フレームに渡って戻ってくるうえ、指はまだ送っている。
     /// 長さは帯の 0.4 秒に `programmaticScrollGrace` と同じ余裕を足した値にして、
     /// 2 つの猶予を同じ組みの数値で揃えた。**Apple 実機の実測値ではない。**
+    /// 起点は帯の状態を変えた時点**と、器が実際に動いた時点の両方**（仕様 5.1 章 第 5 版）。
+    /// 本文が場所を受け取るのが帯より後になったので、前者だけでは押し戻しが猶予の外へはみ出す。
     private static let controlsSettleGrace = Duration.milliseconds(550)
 
     /// 下へ 32 pt 送ったら操作帯を隠し、上へ 16 pt 戻したら出す（仕様 5.1 章 第 4 版）。
@@ -255,18 +285,30 @@ struct LyricsView: View {
                 // 「先頭まで戻したら操作帯を出す」が成立しない。
                 LyricsScrollProbe(
                     offset: geometry.contentOffset.y + geometry.contentInsets.top,
-                    containerSize: geometry.containerSize
+                    containerSize: geometry.containerSize,
+                    contentHeight: geometry.contentSize.height,
+                    verticalInsets: geometry.contentInsets.top + geometry.contentInsets.bottom
                 )
             } action: { old, new in
                 // 器の大きさが変わった回は数えない。文字の拡大や画面の向きに加え、
                 // **操作帯の退避でこの本文自身が伸び縮みする**ときもここへ来る。
                 // その回の差分は送った量ではないので、基準だけ置き直して捨てる。
-                guard old.containerSize == new.containerSize else {
-                    lastJudgedOffset = new.offset
+                // **末尾で境界そのものが動いた回も同じ**（仕様 5.1 章 第 5 版）。`LazyVStack` が見積もりを
+                // 実測へ入れ替えたときなど、器はそのままでも境界だけが下がることがあり、
+                // 末尾で引き伸ばされている最中なら指が止まっていても挟んだ位置が一緒に下がる。
+                // それを「上へ送った」と読むと操作帯が勝手に戻るので、ここで基準を置き直す。
+                guard old.containerSize == new.containerSize,
+                    !LyricsScrollProbe.boundaryMoved(from: old, to: new)
+                else {
+                    lastJudgedOffset = new.judgedOffset
                     scrollAccumulation = 0
+                    // 器や境界が変わった**あと**に来る押し戻しも数えない（仕様 5.1 章 第 5 版）。
+                    // 帯の状態を変えた時点から測るだけでは、本文が伸びるのが帯の 0.4 秒より後になった今、
+                    // 押し戻しが猶予の外へはみ出す。実際に器が動いた時点から測り直す。
+                    beginControlsSettling()
                     return
                 }
-                judgeControls(offset: new.offset)
+                judgeControls(offset: new.judgedOffset)
             }
             // **`isFollowing` が止めるのはスクロールだけ**（仕様 5.2 章）。過去の歌詞を手で読んでいる間も
             // 現在行の算出と強調は続くので、ここの `guard` は `scroll` の手前にしか置かない。
@@ -296,6 +338,8 @@ struct LyricsView: View {
 
     /// 送った向きと量だけで操作帯の出し入れを決める（仕様 5.1 章 第 4 版）。
     /// 速度を見ないのは、同じだけ送ったのに弾きの強さで結果が変わるのを避けるため。
+    /// 受け取るのは **`LyricsScrollProbe.judgedOffset`（先頭と末尾で挟んだ位置）**で、
+    /// 器の外へ引き伸ばされたぶんはここへ届く前に落ちている（仕様 5.1 章 第 5 版）。
     private func judgeControls(offset: CGFloat) {
         // **帯を動かした直後も判定を止める**（仕様 5.1 章 第 4 版）。帯の退避は本文の高さを
         // 300 pt 変えるので、下まで読んでいると収まりきらなくなった位置がまとめて押し戻される。
@@ -352,6 +396,13 @@ struct LyricsView: View {
         controlsHidden = hidden
         // 猶予は**外へ渡す前**に立てる。渡した先で本文の高さが変わり、その位置の変化が
         // 同じ更新のうちに返ってくることがあるので、後から立てると 1 回ぶん取りこぼす。
+        beginControlsSettling()
+        onControlsVisibilityChange(hidden)
+    }
+
+    /// 帯や器が動いたあとの落ち着くまでを判定から外す（仕様 5.1 章 第 4・5 版）。
+    /// 立て直しなので、走っている猶予があれば必ず差し替える。
+    private func beginControlsSettling() {
         controlsSettling?.cancel()
         controlsSettling = Task {
             try? await Task.sleep(for: Self.controlsSettleGrace)
@@ -360,7 +411,6 @@ struct LyricsView: View {
             // 明けた時点の位置を次の基準にし直すのは `judgeControls` の側。ここで積算だけ捨てておく。
             scrollAccumulation = 0
         }
-        onControlsVisibilityChange(hidden)
     }
 
     /// 手で読んでいる間は追従を止めるが、そのままだと二度と戻らない。

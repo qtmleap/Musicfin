@@ -34,6 +34,12 @@ struct NowPlayingView: View {
     /// 判定は歌詞本文が持ち、ここは受け取った結果を帯の位置へ反映するだけにする。
     /// キューは第 3 版のまま常時表示なので、`mode == .lyrics` と併せてしか効かせない。
     @State private var lyricsControlsHidden = false
+    /// 操作帯が画面から**退き切ったか**（仕様 5.1 章 第 5 版）。歌詞本文が帯の場所を受け取るのは
+    /// この印が立ってからで、`lyricsControlsHidden` とは 0.4 秒ずれる。
+    /// 2 つを 1 つの状態で兼ねていたときは、帯がまだ濃いうちに本文が伸びて文字と記号が重なった。
+    @State private var lyricsControlsRetired = false
+    /// 帯が退き切るのを待つ猶予。向きが変われば途中で捨てるので、常に 1 本だけ持って差し替える。
+    @State private var controlsRetireTask: Task<Void, Never>?
     @State private var scrubTime = 0.0
     /// 確定させたシーク先。指を離した直後は 0.2 秒間隔の時刻監視がまだ**古い再生位置**を流してくるので、
     /// 実際の再生位置がここへ追いつくまでは表示側を正とする。`Player/` を触らずに吸収するための状態。
@@ -66,6 +72,10 @@ struct NowPlayingView: View {
     /// 帯が消えたというより落ちたように見えた。往復で速さが違うと、同じ 1 つの帯の出し入れが
     /// 別々の仕掛けに見えてしまうので、向きで値を変えるのはやめて 1 つに揃える。
     private static let controlsTransition: Animation = .smooth(duration: 0.4, extraBounce: 0)
+    /// 帯が退き切るまで（仕様 5.1 章 第 5 版）。`controlsTransition` の 0.4 秒と**同じ長さ**にして、
+    /// 帯が消えたその時点で本文が場所を受け取るようにする。別の値にすると、
+    /// 短ければ重なりが残り、長ければ帯が消えたあとに空白の帯が居座る。
+    private static let controlsRetireDelay: Duration = .milliseconds(400)
 
     /// 配色を取り出すためだけに頼む画像の一辺。画面に出す大きさとは別に決める。
     /// 走査は 32×32 まで縮めてから行うので大きな画像は要らず、一方で画面側の一辺は
@@ -102,12 +112,17 @@ struct NowPlayingView: View {
             // 組み替えるのは上部の配置だけにする。
             // 歌詞を読み進めている間だけ操作帯を画面外へ逃がす（仕様 5.1 章 第 4 版）。
             let controlsHidden = mode == .lyrics && lyricsControlsHidden
+            // 帯が抜けていく距離。帯の退避（補間する）と本文の拡張（補間しない）で同じ値を使うので、
+            // 伸びた本文の下端は帯が抜けた先とぴったり合う。
+            let controlsInset = layout.controlsHeight + geometry.safeAreaInsets.bottom
             // 逃がしたぶんは**歌詞本文だけを下へ伸ばして**埋める（仕様 5.1 章 第 4 版）。
             // 本文を据え置くと下に 300 pt の空白が残るだけで、帯を隠しても読める行が 1 行も増えない。
-            // 帯の移動量と同じ値を使うので、伸びた本文の下端は帯が抜けた先とぴったり合う。
             // **この値は補間しない。**指が送っている最中に本文の器を 0.4 秒かけて伸ばすと、
             // 指の下で内容が動き続ける。伸ばすのは一度きりにして、動いて見せるのは帯だけにする。
-            let detailExtra = controlsHidden ? layout.controlsHeight + geometry.safeAreaInsets.bottom : 0
+            // **切り替える時点は帯とずらす**（仕様 5.1 章 第 5 版）。補間しない以上、帯と同じ時点で
+            // 伸ばすと、まだ濃さの残っている帯の記号の上に本文が描かれて 0.4 秒ぶん重なる。
+            // 隠すときは帯が退き切ってから受け取り、出すときは帯が育ち始める前に返す。
+            let detailExtra = mode == .lyrics && lyricsControlsRetired ? controlsInset : 0
             ScrollView {
                 VStack(spacing: 0) {
                     topArea(artworkSide: artworkSide, layout: layout, detailExtra: detailExtra)
@@ -134,7 +149,10 @@ struct NowPlayingView: View {
                     // まだ半透明で、縦の伸びだけだと畳まれた帯の輪郭が最初から出てしまう。
                     .opacity(controlsHidden ? 0 : 1)
                     // 帯の高さだけでは下端の余白ぶんが残って記号の頭が覗く。安全域を足して抜け切らせる。
-                    .offset(y: detailExtra)
+                    // 距離は本文と同じだが、**見るのは帯自身の状態**（仕様 5.1 章 第 5 版）。
+                    // 本文の `detailExtra` を使い回すと、ずらした切り替え時点がこの移動にも伝わり、
+                    // 帯が消えたあとに 0.4 秒かけて滑り落ちる二重の動きになる。
+                    .offset(y: controlsHidden ? controlsInset : 0)
                     // 見えない操作を押せたり読み上げられたりしないようにする。位置だけずらしても残るため。
                     .allowsHitTesting(!controlsHidden)
                     .accessibilityHidden(controlsHidden)
@@ -327,7 +345,7 @@ struct NowPlayingView: View {
                     LyricsView(
                         track: track,
                         isSettled: !isTopTransitioning,
-                        onControlsVisibilityChange: { lyricsControlsHidden = $0 }
+                        onControlsVisibilityChange: { setLyricsControlsHidden($0) }
                     )
                     .id(track.id)
                     .frame(height: proxy.size.height + extra, alignment: .top)
@@ -577,6 +595,33 @@ struct NowPlayingView: View {
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
+    /// 帯の退避と、本文がその場所を受け取る時点を組にして動かす（仕様 5.1 章 第 5 版）。
+    /// **隠すときだけ本文を待たせる。**帯は 0.4 秒かけて畳まれるので、その間に本文が伸びると
+    /// まだ見えている記号の上に文字が乗る。出すときは逆に、帯が育ち始める前に本文を戻す。
+    /// どちらも本文の高さは補間しないままで、動いて見せるのは帯だけという第 4 版の決めは変えない。
+    private func setLyricsControlsHidden(_ hidden: Bool) {
+        guard lyricsControlsHidden != hidden else { return }
+        // 向きが変わったら前の待ちは捨てる。残しておくと、出し直した直後に本文だけが伸びる。
+        controlsRetireTask?.cancel()
+        controlsRetireTask = nil
+        lyricsControlsHidden = hidden
+        // 「視差効果を減らす」設定では帯が補間されず一瞬で消えるので、待たせる理由もない。
+        guard !reduceMotion else {
+            lyricsControlsRetired = hidden
+            return
+        }
+        guard hidden else {
+            lyricsControlsRetired = false
+            return
+        }
+        controlsRetireTask = Task {
+            try? await Task.sleep(for: Self.controlsRetireDelay)
+            guard !Task.isCancelled else { return }
+            controlsRetireTask = nil
+            lyricsControlsRetired = true
+        }
+    }
+
     /// 状態を切り替え、上部の遷移が終わってから歌詞の位置合わせを許す（仕様 5.1 章）。
     /// 世代と現在のモードの両方を確かめてから待ちを解くのは、連打したときに古い切り替えの
     /// 完了処理が後から届き、まだ動いている新しい遷移の途中で歌詞を跳ばせてしまうため。
@@ -586,12 +631,17 @@ struct NowPlayingView: View {
         guard next != mode else { return }
         transitionGeneration += 1
         let generation = transitionGeneration
+        // 帯を出し直すので、本文が受け取っていた場所も返させる。待ちを残すと、
+        // 切り替えた先で帯が出ているのに本文だけが伸び直す（仕様 5.1 章 第 5 版）。
+        controlsRetireTask?.cancel()
+        controlsRetireTask = nil
         // 歌詞を離れたら操作帯は出した状態へ戻す（仕様 5.1 章 第 4 版）。歌詞で隠したまま移ると、
         // 判定を持たないキューやアートワークで操作が消えたきりになる。
         // 「視差効果を減らす」設定では位置・大きさを補間しないので、待たせる理由もない（仕様 5.1 章）。
         guard !reduceMotion else {
             mode = next
             lyricsControlsHidden = false
+            lyricsControlsRetired = false
             isTopTransitioning = false
             return
         }
@@ -599,6 +649,7 @@ struct NowPlayingView: View {
         withAnimation(Self.modeTransition) {
             mode = next
             lyricsControlsHidden = false
+            lyricsControlsRetired = false
         } completion: {
             guard transitionGeneration == generation, mode == next else { return }
             isTopTransitioning = false
