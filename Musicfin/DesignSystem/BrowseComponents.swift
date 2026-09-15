@@ -301,8 +301,7 @@ struct BrowseTileMetrics {
 
     init(width: CGFloat) {
         // 左右 20 pt・間隔 12 pt の 2 列で、393 pt 幅なら 1 枚 170×96 pt（Apple 実機の実測）。
-        let available = max(1, width - 40)
-        columns = width < 360 ? 1 : width < 700 ? 2 : max(3, Int((available + 12) / 240))
+        columns = width < 360 ? 1 : 2
         height = 96
     }
 
