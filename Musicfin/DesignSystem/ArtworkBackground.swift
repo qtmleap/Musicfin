@@ -366,10 +366,6 @@ struct ArtworkBackdrop<Content: View>: View {
     let band: ArtworkPalette.Band
     /// 画面に出している画像と同じ寸法を渡す。`ArtworkLoader` のキャッシュを共有して余計な取得を避ける。
     var artworkSize: CGFloat
-    /// 下端側のグラデーションを画面外へ送る距離。通常の画面では 0 のまま使う。
-    var backgroundBottomExtension: CGFloat
-    /// 下端側だけに掛ける動き。中身へ伝播させないため、背景を描く位置で適用する。
-    var backgroundAnimation: Animation?
     @ViewBuilder let content: (ArtworkPalette) -> Content
 
     @Environment(AuthStore.self) private var auth
@@ -380,15 +376,11 @@ struct ArtworkBackdrop<Content: View>: View {
         item: MediaItem?,
         band: ArtworkPalette.Band,
         artworkSize: CGFloat,
-        backgroundBottomExtension: CGFloat = 0,
-        backgroundAnimation: Animation? = nil,
         @ViewBuilder content: @escaping (ArtworkPalette) -> Content
     ) {
         self.item = item
         self.band = band
         self.artworkSize = artworkSize
-        self.backgroundBottomExtension = backgroundBottomExtension
-        self.backgroundAnimation = backgroundAnimation
         self.content = content
         // 結果が届くまでは無彩色の既定色で待つ。透明にすると下の黒が透けて、後から色が飛び込む。
         _palette = State(initialValue: .neutral(band: band))
@@ -396,14 +388,7 @@ struct ArtworkBackdrop<Content: View>: View {
 
     var body: some View {
         content(palette)
-            .modifier(
-                ArtworkBackgroundModifier(
-                    stops: palette.stops,
-                    band: band,
-                    bottomExtension: backgroundBottomExtension,
-                    bottomAnimation: backgroundAnimation
-                )
-            )
+            .modifier(ArtworkBackgroundModifier(stops: palette.stops, band: band))
             // 同じ作品のまま画面の状態だけが変わったときは取り出し直さない（仕様 1.2 章）。
             .task(id: item?.id) { await load() }
     }
@@ -437,9 +422,6 @@ private struct ArtworkBackgroundModifier: ViewModifier, Animatable {
     /// 停止点の数と位置は帯で違うので、形そのものを帯から引く（仕様 1.2 章）。
     /// 補間に載るのは `stops` の 3 点だけなので、`animatableData` には入れない。
     let band: ArtworkPalette.Band
-    /// 操作帯と一緒に退く下端側の距離。色の補間とは独立に、既定のアニメーションへ載せる。
-    var bottomExtension: CGFloat
-    let bottomAnimation: Animation?
 
     var animatableData: ArtworkPalette.Stops {
         get { stops }
@@ -447,18 +429,10 @@ private struct ArtworkBackgroundModifier: ViewModifier, Animatable {
     }
 
     func body(content: Content) -> some View {
-        content.background {
-            GeometryReader { proxy in
-                LinearGradient(stops: gradientStops, startPoint: .top, endPoint: .bottom)
-                    // 下端色の領域を操作帯と同じ塊として送る。上端は固定し、歌詞側の
-                    // scroll-edge blur には触れないので、文字が切れる境界のぼかしは残る。
-                    .frame(height: proxy.size.height + max(0, bottomExtension), alignment: .top)
-                    .animation(bottomAnimation, value: bottomExtension)
-            }
-            // 器そのものを安全域まで広げる。中の高さと位置でもう一度足すと、通常時から
-            // グラデーションの停止点がずれて既存画面の下端が露出する。
-            .ignoresSafeArea()
-        }
+        content.background(
+            LinearGradient(stops: gradientStops, startPoint: .top, endPoint: .bottom),
+            ignoresSafeAreaEdges: .all
+        )
     }
 
     /// 両端は補間済みの `top` / `bottom` をそのまま使い、途中の点だけ基準色から作る。
