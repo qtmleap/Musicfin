@@ -6,6 +6,8 @@
 #   ./scripts/capture-screens.sh --ipad
 #   MUSICFIN_CONTENT_SIZE=UICTContentSizeCategoryAccessibilityXXXL \
 #     MUSICFIN_SHOT_ROOT=/tmp/shots-ax ./scripts/capture-screens.sh
+#   MUSICFIN_SERVER_URL=https://jellyfin.example.com \
+#     MUSICFIN_USERNAME=demo MUSICFIN_PASSWORD=secret ./scripts/capture-screens.sh
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -15,6 +17,9 @@ ipad=0
 shot_root="${MUSICFIN_SHOT_ROOT:-docs/screenshots/current}"
 # 文字サイズ。未指定なら空のまま渡し、テスト側は起動引数を足さない（既定の撮影は今までどおり）。
 content_size="${MUSICFIN_CONTENT_SIZE:-}"
+server_url="${MUSICFIN_SERVER_URL:-https://jellyfin.tkgstrator.work}"
+username="${MUSICFIN_USERNAME:-demo}"
+password="${MUSICFIN_PASSWORD:-}"
 version=""
 
 while [ $# -gt 0 ]; do
@@ -82,6 +87,9 @@ for test_method in "${test_methods[@]}"; do
     if ! TEST_RUNNER_MUSICFIN_SHOT_DIR="$shot_dir" \
         TEST_RUNNER_MUSICFIN_CONTENT_SIZE="$content_size" \
         TEST_RUNNER_MUSICFIN_IPAD_CAPTURE="$ipad" \
+        TEST_RUNNER_MUSICFIN_SERVER_URL="$server_url" \
+        TEST_RUNNER_MUSICFIN_USERNAME="$username" \
+        TEST_RUNNER_MUSICFIN_PASSWORD="$password" \
         TEST_RUNNER_AppleLanguages="(en)" \
         TEST_RUNNER_AppleLocale="en_US" \
         xcodebuild test \

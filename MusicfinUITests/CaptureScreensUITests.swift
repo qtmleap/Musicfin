@@ -6,8 +6,20 @@ import XCTest
 /// 未指定なら Simulator の既定サイズのままにする。
 /// アプリ本体に `accessibilityIdentifier` を足さず、表示ラベルだけで操作する。
 final class CaptureScreensUITests: XCTestCase {
-    private static let demoServerURL = "https://demo.jellyfin.org/stable"
-    private static let demoUser = "demo"
+    private static let defaultServerURL = "https://jellyfin.tkgstrator.work"
+    private static let defaultUsername = "demo"
+
+    private var serverURL: String {
+        ProcessInfo.processInfo.environment["MUSICFIN_SERVER_URL"] ?? Self.defaultServerURL
+    }
+
+    private var username: String {
+        ProcessInfo.processInfo.environment["MUSICFIN_USERNAME"] ?? Self.defaultUsername
+    }
+
+    private var password: String {
+        ProcessInfo.processInfo.environment["MUSICFIN_PASSWORD"] ?? ""
+    }
 
     // XCUIApplication は MainActor 隔離なので、テスト本体と補助メソッドを MainActor に置く。
     // クラス自体を MainActor にすると XCTestCase の nonisolated な override と衝突する。
@@ -17,6 +29,10 @@ final class CaptureScreensUITests: XCTestCase {
     private var contentSizeCategory: String?
     private var capturedNames: Set<String> = []
     private var skippedScreens: [String] = []
+
+    private var isIPadCapture: Bool {
+        ProcessInfo.processInfo.environment["MUSICFIN_IPAD_CAPTURE"] == "1"
+    }
 
     /// 英語固定の撮影でも同じ操作手順を使えるよう、既存の日本語ラベルを英訳して検索する。
     @MainActor
@@ -47,15 +63,26 @@ final class CaptureScreensUITests: XCTestCase {
     }
 
     @MainActor
-    private func launchApp() {
+    private func launchApp(capturePlayer: Bool = false) {
+        if isIPadCapture {
+            XCUIDevice.shared.orientation = .landscapeLeft
+        }
         app = XCUIApplication()
         app.launchEnvironment["MUSICFIN_SHOT_DIR"] = shotDirectory?.path ?? ""
+        if capturePlayer { app.launchEnvironment["MUSICFIN_CAPTURE_PLAYER"] = "1" }
         // 文字サイズは起動引数でしか差し替えられない（Simulator 全体の設定を触らずに済む）。
         // 未指定のときは引数ごと足さないので、既定の撮影は今までと同じ経路を通る。
         if let contentSizeCategory {
             app.launchArguments += ["-UIPreferredContentSizeCategoryName", contentSizeCategory]
         }
         app.launch()
+        if isIPadCapture {
+            XCUIDevice.shared.orientation = .landscapeRight
+            app.activate()
+            RunLoop.current.run(until: Date(timeIntervalSinceNow: 2.0))
+            XCTAssertGreaterThan(
+                app.windows.firstMatch.frame.width, app.windows.firstMatch.frame.height, "iPad が横向きにならなかった")
+        }
     }
 
     // MARK: - ログイン画面
@@ -145,15 +172,22 @@ final class CaptureScreensUITests: XCTestCase {
             return
         }
         let current = (field.value as? String) ?? ""
-        if current == Self.demoServerURL { return }
+        if current == serverURL { return }
 
         field.tap()
         dismissKeyboardTutorial()
         // プレースホルダは value に混ざるので、実際に文字が入っているときだけ消す。
         if !current.isEmpty, current != field.placeholderValue {
-            field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: current.count))
+            field.press(forDuration: 1)
+            let selectAll = app.menuItems["Select All"]
+            if selectAll.waitForExistence(timeout: 2) {
+                selectAll.tap()
+                field.typeText(XCUIKeyboardKey.delete.rawValue)
+            } else {
+                field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: max(current.count, 256)))
+            }
         }
-        field.typeText(Self.demoServerURL)
+        field.typeText(serverURL)
     }
 
     /// Quick Connect を開始し、コードが出た状態を撮ってから取り消す。
@@ -190,13 +224,36 @@ final class CaptureScreensUITests: XCTestCase {
         }
         tapScrollingIntoView(username)
         dismissKeyboardTutorial()
-        username.typeText(Self.demoUser)
+        username.typeText(self.username)
+
+        if !password.isEmpty {
+            let passwordField = app.secureTextFields.firstMatch
+            guard passwordField.waitForExistence(timeout: 5) else {
+                XCTFail("パスワードの入力欄が見つからなかった")
+                return
+            }
+            tapScrollingIntoView(passwordField)
+            passwordField.typeText(password)
+        }
 
         let signIn = element(.button, "ログイン")
+        guard signIn.waitForExistence(timeout: 5) else {
+            XCTFail("ログインボタンが見つからなかった")
+            return
+        }
         tapScrollingIntoView(signIn)
     }
 
     // MARK: - ログイン後の画面
+
+    @MainActor
+    func testCaptureIPadPlayer() throws {
+        guard isIPadCapture else { throw XCTSkip("iPad 専用の撮影") }
+        launchApp(capturePlayer: true)
+        XCTAssertTrue(element(.button, "歌詞").waitForExistence(timeout: 15), "iPad full player が表示されなかった")
+        settle()
+        capture("playing")
+    }
 
     @MainActor
     func testCaptureAppScreens() throws {
@@ -212,6 +269,14 @@ final class CaptureScreensUITests: XCTestCase {
         )
         settle()
         capture("home")
+        if isIPadCapture, account.exists {
+            account.tap()
+            XCTAssertTrue(element(.staticText, "Jellyfin Account").waitForExistence(timeout: 10), "アカウント画面が表示されなかった")
+            settle()
+            capture("account")
+            element(.button, "閉じる").tap()
+            XCTAssertTrue(account.waitForExistence(timeout: 10), "アカウント画面を閉じられなかった")
+        }
 
         // ライブラリ → アルバム一覧 → 先頭のアルバム詳細。
         selectTab("ライブラリ")
@@ -257,6 +322,10 @@ final class CaptureScreensUITests: XCTestCase {
         }
         settle()
         capture("album")
+        if isIPadCapture {
+            capture("search-album-detail")
+            return
+        }
 
         // `album` は 1 曲のアルバムのまま残し、再生だけ 2 曲以上のアルバムから始める。
         // 先頭のアルバムで再生すると待機曲が 0 件になり、`queue` が空状態しか撮れない（仕様 5.2 章）。
@@ -361,6 +430,12 @@ final class CaptureScreensUITests: XCTestCase {
             if card.exists {
                 settle()
                 capture("artist")
+                if isIPadCapture {
+                    capture("search-artist")
+                    for _ in 0..<4 { app.swipeUp() }
+                    settle()
+                    capture("search-artist-bottom")
+                }
                 return
             }
             back.tap()
@@ -562,7 +637,7 @@ final class CaptureScreensUITests: XCTestCase {
     /// ストリーミングが始まらなければ 4 画面まとめてスキップし、後続の検索へ進む。
     @MainActor
     private func capturePlayerScreens(playButton: XCUIElement) {
-        let playerScreens = ["miniplayer", "nowplaying", "lyrics", "queue"]
+        let playerScreens = ["miniplayer", "nowplaying", "lyrics-loading", "lyrics", "queue"]
         guard playButton.isEnabled else {
             skippedScreens += playerScreens
             return
@@ -594,12 +669,18 @@ final class CaptureScreensUITests: XCTestCase {
         }
         settle()
         capture("nowplaying")
+        if isIPadCapture {
+            capture("playing")
+            return
+        }
 
         guard isRunning else {
             skippedScreens += ["lyrics", "queue"]
             return
         }
         lyricsButton.tap()
+        // 読み込み状態は一瞬で終わることがあるため、切替直後に先に残してから安定表示を撮る。
+        capture("lyrics-loading")
         settle()
         capture("lyrics")
 
@@ -730,6 +811,12 @@ final class CaptureScreensUITests: XCTestCase {
         let screenshot = XCUIScreen.main.screenshot()
         let fileName = "\(screen).png"
 
+        if isIPadCapture {
+            let image = screenshot.image
+            XCTAssertEqual(image.size.width * image.scale, 2732, "iPad 撮影の幅が参照と異なる")
+            XCTAssertEqual(image.size.height * image.scale, 2048, "iPad 撮影の高さが参照と異なる")
+        }
+
         let attachment = XCTAttachment(screenshot: screenshot)
         attachment.name = fileName
         attachment.lifetime = .keepAlways
@@ -738,7 +825,18 @@ final class CaptureScreensUITests: XCTestCase {
         if let shotDirectory {
             do {
                 try FileManager.default.createDirectory(at: shotDirectory, withIntermediateDirectories: true)
-                try screenshot.pngRepresentation.write(to: shotDirectory.appendingPathComponent(fileName))
+                // XCUIScreenshot の PNG は横向きでも画素配列だけ縦のまま orientation metadata を持つ。
+                // 比較器は metadata に頼らず 2732×2048 の RGB を読むため、描き直して向きを画素へ焼き込む。
+                let image = screenshot.image
+                let renderer = UIGraphicsImageRenderer(size: image.size)
+                let normalized = renderer.image { _ in
+                    image.draw(in: CGRect(origin: .zero, size: image.size))
+                }
+                guard let png = normalized.pngData() else {
+                    XCTFail("スクリーンショットを PNG に変換できなかった: \(fileName)")
+                    return
+                }
+                try png.write(to: shotDirectory.appendingPathComponent(fileName))
             } catch {
                 XCTFail("スクリーンショットを書き出せなかった: \(fileName) — \(error)")
             }
