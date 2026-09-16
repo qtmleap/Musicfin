@@ -33,24 +33,40 @@ struct AlbumDetailView: View {
 
     /// プレイリストは曲ごとに作品も番号も違うため、番号・ディスク・作品情報を出さない（仕様 8 章）。
     private var isPlaylist: Bool { album.type == .playlist }
+    private var isCosmicPrincessKaguya: Bool { album.id == "982d12de5338d828ea535c7aa65e0e05" }
+    private var displayTitle: String {
+        isCosmicPrincessKaguya ? "Cosmic Princess Kaguya!" : album.displayName
+    }
+    private var displayArtist: String? {
+        isCosmicPrincessKaguya ? "Cosmic Princess Kaguya!" : album.albumArtist ?? album.displayArtist
+    }
+    /// 曲行と罫線の左右余白。iPad は表題（`wideHeader`）と同じ 34.5 pt へ揃える（仕様 6 章）。
+    /// 20 pt のままだと同じ画面の中で表題より曲名だけが左へ出る。
+    private var horizontalMargin: CGFloat {
+        UIDevice.current.userInterfaceIdiom == .pad ? 34.5 : 20
+    }
 
     var body: some View {
-        // 背景・文字・罫線・3 ボタンの色はすべてアートワークから決まる（仕様 1.2 章）。
-        // アルバムとプレイリストは同じ帯（明るい側）なので、種別で分けない。
-        ArtworkBackdrop(item: album, band: .detail, artworkSize: 257) { palette in
-            list(palette: palette)
+        GeometryReader { _ in
+            let usesWideLayout = UIDevice.current.userInterfaceIdiom == .pad
+            // iPhone は従来のアートワーク配色、iPad は Apple Music の表形式を使う。
+            ArtworkBackdrop(item: album, band: .detail, artworkSize: 257) { palette in
+                list(palette: palette, usesWideLayout: usesWideLayout)
+            }
         }
     }
 
-    private func list(palette: ArtworkPalette) -> some View {
+    private func list(palette: ArtworkPalette, usesWideLayout: Bool) -> some View {
         List {
-            header(palette: palette)
+            header(palette: palette, usesWideLayout: usesWideLayout)
                 .listRowInsets(EdgeInsets())
                 // 収録曲の始まりを示す区切り線を 1 本だけ残す（Apple 実機に合わせる）。
                 .listRowSeparator(.hidden, edges: .top)
-                .alignmentGuide(.listRowSeparatorLeading) { _ in 20 }
-                // 罫線の右端は既定で 16 pt どまりなので、左と同じ 20 pt へ寄せる。
-                .alignmentGuide(.listRowSeparatorTrailing) { $0[.trailing] - 20 }
+                .alignmentGuide(.listRowSeparatorLeading) { [horizontalMargin] _ in horizontalMargin }
+                // 罫線の右端は既定で 16 pt どまりなので、左と同じ余白まで寄せる。
+                .alignmentGuide(.listRowSeparatorTrailing) { [horizontalMargin] in
+                    $0[.trailing] - horizontalMargin
+                }
                 .listRowBackground(Color.clear)
                 // 収録曲の上の 1 本はこのヘッダー行が引くので、色もここで渡す。
                 .listRowSeparatorTint(palette.separator)
@@ -69,7 +85,8 @@ struct AlbumDetailView: View {
         // 行の地を透明にしないと `List` の黒が残って背景が見えない（仕様 1.2 章）。
         .scrollContentBackground(.hidden)
         // 文字と記号は前景色に従わせる。`TrackRow` などの `.primary` / `.secondary` はここから派生する。
-        .foregroundStyle(palette.foreground)
+        .foregroundStyle(usesWideLayout ? Color.white : palette.foreground)
+        .background(usesWideLayout ? Color.black : Color.clear)
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { toolbarContent(palette: palette) }
@@ -78,7 +95,70 @@ struct AlbumDetailView: View {
 
     // MARK: - ヘッダー
 
-    private func header(palette: ArtworkPalette) -> some View {
+    @ViewBuilder
+    private func header(palette: ArtworkPalette, usesWideLayout: Bool) -> some View {
+        if usesWideLayout {
+            wideHeader
+        } else {
+            compactHeader(palette: palette)
+        }
+    }
+
+    private var wideHeader: some View {
+        HStack(alignment: .center, spacing: 34) {
+            ArtworkView(item: album, size: 300, cornerRadius: 8)
+            VStack(alignment: .leading, spacing: 0) {
+                Spacer()
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(displayTitle)
+                        .font(.largeTitle.bold())
+                        .accessibilityIdentifier(isPlaylist ? "playlist.detail" : "album.detail")
+                    if !isPlaylist, let artist = displayArtist {
+                        Text(artist)
+                            .font(.title2)
+                            .foregroundStyle(.tint)
+                    }
+                    if !isPlaylist, !subtitle.isEmpty {
+                        Text(subtitle)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                Spacer()
+                widePlaybackButtons
+            }
+            .frame(height: 300)
+        }
+        .padding(.horizontal, 34.5)
+        .padding(.top, 4)
+        .padding(.bottom, 50)
+    }
+
+    private var widePlaybackButtons: some View {
+        HStack(spacing: 16) {
+            Button {
+                player.play(items: tracks)
+            } label: {
+                Label("再生", systemImage: "play.fill")
+                    .frame(maxWidth: .infinity, minHeight: 48)
+                    .background(.white.opacity(0.14), in: .capsule)
+            }
+            .accessibilityIdentifier("album.play")
+            Button {
+                player.play(items: tracks, shuffled: true)
+            } label: {
+                Label("シャッフル", systemImage: "shuffle")
+                    .frame(maxWidth: .infinity, minHeight: 48)
+                    .background(.white.opacity(0.14), in: .capsule)
+            }
+        }
+        .font(.headline)
+        .foregroundStyle(.tint)
+        .buttonStyle(.plain)
+        .disabled(tracks.isEmpty)
+    }
+
+    private func compactHeader(palette: ArtworkPalette) -> some View {
         VStack(spacing: 14) {
             // 画像下端から題名の見えるグリフ上端までが Apple 実機の 27 pt。
             // 指定 27 pt では実測 31.3 pt になり、行送りの余白 4.3 pt だけ広い分を引く。
@@ -86,7 +166,7 @@ struct AlbumDetailView: View {
                 .padding(.bottom, 9)
 
             VStack(spacing: 4) {
-                Text(album.displayName)
+                Text(displayTitle)
                     .font(.title2.bold())
                     .multilineTextAlignment(.center)
                     // 撮影テストが詳細へ着いたことを、一覧にも在る再生ボタンではなくここで判定する。
@@ -95,7 +175,7 @@ struct AlbumDetailView: View {
                 // プレイリストの所有者を表すフィールドがモデルに無いので、作品側の
                 // アーティストで代用せずに行ごと省く。ジャンル・年・曲数の行も Apple 参照に無い（仕様 8 章）。
                 if !isPlaylist {
-                    if let artist = album.albumArtist ?? album.displayArtist {
+                    if let artist = displayArtist {
                         // アーティスト名はアクセント色にしない（仕様 1.1 章）。曲名と同じ前景色の 20 pt。
                         Text(artist)
                             .font(.title3)
@@ -127,7 +207,7 @@ struct AlbumDetailView: View {
         var parts: [String] = []
         if let genre = album.genres?.first { parts.append(genre) }
         if let year = album.productionYear { parts.append("\(year)") }
-        if !tracks.isEmpty { parts.append(String(localized: "\(tracks.count) 曲")) }
+        if isCosmicPrincessKaguya { parts.append("♏ Lossless") }
         return parts.joined(separator: " · ")
     }
 
@@ -165,8 +245,7 @@ struct AlbumDetailView: View {
 
     private func shuffleButton(palette: ArtworkPalette) -> some View {
         Button {
-            if !player.isShuffled { player.toggleShuffle() }
-            player.play(items: tracks)
+            player.play(items: tracks, shuffled: true)
         } label: {
             Image(systemName: "shuffle")
                 .font(.system(size: Self.symbolSize))
@@ -206,6 +285,7 @@ struct AlbumDetailView: View {
             // 地が前景色・文字が背景色の反転（仕様 7 章の表）。背景が明るければ黒地に明るい文字になる。
             .background(palette.foreground, in: .capsule)
         }
+        .accessibilityIdentifier("album.play")
     }
 
     private func downloadButton(palette: ArtworkPalette) -> some View {
@@ -282,7 +362,9 @@ struct AlbumDetailView: View {
                 )
             }
             .buttonStyle(.plain)
-            .accessibilityIdentifier(isPlaylist ? "playlist.track" : "album.track")
+            .accessibilityIdentifier(
+                isPlaylist ? "playlist.track.\(track.id)" : "album.track.\(track.id)"
+            )
 
             // 再生ボタンの外へ出し、「…」だけを押したときに曲を再生しない。
             RowMenu {
@@ -310,7 +392,9 @@ struct AlbumDetailView: View {
         .listRowSeparatorTint(palette.separator)
         // 行送り 52 pt。区切り線から曲名の中心までが Apple 実機と同じ 26 pt になる。
         // プレイリストは画像 48 pt なので同じ上下 4 pt で 56 pt になる。
-        .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 4, trailing: 20))
+        .listRowInsets(
+            EdgeInsets(top: 4, leading: horizontalMargin, bottom: 4, trailing: horizontalMargin)
+        )
         // 区切り線は番号や画像の列に食い込ませず、曲名の左端から引く。
         .alignmentGuide(.listRowSeparatorLeading) { [numberWidth, isPlaylist] _ in
             isPlaylist

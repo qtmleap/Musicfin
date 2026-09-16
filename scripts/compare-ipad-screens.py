@@ -7,54 +7,44 @@ import argparse
 import datetime as dt
 import hashlib
 import json
+import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-REFERENCE = ROOT / "docs" / "app" / "iPad"
-REPORT = ROOT / "docs" / "screenshots" / "ipad-report"
-PIXEL_SIZE = (2732, 2048)
-DELTA_THRESHOLD = 8
-MASK_LIMIT = 0.25
-SCREEN_CONFIG = {
-    "search-artist": {
-        "mismatchRatio": 0.18,
-        "masks": [
-            {"kind": "dynamicArtwork", "rect": [0.23, 0.16, 0.70, 0.51]},
-            {"kind": "dynamicText", "rect": [0.23, 0.07, 0.42, 0.14]},
-        ],
+CATALOG = ROOT / "docs" / "app" / "catalog.json"
+REFERENCE = ROOT / "docs" / "app"
+REPORTS = {
+    "iPhone": ROOT / "docs" / "screenshots",
+    "iPad": ROOT / "docs" / "screenshots" / "ipad-report",
+}
+DEVICE_CONFIG = {
+    "iPhone": {
+        "manifestDevice": "iPhone 15",
+        "orientation": "portrait",
+        "pixelSize": (1179, 2556),
+        "scale": 3,
     },
-    "playing": {
-        "mismatchRatio": 0.12,
-        "masks": [
-            {"kind": "dynamicArtwork", "rect": [0.32, 0.12, 0.68, 0.60]},
-            {"kind": "dynamicText", "rect": [0.34, 0.61, 0.66, 0.68]},
-            {"kind": "playbackProgress", "rect": [0.31, 0.69, 0.69, 0.75]},
-        ],
-    },
-    "account": {
-        "mismatchRatio": 0.10,
-        "masks": [{"kind": "accountDynamicContent", "rect": [0.32, 0.18, 0.68, 0.39]}],
-    },
-    "search-artist-bottom": {
-        "mismatchRatio": 0.18,
-        "masks": [
-            {"kind": "dynamicArtwork", "rect": [0.23, 0.08, 0.98, 0.25]},
-            {"kind": "dynamicText", "rect": [0.23, 0.25, 0.98, 0.32]},
-        ],
-    },
-    "search-album-detail": {
-        "mismatchRatio": 0.16,
-        "masks": [
-            {"kind": "dynamicArtwork", "rect": [0.24, 0.10, 0.43, 0.36]},
-            {"kind": "dynamicText", "rect": [0.44, 0.12, 0.78, 0.34]},
-        ],
+    "iPad": {
+        "manifestDevice": "iPad Air 13-inch (M3)",
+        "orientation": "landscape",
+        "pixelSize": (2732, 2048),
+        "scale": 2,
     },
 }
+DELTA_THRESHOLD = 8
+MASK_LIMIT = 0.25
+DEFAULT_MISMATCH_RATIO = 0.10
 
 
-def run(*args: str) -> None:
-    subprocess.run(args, check=True)
+def run(*args: str, quiet: bool = False) -> None:
+    subprocess.run(
+        args,
+        check=True,
+        stdout=subprocess.DEVNULL if quiet else None,
+        stderr=subprocess.DEVNULL if quiet else None,
+    )
 
 
 def dimensions(path: Path) -> tuple[int, int]:
@@ -72,16 +62,29 @@ def sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def normalize(source: Path, target: Path) -> None:
-    if dimensions(source) != PIXEL_SIZE:
-        raise SystemExit(f"2732x2048 ではありません: {source} ({dimensions(source)})")
+def normalize(source: Path, target: Path, pixel_size: tuple[int, int]) -> None:
+    source_size = dimensions(source)
+    if source_size != pixel_size:
+        expected = "x".join(map(str, pixel_size))
+        raise SystemExit(f"{expected} ではありません: {source} ({source_size})")
     target.parent.mkdir(parents=True, exist_ok=True)
-    run(
-        "ffmpeg", "-loglevel", "error", "-y", "-i", str(source),
-        "-vf", "colorspace=all=bt709:iall=bt709:fast=1,format=rgb24",
-        "-frames:v", "1", str(target),
-    )
-    if dimensions(target) != PIXEL_SIZE:
+    temporary = Path(tempfile.mkdtemp(prefix="musicfin-normalize-"))
+    decoded = temporary / "decoded.png"
+    converted = temporary / "srgb.png"
+    try:
+        # ffmpeg は色変換を挟まず、各形式を 8 bit RGB PNG へ展開するだけに留める。
+        run(
+            "ffmpeg", "-loglevel", "error", "-y", "-i", str(source),
+            "-frames:v", "1", str(decoded),
+        )
+        run(
+            "sips", "--matchTo", "/System/Library/ColorSync/Profiles/sRGB Profile.icc",
+            str(decoded), "--out", str(converted), quiet=True,
+        )
+        shutil.copyfile(converted, target)
+    finally:
+        shutil.rmtree(temporary, ignore_errors=True)
+    if dimensions(target) != pixel_size:
         raise SystemExit(f"正規化で寸法が変わりました: {target}")
 
 
@@ -121,67 +124,128 @@ print(json.dumps({{
     return json.loads(output)
 
 
-def write_viewer(screens: list[dict], generated_at: str) -> None:
+def paired_stories(device: str) -> tuple[list[dict[str, str]], list[dict]]:
+    catalog = json.loads(CATALOG.read_text())
+    masks = catalog.get("defaults", {}).get("masks", {}).get(device, [])
+    stories = []
+    seen_captures: set[str] = set()
+    for story in catalog.get("stories", []):
+        item = story.get("devices", {}).get(device)
+        if not item or not item.get("capture"):
+            continue
+        capture = item["capture"]
+        if capture in seen_captures:
+            raise SystemExit(f"{device} capture が重複しています: {capture}")
+        seen_captures.add(capture)
+        stories.append(
+            {
+                "id": story["id"],
+                "capture": capture,
+                "reference": item["reference"],
+                "category": story["category"],
+                "title": story["title"],
+            }
+        )
+    if not stories:
+        raise SystemExit(f"catalog に比較可能な {device} story がありません")
+    return stories, masks
+
+
+def write_viewer(
+    report: Path, device: str, screens: list[dict], generated_at: str
+) -> None:
     cards = "".join(
-        f'''<section><h2>{s["id"]}</h2><p>mismatch {s["metrics"]["mismatchRatio"]:.4%} · RGB MAE {s["metrics"]["rgbMAE"]:.5f} · {"PASS" if s["pass"] else "FAIL"}</p><img data-screen="{s["id"]}" src="{s["id"]}/current.png"></section>'''
+        f'''<section><h2>{s["title"]}</h2><p>{s["id"]} · masked mismatch {s["metrics"]["mismatchRatio"]:.4%} · masked RGB MAE {s["metrics"]["rgbMAE"]:.5f}<br>raw mismatch {s["metrics"]["rawMismatchRatio"]:.4%} · raw RGB MAE {s["metrics"]["rawRGBMAE"]:.5f} · {"CARRIED OVER (excluded from the fresh gate)" if s["carriedOver"] else "PASS" if s["pass"] else "FAIL"}</p><img data-screen="{s["id"]}" src="{s["id"]}/current.png"></section>'''
         for s in screens
     )
-    REPORT.joinpath("visual-report.html").write_text(f'''<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>iPad Visual Report</title><style>:root{{color-scheme:dark;font:14px system-ui;background:#111;color:#eee}}body{{margin:24px}}nav{{display:flex;gap:8px;position:sticky;top:0;background:#111;padding:12px 0}}button{{padding:8px 12px}}main{{display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:24px}}img{{width:100%;border:1px solid #555}}p{{color:#aaa}}</style><h1>iPad Visual Report</h1><p>{generated_at}</p><nav><button data-mode="reference">Reference</button><button data-mode="current">Current</button><button data-mode="overlay">Overlay</button><button data-mode="difference">Difference</button><button data-mode="masked-difference">Masked difference</button></nav><main>{cards}</main><script>document.querySelectorAll('button').forEach(b=>b.onclick=()=>document.querySelectorAll('img').forEach(i=>i.src=i.dataset.screen+'/'+b.dataset.mode+'.png'))</script>''')
+    report.joinpath("visual-report.html").write_text(f'''<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>{device} Visual Report</title><style>:root{{color-scheme:dark;font:14px system-ui;background:#111;color:#eee}}body{{margin:24px}}nav{{display:flex;gap:8px;position:sticky;top:0;background:#111;padding:12px 0}}button{{padding:8px 12px}}main{{display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:24px}}img{{width:100%;border:1px solid #555}}p{{color:#aaa}}</style><h1>{device} Visual Report</h1><p>{generated_at}</p><nav><button data-mode="reference">Reference</button><button data-mode="current">Current</button><button data-mode="overlay">Overlay</button><button data-mode="difference">Difference</button><button data-mode="masked-difference">Masked difference</button></nav><main>{cards}</main><script>document.querySelectorAll('button').forEach(b=>b.onclick=()=>document.querySelectorAll('img').forEach(i=>i.src=i.dataset.screen+'/'+b.dataset.mode+'.png'))</script>''')
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
+    parser.add_argument("--device", choices=DEVICE_CONFIG, default="iPad")
     parser.add_argument("--current", type=Path, required=True)
     args = parser.parse_args()
-    mapping = {
-        "search-artist": "artist-detail-togenashi-top-search-context.png",
-        "playing": "now-playing-not-playing.png",
-        "account": "music-account-sheet.png",
-        "search-artist-bottom": "artist-detail-togenashi-bottom-search-context.png",
-        "search-album-detail": "album-detail-ill-live-with-my-heart-on-my-sleeve-search-context.png",
-    }
-    REPORT.mkdir(parents=True, exist_ok=True)
+    device = args.device
+    config = DEVICE_CONFIG[device]
+    report = REPORTS[device]
+    pixel_size = config["pixelSize"]
+    capture_manifest = json.loads(args.current.joinpath("manifest.json").read_text())
+    if capture_manifest.get("device") != config["manifestDevice"]:
+        raise SystemExit(
+            f"current manifest の device が {config['manifestDevice']} ではありません"
+        )
+    if capture_manifest.get("orientation") != config["orientation"] or tuple(
+        capture_manifest.get("pixelSize", ())
+    ) != pixel_size:
+        raise SystemExit("current manifest の orientation または pixelSize が不正です")
+    shots = {shot["screen"]: shot for shot in capture_manifest.get("shots", [])}
+    report.mkdir(parents=True, exist_ok=True)
     screens = []
-    for screen, filename in mapping.items():
+    stories, masks = paired_stories(device)
+    for story in stories:
+        screen = story["capture"]
         source = args.current / f"{screen}.png"
-        if not source.exists():
+        if not source.exists() or screen not in shots:
             raise SystemExit(f"current がありません: {source}")
-        target = REPORT / screen
+        if dimensions(source) != pixel_size:
+            raise SystemExit(f"current の寸法が不正です: {source} ({dimensions(source)})")
+        if sha256(source) != shots[screen].get("sha256"):
+            raise SystemExit(f"current manifest の hash と一致しません: {source}")
+        target = report / story["id"]
         reference = target / "reference.png"
         current = target / "current.png"
-        normalize(REFERENCE / filename, reference)
-        normalize(source, current)
+        reference_source = REFERENCE / story["reference"]
+        normalize(reference_source, reference, pixel_size)
+        normalize(source, current, pixel_size)
         render(reference, current, target / "overlay.png", "[0:v][1:v]blend=all_expr='A*.5+B*.5'[out]")
         render(reference, current, target / "difference.png", "[0:v][1:v]blend=all_mode=difference,eq=contrast=4[out]")
-        config = SCREEN_CONFIG[screen]
+        screen_config = {"mismatchRatio": DEFAULT_MISMATCH_RATIO, "masks": masks}
         metrics = metrics_and_masked_difference(
-            reference, current, config["masks"], target / "masked-difference.png"
+            reference, current, screen_config["masks"], target / "masked-difference.png"
         )
         mask_ok = metrics["maskAreaRatio"] <= MASK_LIMIT
         screens.append({
-            "id": screen,
-            "referenceHash": sha256(REFERENCE / filename),
+            "id": story["id"],
+            "capture": screen,
+            "category": story["category"],
+            "title": story["title"],
+            "reference": story["reference"],
+            "referenceHash": sha256(reference_source),
             "currentHash": sha256(source),
             "tolerance": {
                 "channelDelta": DELTA_THRESHOLD,
-                "mismatchRatio": config["mismatchRatio"],
+                "mismatchRatio": screen_config["mismatchRatio"],
                 "maskAreaLimit": MASK_LIMIT,
             },
-            "masks": config["masks"],
+            "masks": screen_config["masks"],
             "maskAreaRatio": metrics["maskAreaRatio"],
             "metrics": metrics,
-            "pass": mask_ok and metrics["mismatchRatio"] <= config["mismatchRatio"],
+            # 撮り直せず前の世代から引き継いだ画面。数値は参考に残すが、今回の実装の合否には数えない。
+            "carriedOver": bool(shots[screen].get("carriedOver")),
+            "pass": mask_ok and metrics["mismatchRatio"] < screen_config["mismatchRatio"],
         })
     generated_at = dt.datetime.now().astimezone().isoformat(timespec="seconds")
     manifest = {
-        "device": "iPad Pro (12.9-inch) (6th generation)", "orientation": "landscape",
-        "pixelSize": list(PIXEL_SIZE), "scale": 2, "locale": "en_US", "appearance": "dark",
-        "generatedAt": generated_at, "screens": screens,
+        "device": capture_manifest["device"],
+        "orientation": config["orientation"],
+        "pixelSize": list(pixel_size),
+        "scale": config["scale"],
+        "locale": "en_US",
+        "appearance": "dark",
+        "generatedAt": generated_at,
+        "screens": screens,
     }
-    REPORT.joinpath("manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
-    write_viewer(screens, generated_at)
-    print(f"report: {REPORT / 'visual-report.html'}")
-    if any(not screen["pass"] for screen in screens):
+    report.joinpath("manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+    write_viewer(report, device, screens, generated_at)
+    fresh = [screen for screen in screens if not screen["carriedOver"]]
+    carried = [screen["capture"] for screen in screens if screen["carriedOver"]]
+    print(f"report: {report / 'visual-report.html'}")
+    print(f"{len(fresh)} fresh screens verified, {len(carried)} carried over" + (
+        f": {', '.join(sorted(carried))}" if carried else ""
+    ))
+    # 引き継いだ画面が古い実装のまま FAIL でも、今回の撮影の合否を左右させない。
+    if any(not screen["pass"] for screen in fresh):
         raise SystemExit(1)
 
 

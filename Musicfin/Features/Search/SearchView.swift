@@ -35,6 +35,7 @@ struct SearchView: View {
         .background(AppBackdrop())
         .tint(.pink)
         .navigationTitle("検索")
+        .accessibilityIdentifier("search.root")
         // 入力前は大きな画面名をツールバー内に置く。標準の large はバーの下段に積まれ、
         // Apple 実機より 59 pt 低い位置から始まってしまう（仕様 1.1 章）。
         .toolbarTitleDisplayMode(term.isEmpty ? .inlineLarge : .automatic)
@@ -145,6 +146,8 @@ struct SearchView: View {
                     SearchResultRow(item: item, subtitle: subtitle(for: item))
                 }
                 .buttonStyle(.plain)
+                // 同名の曲が並ぶので、撮影テストは表示名ではなく item ID でこの行を選ぶ。
+                .accessibilityIdentifier(searchResultIdentifier(for: item))
 
                 RowMenu {
                     Button {
@@ -168,13 +171,20 @@ struct SearchView: View {
             } label: {
                 SearchResultRow(item: item, subtitle: subtitle(for: item), isCircular: true)
             }
+            .accessibilityIdentifier(searchResultIdentifier(for: item))
         default:
             NavigationLink {
                 AlbumDetailView(album: item)
             } label: {
                 SearchResultRow(item: item, subtitle: subtitle(for: item))
             }
+            .accessibilityIdentifier(searchResultIdentifier(for: item))
         }
+    }
+
+    /// 表示名が同じ結果でも Jellyfin の実体を取り違えないよう、種別と item ID を識別子へ含める。
+    private func searchResultIdentifier(for item: MediaItem) -> String {
+        "search.result.\(item.type?.rawValue ?? "Unknown").\(item.id)"
     }
 
     /// 副題は「種別を示す語 ＋ 中点 ＋ 補足」。区分見出しを出さないので、

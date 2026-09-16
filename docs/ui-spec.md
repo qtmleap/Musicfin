@@ -5,9 +5,9 @@ gpt-6-astra との設計相談で確定した決定事項。実装はこの仕�
 
 ## 1. タブ構成
 
-**3 タブ**: ホーム / ライブラリ / 検索。
+**5 つの行き先**: ホーム / ニュー / ラジオ / ライブラリ / 検索。
 
-- 検索は `Tab(role: .search)` を使う
+- 検索は `Tab(role: .search)` を使い、最下部の検索アクセサリとしての役割を保つ
 - 各タブは独立した遷移履歴を保持する
 - ライブラリは「アルバム / アーティスト / プレイリスト / お気に入りの曲 / ジャンル」の
   一覧から詳細へ進む**入れ子構成**。segmented control と専用サイドバーは採用しない
@@ -20,8 +20,9 @@ gpt-6-astra との設計相談で確定した決定事項。実装はこの仕�
 ## 1.1 Apple Music 実機参照に合わせた表示
 
 `docs/screenshots/reference/` の Apple Music 実機スクリーンショットを比較対象とする。
-**ニュー・ラジオは作らない**（3 タブ構成は変えない）。Apple Account・契約・ダウンロードなど
-Jellyfin に無い機能も模倣しない。
+ユーザーが指定した実機参照に従い、**ニューとラジオを含む 5 つの行き先**を設ける。
+ニューは実在する最近追加アルバム、ラジオは実在するライブラリ項目を種にした Instant Mix を表示する。
+Apple Account・契約・ダウンロードなど Jellyfin に無い機能は模倣しない。
 
 **この仕様書と Apple Music 実機が食い違う場合は実機を正とし、この仕様書を更新する。**
 実装が仕様から外れるのではなく、仕様の側を実測に合わせる。
@@ -432,7 +433,7 @@ Jellyfin に無い機能も模倣しない。
 | 最近追加したアルバム | 横カルーセル | アートワーク 180×180 pt |
 | よく聴くアルバム | 横カルーセル | アートワーク 160×160 pt |
 | お気に入りの曲 | 横カルーセル（3 段組） | 行高は最小 64 pt（文字拡大に合わせて伸長）、画像 44 pt、カラム幅 280 pt、親の高さは固定しない |
-| アルバムを探す | 2 列グリッド（先頭 6 件） | 画像幅 `(表示幅 − 52) / 2` pt（左右余白 20 + 列間 12） |
+| アルバムを探す | 2 列グリッド（先頭 10 件） | 画像幅 `(表示幅 − 52) / 2` pt（左右余白 20 + 列間 12） |
 
 - カルーセルのカード下に作品名・アーティスト名を置く
 - グリッドは左右余白 20 pt、列間 12 pt、**段間隔 19 pt**（Apple 実機の実測に合わせる）。
@@ -1450,16 +1451,61 @@ preset の 0.15 の弾みは 1 pt 未満に収まって行き過ぎとして見�
 
 ## 6. iPad レイアウト
 
-- **iPad も同じ 3 タブの `TabView`**。`NavigationSplitView` は採用しない
-- タブバーはシステム標準の上部配置に任せる
-- ミニプレイヤーは共通の `tabViewBottomAccessory`。
-  下部タブバーがない場合はコンテンツ下端に配置される公式仕様に従う
-- ホームのカルーセル寸法は維持。グリッドだけ 180〜220 pt を目安に列数を増やす。
-  **どの列数でも帯に入らない幅がある**ので、**帯の中心 200 pt にもっとも近い画像幅になる列数**を選ぶ。
-  「帯に入る最小の列数」でも「帯に入る最大の列数」でもない。左右余白 20 pt・列間 12 pt は固定で、
-  画像幅は `(表示幅 − 40 − 12 ×(列数 − 1)) / 列数`。最低 3 列（600 pt 未満の分岐は別に定める）
-- フルプレイヤーは幅 560 pt を目安とする中央の大きな sheet。縦構成は維持
-- 狭いウインドウでは 1 列表示へ適応。**端末名ではなく利用可能幅で判断する**
+`docs/app/iPad/*.PNG` の 5 枚を正とし、従来の「iPad も 3 タブ」「中央 sheet」という想定は撤回する。
+基準画像はすべて 2732 × 2048 px（2 倍、論理 1366 × 1024 pt）なので、比較撮影も
+**iPad Air 13-inch (M3) の横向き**へ固定する。
+
+- iPad の shell は `NavigationSplitView` を使わない。標準の split view は横向きでも左カラムを
+  detail へ重ねる overlay 表示になり、端の払いや toolbar のボタンで閉じられてしまう。基準画像の
+  sidebar は常に見えている固定の板なので、`RootView` が黒い window の上へ板と detail を自分で
+  並べる。閉じる導線・sidebar toggle・`columnVisibility` の類は置かない。各タブの画面が個別に
+  split view を持ったり、iPhone の `TabView` を iPad でも上部タブとして使ったりしない
+- sidebar は window の端（safe area ではない）から測って **左 10 pt・上 32 pt・下 10 pt** に浮かせた
+  角丸の板とする。幅は画像上 539 / 2732 = 19.73%、論理 **269.5 pt**、高さ約 982 pt、角丸 **24 pt**。
+  板だけを半透明 material で描き、window と detail の地は黒一色にする。detail に板のような面は敷かない
+- detail は板の下へ潜らず、板の右端 **279.5 pt** から始まる。本文の左端はそこからさらに
+  **34.5 pt** 内側の **314 pt** に揃え、その 34.5 pt は黒地のまま残す。境界線（divider）は引かない
+- detail の標準左右余白は 34.5 pt とし、sidebar の形、選択行、detail の開始位置を画面ごとに
+  変えない。ホーム・アルバム詳細・アーティスト詳細・検索・各一覧も同じ 34.5 pt を使い、本文左端が
+  314 pt 以外になる画面を作らない
+- sidebar の行は記号と文字だけなら高さ 44 pt で、行送りも 44 pt（基準画像 88 px）にそろえる。
+  選択中の行は行いっぱいの 236.5 × 44 pt の capsule で塗り、板の左右へ 16.5 pt ずつ余白を置く。
+  作品画像を出す行だけ 51 pt と高い。「ピン」の見出しのように選ばれない行は地を持たせない
+- ミニプレイヤーは sidebar や `tabViewBottomAccessory` の中へ置かない。右の detail 座標系で
+  水平中央に置く floating bar とし、論理約 689 × 63.5 pt、下端余白約 25 pt を基準にする。
+  25 pt は **window の下端から**測る。safe area の内側に置くとホームインジケータぶんだけ浮く。
+  **window 全体の中央へ置くと sidebar の半幅だけ左へずれる**ため、必ず detail 内で中央揃えする
+- ホームのカルーセル寸法は維持する。グリッドだけ 180〜220 pt を目安に列数を増やし、
+  detail の利用可能幅に対して画像幅が 200 pt に最も近くなる列数を選ぶ。左右余白は上記の
+  detail 余白、列間は 12 pt とする
+- フルプレイヤーは基準画像どおり **window 全体を覆う cover** とする。iPad だけ中央の fitted sheet に
+  する旧実装は正とせず、sidebar や detail の幅へプレイヤーを閉じ込めない
+- 狭いウインドウでは 1 列表示へ適応する。端末名ではなく利用可能幅で判断するが、基準画像との
+  visual regression は上記端末・向き・寸法だけで行う
+
+### 6.1 iPad の画像比較
+
+撮影は `MusicfinUITests` と `scripts/capture-screens.sh` の iPad 導線から行い、比較処理を始める直前に
+画像寸法が **2732 × 2048 px** であることを assert する。向きや scale が違う画像を resize して
+比較対象にしてはならない。
+
+- 比較前に reference / current の両方を **sRGB・RGB 8 bit** へ正規化する
+- report は `docs/screenshots/ipad-report/` 以下へ毎回生成する。利用者が削除中の
+  `docs/screenshots/index.html` は復元も上書きもせず、既存の phone report と入口を共有しない
+- 各画面について reference、current、overlay、raw difference、masked difference を生成する。
+  数値判定に使う raw metric と、目視しやすいよう増幅した difference 画像は分離し、増幅画像から
+  mismatch を算出しない
+- raw metric は mask 外で `abs(channel delta) > 8 / 255` となる pixel の mismatch ratio と
+  RGB MAE を最低限記録する。画面ごとの許容閾値を超えた場合に加え、mask の総面積率が上限を
+  超えた場合も fail とする
+- mask は正規化座標で定義してよい。許可する動的領域は status/account 表示、動的 artwork、
+  動的 text、再生 progress だけとする。sidebar の輪郭・選択状態、detail margin、mini-player bounds、
+  player の位置には mask を掛けない
+- manifest には device、orientation、pixelSize、scale、locale、appearance、reference/current の hash、
+  tolerance、mask の名前・正規化矩形・面積率、raw metrics、最終 pass/fail を記録する
+- viewer は reference / current / difference / overlay / masked difference と raw / masked の差分率を
+  同じ report から確認できるようにする。Connect 固有の基盤は前提にせず、Musicfin の既存撮影導線を
+  拡張する
 
 ## 7. アルバム詳細の再生ボタン
 

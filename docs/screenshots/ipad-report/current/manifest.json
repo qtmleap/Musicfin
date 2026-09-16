@@ -1,0 +1,179 @@
+{
+  "version": "0.1.0",
+  "language": "en",
+  "locale": "en_US",
+  "appearance": "dark",
+  "generatedAt": "2026-09-17T02:45:13+09:00",
+  "device": "iPad Air 13-inch (M3)",
+  "orientation": "landscape",
+  "pixelSize": [
+    2732,
+    2048
+  ],
+  "scale": 2,
+  "shots": [
+    {
+      "screen": "account",
+      "path": "account.png",
+      "pixelSize": [
+        2732,
+        2048
+      ],
+      "sha256": "7148a92beb41d3a59c46b4654fb82468dfbf0c9dcfe4d172486a232913256972"
+    },
+    {
+      "screen": "album",
+      "path": "album.png",
+      "pixelSize": [
+        2732,
+        2048
+      ],
+      "sha256": "81422e5c42978329cf951c0f5ab325da0829ab88d696f295dc5980f4ccfe5471"
+    },
+    {
+      "screen": "albums",
+      "path": "albums.png",
+      "pixelSize": [
+        2732,
+        2048
+      ],
+      "sha256": "ce8ead2dbe6cdef2d90c39470fea54e38a44a614d6230dcad31bb99361b280e1"
+    },
+    {
+      "screen": "artist",
+      "path": "artist.png",
+      "pixelSize": [
+        2732,
+        2048
+      ],
+      "sha256": "ebfeb31eccffa1714084f73bd987c7df86d56255a403d44affc15f6d19880301"
+    },
+    {
+      "screen": "artists",
+      "path": "artists.png",
+      "pixelSize": [
+        2732,
+        2048
+      ],
+      "sha256": "e46f2153970f99e694929076c6190507ddf390eb7250e955461e33ca6c0467d5"
+    },
+    {
+      "screen": "home",
+      "path": "home.png",
+      "pixelSize": [
+        2732,
+        2048
+      ],
+      "sha256": "bb576beeb8f71c4bd91eac53a131723ec1d66ab2d09b4a90aa075f60f1df40bf"
+    },
+    {
+      "screen": "lyrics",
+      "path": "lyrics.png",
+      "pixelSize": [
+        2732,
+        2048
+      ],
+      "sha256": "47ddf90487e7eba8d4f1256280c12ac661f31a6f15feb0242fe2b53a9b53ec7b"
+    },
+    {
+      "screen": "lyrics-loading",
+      "path": "lyrics-loading.png",
+      "pixelSize": [
+        2732,
+        2048
+      ],
+      "sha256": "e2bb29f80b1a6eb6d2bddfdeb3c08a22f7d8a4787220ea7b56489d7a4b76a2ee"
+    },
+    {
+      "screen": "miniplayer",
+      "path": "miniplayer.png",
+      "pixelSize": [
+        2732,
+        2048
+      ],
+      "sha256": "b1c3caeb545203f90e3b3bc4835ae44db3aed31e06c81cf9e0c33b1631759c04"
+    },
+    {
+      "screen": "nowplaying",
+      "path": "nowplaying.png",
+      "pixelSize": [
+        2732,
+        2048
+      ],
+      "sha256": "cec9af40bfd3823a011e559ede2419f18be047cf92bd5fad89ddca92ac9cec5e"
+    },
+    {
+      "screen": "playing",
+      "path": "playing.png",
+      "pixelSize": [
+        2732,
+        2048
+      ],
+      "sha256": "29e8e6fd4c6802b7e8f2baf5cca9514d4628d92ec7c8988940e5a3e6e1185f10"
+    },
+    {
+      "screen": "queue",
+      "path": "queue.png",
+      "pixelSize": [
+        2732,
+        2048
+      ],
+      "sha256": "e2d2f7d3ca12ff4e48a734faf64eb975833cc3ad206e625b96b167b7f1caf69c",
+      "carriedOver": true
+    },
+    {
+      "screen": "search",
+      "path": "search.png",
+      "pixelSize": [
+        2732,
+        2048
+      ],
+      "sha256": "670a6a0f9a7fce2f2c4831dcc148646598abcccc7fbfc7a0d1cfb2a2eb0f1be0"
+    },
+    {
+      "screen": "search-album-detail",
+      "path": "search-album-detail.png",
+      "pixelSize": [
+        2732,
+        2048
+      ],
+      "sha256": "f4fdb9f797f1484a92f8d1c5474fdee7e4aa39021e5badc502400ebdd8d029f8"
+    },
+    {
+      "screen": "search-artist",
+      "path": "search-artist.png",
+      "pixelSize": [
+        2732,
+        2048
+      ],
+      "sha256": "e00c118a8219f6cea92d0c5f52e8c858339e49bdf9b6638d19a03d2d7994a88a"
+    },
+    {
+      "screen": "search-artist-bottom",
+      "path": "search-artist-bottom.png",
+      "pixelSize": [
+        2732,
+        2048
+      ],
+      "sha256": "e3b840da930f5e09fd22783ab169f19e1430c651e1f25de4c46b95de7b73bde5"
+    },
+    {
+      "screen": "search-idle",
+      "path": "search-idle.png",
+      "pixelSize": [
+        2732,
+        2048
+      ],
+      "sha256": "ba07adf85974b4c1f63f8794b067c1ba85a0d8c40eee872681d26a28fc58c609"
+    },
+    {
+      "screen": "songs",
+      "path": "songs.png",
+      "pixelSize": [
+        2732,
+        2048
+      ],
+      "sha256": "fc73d6fce42cfb9868139f217fd17a10777b26adcce194055e35e2bb3b8eb57c"
+    }
+  ]
+}
