@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// 入力前にも探し方を示し、検索結果とブラウズを同じ素朴なリストでつなぐ。
 struct SearchView: View {
@@ -18,6 +19,9 @@ struct SearchView: View {
 
     private var term: String { query.trimmingCharacters(in: .whitespacesAndNewlines) }
     private var tracks: [MediaItem] { results.filter { $0.type == .audio } }
+    private var horizontalMargin: CGFloat {
+        UIDevice.current.userInterfaceIdiom == .pad ? 34.5 : 20
+    }
 
     var body: some View {
         Group {
@@ -34,6 +38,7 @@ struct SearchView: View {
         // 入力前は大きな画面名をツールバー内に置く。標準の large はバーの下段に積まれ、
         // Apple 実機より 59 pt 低い位置から始まってしまう（仕様 1.1 章）。
         .toolbarTitleDisplayMode(term.isEmpty ? .inlineLarge : .automatic)
+        .libraryNavigationMargins(horizontalMargin)
         .overlay { searchStatus }
         .onChange(of: query) { _, _ in
             // 古い語句の結果を新しい検索結果と誤認させないため、入力変更時に消す。
@@ -45,7 +50,8 @@ struct SearchView: View {
     }
 
     private var resultList: some View {
-        List {
+        let separatorTrailingInset = horizontalMargin
+        return List {
             // 一覧の上の罫線だけは左 20 pt から引き、**この 1 本だけ自分で描く**（仕様 9 章）。
             // システムの区切り線は太さを指定できず 1 pt（3 物理画素）で出るのに対し、
             // Apple 実機の上端の 1 本は 1 物理画素だったため。行どうしの罫線は 3 物理画素で
@@ -55,20 +61,31 @@ struct SearchView: View {
             Rectangle()
                 .fill(Color(.separator))
                 .frame(height: 1 / displayScale)
-                .listRowInsets(EdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 0))
+                .listRowInsets(
+                    EdgeInsets(top: 0, leading: horizontalMargin, bottom: 0, trailing: 0)
+                )
                 .listRowSeparator(.hidden)
 
             // 種別で分けず、サーバーが返した順のまま 1 つの一覧に混ぜる（仕様 9 章）。
             ForEach(results) { item in
                 resultRow(item)
                     // 画像 56 pt に上下 10 pt で行ピッチ 76 pt。
-                    .listRowInsets(EdgeInsets(top: 10, leading: 20, bottom: 10, trailing: 20))
+                    .listRowInsets(
+                        EdgeInsets(
+                            top: 10,
+                            leading: horizontalMargin,
+                            bottom: 10,
+                            trailing: horizontalMargin
+                        )
+                    )
                     .alignmentGuide(.listRowSeparatorLeading) { _ in
                         SearchResultRow.artworkSize + SearchResultRow.titleSpacing
                     }
                     // この画面だけ罫線を画面の右端まで伸ばす。仕様 1.1 章の 20 pt に対する例外で、
                     // 他の一覧へ広げてはいけない（仕様 9 章）。
-                    .alignmentGuide(.listRowSeparatorTrailing) { $0[.trailing] + 20 }
+                    .alignmentGuide(.listRowSeparatorTrailing) {
+                        $0[.trailing] + separatorTrailingInset
+                    }
             }
         }
         .listStyle(.plain)
@@ -89,8 +106,8 @@ struct SearchView: View {
                         .buttonStyle(.plain)
                     }
                 }
-                // タイルの左右も一覧本体と同じ 20 pt に揃える（仕様 1.1 章）。
-                .padding(.horizontal, 20)
+                // iPad は split detail 共通の 34.5 pt、iPhone は一覧本体の 20 pt に揃える（仕様 1.1・6 章）。
+                .padding(.horizontal, horizontalMargin)
                 // 上端はツールバーが返す間隔だけで足りる。ここで足すと見出しとタイルが離れる。
                 .padding(.bottom, 16)
             }

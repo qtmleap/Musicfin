@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 enum LibraryRoute: Hashable {
     case albums, artists, playlists, songs, favorites, genres
@@ -387,6 +388,9 @@ struct LibraryCollectionView: View {
             .sorted { $0.displayName.localizedStandardCompare($1.displayName) == .orderedAscending }
     }
     private var title: LocalizedStringResource { kind == .artists ? "アーティスト" : "プレイリスト" }
+    private var horizontalMargin: CGFloat {
+        UIDevice.current.userInterfaceIdiom == .pad ? 34.5 : 20
+    }
     /// 行の上下余白。画像の一辺（アーティスト 48 pt・プレイリスト 64 pt）に対応させる（仕様 1.1 章）。
     private var rowVerticalPadding: CGFloat { kind == .artists ? 4 : 8 }
 
@@ -414,9 +418,9 @@ struct LibraryCollectionView: View {
             .listRowInsets(
                 EdgeInsets(
                     top: rowVerticalPadding,
-                    leading: 20,
+                    leading: horizontalMargin,
                     bottom: rowVerticalPadding,
-                    trailing: 20
+                    trailing: horizontalMargin
                 )
             )
             // 罫線の右端は `List` の既定 16 pt のまま。**行の中身の 20 pt とは揃わないのが Apple の実測**で、
@@ -432,7 +436,7 @@ struct LibraryCollectionView: View {
         // 一覧の画面名は左寄せの largeTitle（仕様 1.1 章）。中央インラインにはしない。
         .navigationBarTitleDisplayMode(.large)
         .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "検索")
-        .libraryNavigationMargins()
+        .libraryNavigationMargins(horizontalMargin)
         .toolbar {
             if kind == .artists {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -485,6 +489,9 @@ struct SongsView: View {
     /// 区分の頭文字は作品名から採るので、並びの基準も作品名に合わせる（仕様 1.1 章）。
     /// サーバーの SortName 順のままだと B → T → C のように区分が前後して見える。
     private var tracks: [MediaItem] { LibrarySort.title.sort(library.tracks.matching(query)) }
+    private var horizontalMargin: CGFloat {
+        UIDevice.current.userInterfaceIdiom == .pad ? 34.5 : 20
+    }
 
     /// 並べ替えの基準（曲一覧はタイトル順）どおりに頭文字でまとめる。
     /// 並びは `tracks` で既に整っているので、ここでは出現順にまとめるだけでよい。
@@ -518,7 +525,7 @@ struct SongsView: View {
         // 一覧の画面名は左寄せの largeTitle（仕様 1.1 章）。中央インラインにはしない。
         .navigationBarTitleDisplayMode(.large)
         .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "検索")
-        .libraryNavigationMargins()
+        .libraryNavigationMargins(horizontalMargin)
         .overlay { status }
         .task { await library.loadTracks() }
     }
@@ -531,7 +538,8 @@ struct SongsView: View {
                     shuffle: {
                         if !player.isShuffled { player.toggleShuffle() }
                         player.play(items: tracks, startingAt: 0)
-                    }
+                    },
+                    listInsets: horizontalMargin
                 )
                 .disabled(tracks.isEmpty)
             }
@@ -539,7 +547,7 @@ struct SongsView: View {
             ForEach(sections, id: \.key) { section in
                 Section {
                     ForEach(section.tracks) { track in
-                        SongListRow(track: track, queue: tracks)
+                        SongListRow(track: track, queue: tracks, horizontalMargin: horizontalMargin)
                             .task {
                                 if query.isEmpty { await library.loadMoreTracksIfNeeded(currentItem: track) }
                             }
@@ -554,7 +562,14 @@ struct SongsView: View {
                         // 下を 6 pt にしてあるのは、カプセル下端から先頭の画像までの合計 60.67 pt が
                         // Apple と一致したあとも、内訳が「見出しの字まで 36.67 / 字から画像まで 12.33」と
                         // Apple の 34.67 / 14.33 から 2 pt ずれていたため。足りないのは見出しの下だった（仕様 1.1 章）。
-                        .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 6, trailing: 20))
+                        .listRowInsets(
+                            EdgeInsets(
+                                top: 8,
+                                leading: horizontalMargin,
+                                bottom: 6,
+                                trailing: horizontalMargin
+                            )
+                        )
                 }
             }
 
@@ -613,6 +628,7 @@ struct SongsView: View {
 private struct SongListRow: View {
     let track: MediaItem
     let queue: [MediaItem]
+    let horizontalMargin: CGFloat
 
     @Environment(LibraryStore.self) private var library
     @Environment(PlaybackEngine.self) private var player
@@ -648,7 +664,14 @@ private struct SongListRow: View {
             }
         }
         // 画像 48 pt に上下 4 pt で行送り 56 pt。画像どうしの間隔が Apple 実機の 8 pt になる。
-        .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 4, trailing: 20))
+        .listRowInsets(
+            EdgeInsets(
+                top: 4,
+                leading: horizontalMargin,
+                bottom: 4,
+                trailing: horizontalMargin
+            )
+        )
     }
 }
 
