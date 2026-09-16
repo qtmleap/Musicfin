@@ -36,7 +36,21 @@ def load_catalog() -> dict:
     return catalog
 
 
+def load_shots(report: Path) -> tuple[dict[str, dict], str | None]:
+    """current の manifest から画面ごとの素性を読む。
+
+    撮り直せなかった画面は前の世代から引き継いでおり、撮影時刻だけを見ると
+    すべてが今回の撮影に見えてしまう。どの画面がいつのものかは manifest にしかない。
+    """
+    manifest = report / "current" / "manifest.json"
+    if not manifest.is_file():
+        return {}, None
+    data = json.loads(manifest.read_text())
+    return {shot["screen"]: shot for shot in data.get("shots", [])}, data.get("generatedAt")
+
+
 def report_stories(catalog: dict, device: str, report: Path) -> list[dict]:
+    shots, generated_at = load_shots(report)
     stories = []
     for story in catalog["stories"]:
         item = story["devices"].get(device)
@@ -48,6 +62,8 @@ def report_stories(catalog: dict, device: str, report: Path) -> list[dict]:
         shutil.copy2(reference, reference_target)
         capture = item.get("capture")
         current = report / "current" / f"{capture}.png" if capture else None
+        shot = shots.get(capture) if capture else None
+        carried = bool(shot and shot.get("carriedOver"))
         stories.append(
             {
                 "id": story["id"],
@@ -57,6 +73,9 @@ def report_stories(catalog: dict, device: str, report: Path) -> list[dict]:
                 "reference": reference_target.relative_to(report).as_posix(),
                 "current": current.relative_to(report).as_posix() if current else None,
                 "capture": capture,
+                # 引き継いだ画面は今回の撮影ではないので、閲覧側で世代を取り違えないよう素性を渡す。
+                "carriedOver": carried,
+                "capturedAt": None if carried else generated_at,
                 "counterpart": next(
                     (other for other in REPORTS if other != device and other in story["devices"]),
                     None,
@@ -79,10 +98,11 @@ def document(device: str, stories: list[dict]) -> str:
 const stories={data},device={json.dumps(device)},nav=document.querySelector('#stories');let selected,mode='side',zoom='fit',linked=true,scrollLock=false;
 const $=id=>document.getElementById(id),params=new URLSearchParams(location.search);mode=['side','overlay','difference'].includes(params.get('mode'))?params.get('mode'):'side';zoom=['fit','0.5','1','2'].includes(params.get('zoom'))?params.get('zoom'):'fit';
 function groups(list){{const result=new Map;for(const s of list){{if(!result.has(s.category))result.set(s.category,[]);result.get(s.category).push(s)}}return result}}
+function provenance(s){{if(!s?.capture)return 'reference only';if(s.carriedOver)return s.capture+' · carried over from a previous capture';return s.capture+(s.capturedAt?' · captured '+s.capturedAt:'')}}
 function notify(text){{$('status').textContent=text;clearTimeout(notify.timer);notify.timer=setTimeout(()=>$('status').textContent='',3000)}}
 function saveState(){{const p=new URLSearchParams;p.set('mode',mode);p.set('zoom',zoom);if(device==='iPhone'&&new URLSearchParams(location.search).get('device')==='iphone')p.set('device','iphone');history.replaceState(null,'',`${{location.pathname}}?${{p}}#${{selected.id}}`)}}
 function renderNav(query=''){{nav.innerHTML='';const filtered=stories.filter(s=>(s.title+' '+s.id+' '+s.category).toLowerCase().includes(query.toLowerCase()));for(const [category,items] of groups(filtered)){{const h=document.createElement('div');h.className='category';h.textContent=category;nav.append(h);for(const s of items){{const b=document.createElement('button');b.className='story'+(selected?.id===s.id?' active':'');b.textContent=s.title;b.setAttribute('aria-current',selected?.id===s.id?'page':'false');b.onclick=()=>openStory(s.id);nav.append(b)}}}}}}
-async function openStory(id){{selected=stories.find(s=>s.id===id)||stories[0];if(!selected)return;const canvas=$('composite');canvas.width=0;canvas.height=0;$('title').textContent=selected.title;$('path').textContent=selected.category+' / '+selected.id;$('description').textContent=selected.description;$('reference').src=selected.reference;const current=$('current'),missing=$('missing');if(selected.current){{current.hidden=false;missing.hidden=true;current.src=selected.current;current.onerror=()=>{{current.hidden=true;selected.current=null;missing.hidden=false;missing.textContent='Musicfin capture missing: '+selected.capture+'.png';setMode('side')}}}}else{{current.hidden=true;current.removeAttribute('src');missing.hidden=false;missing.textContent='Apple Music reference only'}}$('currentLabel').textContent=selected.capture||'reference only';renderNav($('search').value);saveState();await Promise.allSettled([$ ('reference').decode(),current.hidden?Promise.resolve():current.decode()]);setMode(mode);applyZoom()}}
+async function openStory(id){{selected=stories.find(s=>s.id===id)||stories[0];if(!selected)return;const canvas=$('composite');canvas.width=0;canvas.height=0;$('title').textContent=selected.title;$('path').textContent=selected.category+' / '+selected.id;$('description').textContent=selected.description;$('reference').src=selected.reference;const current=$('current'),missing=$('missing');if(selected.current){{current.hidden=false;missing.hidden=true;current.src=selected.current;current.onerror=()=>{{current.hidden=true;selected.current=null;missing.hidden=false;missing.textContent='Musicfin capture missing: '+selected.capture+'.png';setMode('side')}}}}else{{current.hidden=true;current.removeAttribute('src');missing.hidden=false;missing.textContent='Apple Music reference only'}}$('currentLabel').textContent=provenance(selected);renderNav($('search').value);saveState();await Promise.allSettled([$ ('reference').decode(),current.hidden?Promise.resolve():current.decode()]);setMode(mode);applyZoom()}}
 async function drawComposite(kind){{const a=$('current'),b=$('reference');if(a.hidden)return;try{{await Promise.all([a.decode(),b.decode()]);if(a.naturalWidth!==b.naturalWidth||a.naturalHeight!==b.naturalHeight){{const message=`画像サイズが異なるため比較できません: Musicfin ${{a.naturalWidth}}×${{a.naturalHeight}} / Apple Music ${{b.naturalWidth}}×${{b.naturalHeight}}`;setMode('side');$('metrics').textContent=message;notify(message);return}}const c=$('composite'),ctx=c.getContext('2d'),w=a.naturalWidth,h=a.naturalHeight;c.width=w;c.height=h;ctx.drawImage(a,0,0,w,h);if(kind==='overlay'){{ctx.globalAlpha=.5;ctx.drawImage(b,0,0);ctx.globalAlpha=1;$('metrics').textContent='Overlay opacity 50%'}}else{{const left=ctx.getImageData(0,0,w,h);ctx.clearRect(0,0,w,h);ctx.drawImage(b,0,0);const right=ctx.getImageData(0,0,w,h),out=ctx.createImageData(w,h);let total=0,changed=0;for(let i=0;i<out.data.length;i+=4){{let hit=false;for(let j=0;j<3;j++){{const d=Math.abs(left.data[i+j]-right.data[i+j]);out.data[i+j]=Math.min(255,d*4);total+=d;if(d>8)hit=true}}out.data[i+3]=255;if(hit)changed++}}ctx.putImageData(out,0,0);$('metrics').textContent='RGB MAE '+(total/(w*h*3*255)).toFixed(5)+' · mismatch >8 '+(changed/(w*h)*100).toFixed(2)+'%'}}applyZoom()}}catch(e){{setMode('side');$('metrics').textContent='比較画像を読み込めません: '+e.message}}}}
 function setMode(next){{if(next!=='side'&&!selected?.current){{next='side';notify('Musicfinの撮影画像がないためSide表示に戻しました')}}mode=next;document.querySelectorAll('#modes button').forEach(b=>{{const active=b.dataset.mode===mode;b.classList.toggle('active',active);b.setAttribute('aria-pressed',active)}});const composite=mode!=='side';$('currentPane').hidden=composite;$('referencePane').hidden=composite;$('compositePane').style.display=composite?'grid':'none';$('metrics').textContent=selected?.current?'':'Musicfinの対応キャプチャがないため参照のみ表示';saveState();if(composite){{$('compositeTitle').textContent=mode==='overlay'?'Overlay':'Pixel difference';drawComposite(mode)}}else applyZoom()}}
 function fitSize(el,frame){{if(!el.naturalWidth&&!el.width)return;const w=el.naturalWidth||el.width,h=el.naturalHeight||el.height,scale=Math.min(1,(frame.clientWidth-24)/w,(frame.clientHeight-24)/h);el.style.width=Math.max(1,w*scale)+'px'}}
@@ -102,7 +122,9 @@ def main() -> None:
         report.joinpath("catalog.json").write_text(
             json.dumps({"device": device, "stories": stories}, ensure_ascii=False, indent=2) + "\n"
         )
-        print(f"{device}: {len(stories)} stories -> {report / 'index.html'}")
+        carried = sorted(s["capture"] for s in stories if s["carriedOver"])
+        note = f" ({len(carried)} carried over: {', '.join(carried)})" if carried else ""
+        print(f"{device}: {len(stories)} stories{note} -> {report / 'index.html'}")
 
 
 if __name__ == "__main__":

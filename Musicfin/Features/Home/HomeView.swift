@@ -15,8 +15,13 @@ struct HomeView: View {
         return nil
     }
     private var isEmpty: Bool {
-        library.recentlyAdded.isEmpty && library.frequentlyPlayed.isEmpty
+        library.recentlyAdded.isEmpty && library.recentlyPlayedAlbums.isEmpty
             && favorites.isEmpty && catalog.items.isEmpty
+    }
+    /// iPad は detail の本文左端を sidebar の板から 34.5 pt 離す（仕様 6 章）。
+    /// ここを 20 pt のままにすると、同じ detail の一覧画面より本文だけ左に出てしまう。
+    private var horizontalMargin: CGFloat {
+        UIDevice.current.userInterfaceIdiom == .pad ? 34.5 : 20
     }
 
     var body: some View {
@@ -36,14 +41,15 @@ struct HomeView: View {
                         }
                         .accessibilityLabel("アカウント")
                     }
-                    .padding(.horizontal, 20)
+                    .padding(.horizontal, horizontalMargin)
 
                     LazyVStack(alignment: .leading, spacing: 32) {
-                        if !library.recentlyAdded.isEmpty {
-                            albumCarousel("最近追加したアルバム", items: library.recentlyAdded, size: 180)
+                        if !library.recentlyAdded.isEmpty || !favorites.isEmpty {
+                            topPicks
                         }
-                        if !library.frequentlyPlayed.isEmpty {
-                            albumCarousel("よく聴くアルバム", items: library.frequentlyPlayed, size: 160)
+                        if !library.recentlyPlayedAlbums.isEmpty {
+                            albumCarousel(
+                                "Recently Played", items: library.recentlyPlayedAlbums, size: 160)
                         }
                         if !favorites.isEmpty { favoriteCarousel }
                         if !catalog.items.isEmpty { exploreAlbums(width: geometry.size.width) }
@@ -65,6 +71,88 @@ struct HomeView: View {
         .toolbarVisibility(.hidden, for: .navigationBar)
         .sheet(isPresented: $showsAccount) { AccountView() }
         .task { await load() }
+    }
+
+    private var topPicks: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Top Picks for You")
+                .font(.title2.weight(.semibold))
+                .padding(.horizontal, horizontalMargin)
+                .accessibilityAddTraits(.isHeader)
+
+            ScrollView(.horizontal) {
+                LazyHStack(alignment: .top, spacing: 12) {
+                    if let recommendation = library.recentlyAdded.first {
+                        NavigationLink {
+                            AlbumDetailView(album: recommendation)
+                        } label: {
+                            editorialAlbumCard(recommendation)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("home.top-pick.\(recommendation.id)")
+                    }
+
+                    NavigationLink {
+                        FavoriteTracksView()
+                    } label: {
+                        favoritesCollectionCard
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("home.top-pick.favorites")
+                }
+                .padding(.horizontal, horizontalMargin)
+            }
+            .scrollIndicators(.hidden)
+        }
+    }
+
+    private func editorialAlbumCard(_ album: MediaItem) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ArtworkView(item: album, size: 241, cornerRadius: 12)
+            Text("Trending with \(album.displayArtist ?? album.albumArtist ?? album.displayName)")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .padding(.top, 8)
+            Text(album.displayName)
+                .font(.headline)
+                .lineLimit(1)
+                .padding(.top, 2)
+            if let artist = album.displayArtist ?? album.albumArtist {
+                Text(artist)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .padding(.top, 1)
+            }
+        }
+        .frame(width: 241, height: 321, alignment: .topLeading)
+    }
+
+    private var favoritesCollectionCard: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(Color(.secondarySystemFill))
+                Image(systemName: "star.fill")
+                    .font(.system(size: 88, weight: .medium))
+                    .foregroundStyle(.white)
+            }
+            .frame(width: 241, height: 241)
+            Text("Made By You")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .padding(.top, 8)
+            Text("Favorite Songs")
+                .font(.headline)
+                .padding(.top, 2)
+            Text(favorites.isEmpty ? "Songs you favorite will appear here." : "Your favorite songs in one collection.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .padding(.top, 1)
+        }
+        .frame(width: 241, height: 321, alignment: .topLeading)
     }
 
     private func albumCarousel(_ title: LocalizedStringResource, items: [MediaItem], size: CGFloat) -> some View {
@@ -133,7 +221,7 @@ struct HomeView: View {
     }
 
     private func exploreAlbums(width: CGFloat) -> some View {
-        let metrics = AlbumGridMetrics(width: width)
+        let metrics = AlbumGridMetrics(width: width, horizontalMargin: horizontalMargin)
         return VStack(alignment: .leading, spacing: 12) {
             ViewThatFits(in: .horizontal) {
                 HStack(alignment: .firstTextBaseline) {
@@ -147,7 +235,7 @@ struct HomeView: View {
                 }
             }
             LazyVGrid(columns: metrics.gridItems, alignment: .leading, spacing: AlbumGridMetrics.rowSpacing) {
-                ForEach(catalog.items.prefix(6)) { album in
+                ForEach(catalog.items.prefix(10)) { album in
                     NavigationLink {
                         AlbumDetailView(album: album)
                     } label: {
@@ -157,7 +245,7 @@ struct HomeView: View {
                 }
             }
         }
-        .padding(.horizontal, 20)
+        .padding(.horizontal, horizontalMargin)
     }
 
     private var exploreTitle: some View {

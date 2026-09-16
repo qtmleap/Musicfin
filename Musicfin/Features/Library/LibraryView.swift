@@ -232,69 +232,163 @@ struct AlbumGridView: View {
 
     private var source: [MediaItem] { albums ?? catalog.items }
     private var items: [MediaItem] { order.sort(source.matching(query)) }
+    private var usesPadPresentation: Bool { UIDevice.current.userInterfaceIdiom == .pad }
 
     var body: some View {
+        Group {
+            if usesPadPresentation {
+                padGrid
+            } else {
+                phoneGrid
+            }
+        }
+        .background(AppBackdrop())
+        .navigationTitle(usesPadPresentation ? "" : title)
+        .navigationBarTitleDisplayMode(usesPadPresentation ? .inline : .large)
+        .librarySearchable(
+            text: $query,
+            prompt: "検索",
+            horizontalMargin: usesPadPresentation ? 34.5 : 20
+        )
+        .libraryNavigationMargins(usesPadPresentation ? 34.5 : 20)
+        .toolbar {
+            if usesPadPresentation {
+                ToolbarItem(placement: .topBarLeading) {
+                    Text(title)
+                        .font(.largeTitle.bold())
+                        .accessibilityAddTraits(.isHeader)
+                }
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    Button {
+                        play(shuffled: false)
+                    } label: {
+                        Image(systemName: "play.fill")
+                            .foregroundStyle(Color.primary)
+                    }
+                    .disabled(items.isEmpty || isPreparing)
+                    .accessibilityLabel("再生")
+                    Button {
+                        play(shuffled: true)
+                    } label: {
+                        Image(systemName: "shuffle")
+                            .foregroundStyle(Color.primary)
+                    }
+                    .disabled(items.isEmpty || isPreparing)
+                    .accessibilityLabel("シャッフル")
+                    Menu {
+                        Picker("並べ替え", selection: $order) {
+                            ForEach([LibrarySort.title, .artist, .year], id: \.self) { option in
+                                Text(option.label).tag(option)
+                            }
+                        }
+                    } label: {
+                        Image(systemName: "line.3.horizontal.decrease")
+                            .foregroundStyle(Color.primary)
+                    }
+                    .accessibilityLabel("並べ替え")
+                    Menu {
+                        Button("情報", systemImage: "info.circle") {}
+                    } label: {
+                        Image(systemName: "ellipsis")
+                            .foregroundStyle(Color.primary)
+                    }
+                    .accessibilityLabel("その他")
+                }
+            } else {
+                LibrarySortMenu(order: $order, options: [.title, .artist, .year])
+            }
+        }
+    }
+
+    private var phoneGrid: some View {
         GeometryReader { geometry in
             let metrics = AlbumGridMetrics(width: geometry.size.width)
             ScrollView {
                 LazyVStack(spacing: 0) {
-                    if !items.isEmpty {
-                        TrackListActions(
-                            play: { play(shuffled: false) },
-                            shuffle: { play(shuffled: true) },
-                            listInsets: nil
-                        )
-                        .disabled(isPreparing)
-                        .padding(.horizontal, 20)
-                        // 検索欄の下端から 25 pt、ボタン下端からグリッドまで 24 pt（Apple 実機の実測）。
-                        // 検索欄と ScrollView の間に既に約 15 pt 入るので、足すのは差分の 10 pt だけ。
-                        .padding(.top, 10)
-                        .padding(.bottom, 24)
-                    }
-
-                    LazyVGrid(columns: metrics.gridItems, alignment: .leading, spacing: AlbumGridMetrics.rowSpacing) {
-                        ForEach(items) { album in
-                            NavigationLink {
-                                AlbumDetailView(album: album)
-                            } label: {
-                                AlbumCard(item: album, size: metrics.size)
-                            }
-                            .buttonStyle(.plain)
-                            // 撮影テストが位置ではなく識別子でアルバムを開けるようにする。
-                            // 一覧の先頭は操作列の「再生」なので、順番で引くと詳細へ入れない。
-                            .accessibilityIdentifier("album.card")
-                        }
-                    }
+                    albumGrid(columns: metrics.gridItems, size: metrics.size, horizontalMargin: 20)
+                    pagination
+                }
+                .padding(.top, 14)
+            }
+            .safeAreaInset(edge: .top, spacing: 0) {
+                if !items.isEmpty {
+                    TrackListActions(
+                        play: { play(shuffled: false) },
+                        shuffle: { play(shuffled: true) },
+                        listInsets: nil
+                    )
+                    .disabled(isPreparing)
                     .padding(.horizontal, 20)
-                    .padding(.bottom, 16)
-
-                    // 絞り込み中に次ページを読み続けると一覧が飛ぶので、全件表示のときだけ継ぎ足す。
-                    if albums == nil, query.isEmpty {
-                        if let message = catalog.errorMessage {
-                            LoadErrorView(message: message) { await loadNext() }
-                        } else if !catalog.isComplete {
-                            ProgressView()
-                                .padding()
-                                .task(id: catalog.items.count) { await loadNext() }
-                        }
-                    }
+                    .padding(.vertical, 10)
+                    .background(.bar)
+                    .accessibilityElement(children: .contain)
+                    .accessibilityIdentifier("library.albums.actions")
                 }
             }
-            .overlay {
-                if items.isEmpty, !query.isEmpty {
-                    ContentUnavailableView.search(text: query)
-                } else if items.isEmpty, albums != nil || catalog.isComplete {
-                    ContentUnavailableView("アルバムがありません", systemImage: "square.stack")
+            .overlay { emptyOverlay }
+        }
+    }
+
+    private var padGrid: some View {
+        GeometryReader { geometry in
+            let spacing: CGFloat = 12
+            let margin: CGFloat = 34.5
+            let available = max(1, geometry.size.width - margin * 2)
+            let columnCount = max(2, min(5, Int((available + spacing) / (180 + spacing))))
+            let size = max(1, (available - spacing * CGFloat(columnCount - 1)) / CGFloat(columnCount))
+            let columns = Array(repeating: GridItem(.fixed(size), spacing: spacing), count: columnCount)
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    albumGrid(columns: columns, size: size, horizontalMargin: margin)
+                    pagination
                 }
+                .padding(.top, 12)
+            }
+            .overlay { emptyOverlay }
+        }
+        .accessibilityIdentifier("library.albums.grid")
+    }
+
+    private func albumGrid(
+        columns: [GridItem], size: CGFloat, horizontalMargin: CGFloat
+    ) -> some View {
+        LazyVGrid(columns: columns, alignment: .leading, spacing: AlbumGridMetrics.rowSpacing) {
+            ForEach(items) { album in
+                NavigationLink {
+                    AlbumDetailView(album: album)
+                } label: {
+                    AlbumCard(item: album, size: size)
+                }
+                .buttonStyle(.plain)
+                // 撮影テストが位置ではなく識別子でアルバムを開けるようにする。
+                .accessibilityIdentifier("album.card.\(album.id)")
             }
         }
-        .background(AppBackdrop())
-        .navigationTitle(title)
-        // 一覧の画面名は左寄せの largeTitle（仕様 1.1 章）。中央インラインにはしない。
-        .navigationBarTitleDisplayMode(.large)
-        .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "検索")
-        .libraryNavigationMargins()
-        .toolbar { LibrarySortMenu(order: $order, options: [.title, .artist, .year]) }
+        .padding(.horizontal, horizontalMargin)
+        .padding(.bottom, 16)
+    }
+
+    @ViewBuilder
+    private var pagination: some View {
+        // 絞り込み中に次ページを読み続けると一覧が飛ぶので、全件表示のときだけ継ぎ足す。
+        if albums == nil, query.isEmpty {
+            if let message = catalog.errorMessage {
+                LoadErrorView(message: message) { await loadNext() }
+            } else if !catalog.isComplete {
+                ProgressView()
+                    .padding()
+                    .task(id: catalog.items.count) { await loadNext() }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var emptyOverlay: some View {
+        if items.isEmpty, !query.isEmpty {
+            ContentUnavailableView.search(text: query)
+        } else if items.isEmpty, albums != nil || catalog.isComplete {
+            ContentUnavailableView("アルバムがありません", systemImage: "square.stack")
+        }
     }
 
     /// 一覧に出ているアルバムの全曲を対象にする（仕様 1.1 章）。
@@ -305,8 +399,7 @@ struct AlbumGridView: View {
             defer { isPreparing = false }
             let tracks = await library.tracks(forAll: albums)
             guard !tracks.isEmpty else { return }
-            if player.isShuffled != shuffled { player.toggleShuffle() }
-            player.play(items: tracks, startingAt: 0)
+            player.play(items: tracks, startingAt: 0, shuffled: shuffled)
         }
     }
 
@@ -411,7 +504,9 @@ struct LibraryCollectionView: View {
                 }
             }
             // 撮影テストが詳細へ進む入口。一覧から消えたことも到達の判定に使う。
-            .accessibilityIdentifier(kind == .artists ? "artist.row" : "playlist.row")
+            .accessibilityIdentifier(
+                kind == .artists ? "artist.row.\(item.id)" : "playlist.row.\(item.id)"
+            )
             // 上下の余白は画像の一辺で決まる。アーティストは 48 pt 画像で 4 pt（送り 56 pt）、
             // プレイリストは 64 pt 画像で 8 pt（送り 80 pt）。同じ `List` を通るからといって
             // 一律にすると、画像が大きい側だけ詰まって見える（仕様 1.1 章の表）。
@@ -435,7 +530,7 @@ struct LibraryCollectionView: View {
         .navigationTitle(title)
         // 一覧の画面名は左寄せの largeTitle（仕様 1.1 章）。中央インラインにはしない。
         .navigationBarTitleDisplayMode(.large)
-        .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "検索")
+        .librarySearchable(text: $query, prompt: "検索", horizontalMargin: horizontalMargin)
         .libraryNavigationMargins(horizontalMargin)
         .toolbar {
             if kind == .artists {
@@ -524,7 +619,7 @@ struct SongsView: View {
         .navigationTitle("曲")
         // 一覧の画面名は左寄せの largeTitle（仕様 1.1 章）。中央インラインにはしない。
         .navigationBarTitleDisplayMode(.large)
-        .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "検索")
+        .librarySearchable(text: $query, prompt: "検索", horizontalMargin: horizontalMargin)
         .libraryNavigationMargins(horizontalMargin)
         .overlay { status }
         .task { await library.loadTracks() }
@@ -535,10 +630,7 @@ struct SongsView: View {
             if !library.tracks.isEmpty {
                 TrackListActions(
                     play: { player.play(items: tracks, startingAt: 0) },
-                    shuffle: {
-                        if !player.isShuffled { player.toggleShuffle() }
-                        player.play(items: tracks, startingAt: 0)
-                    },
+                    shuffle: { player.play(items: tracks, startingAt: 0, shuffled: true) },
                     listInsets: horizontalMargin
                 )
                 .disabled(tracks.isEmpty)
@@ -548,6 +640,7 @@ struct SongsView: View {
                 Section {
                     ForEach(section.tracks) { track in
                         SongListRow(track: track, queue: tracks, horizontalMargin: horizontalMargin)
+                            .accessibilityIdentifier("song.row")
                             .task {
                                 if query.isEmpty { await library.loadMoreTracksIfNeeded(currentItem: track) }
                             }
@@ -684,16 +777,17 @@ struct FavoriteTracksView: View {
 
     private var source: [MediaItem] { library.favoriteTracks.filter(\.isFavorite) }
     private var tracks: [MediaItem] { source.matching(query) }
+    private var horizontalMargin: CGFloat {
+        UIDevice.current.userInterfaceIdiom == .pad ? 34.5 : 20
+    }
 
     var body: some View {
         List {
             if !source.isEmpty {
                 TrackListActions(
                     play: { player.play(items: tracks, startingAt: 0) },
-                    shuffle: {
-                        if !player.isShuffled { player.toggleShuffle() }
-                        player.play(items: tracks, startingAt: 0)
-                    }
+                    shuffle: { player.play(items: tracks, startingAt: 0, shuffled: true) },
+                    listInsets: horizontalMargin
                 )
                 .disabled(tracks.isEmpty)
             }
@@ -725,7 +819,14 @@ struct FavoriteTracksView: View {
                         }
                     }
                 }
-                .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 4, trailing: 20))
+                .listRowInsets(
+                    EdgeInsets(
+                        top: 4,
+                        leading: horizontalMargin,
+                        bottom: 4,
+                        trailing: horizontalMargin
+                    )
+                )
                 .swipeActions {
                     Button {
                         Task { await library.toggleFavorite(track) }
@@ -742,8 +843,8 @@ struct FavoriteTracksView: View {
         .navigationTitle("お気に入りの曲")
         // 一覧の画面名は左寄せの largeTitle（仕様 1.1 章）。中央インラインにはしない。
         .navigationBarTitleDisplayMode(.large)
-        .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "検索")
-        .libraryNavigationMargins()
+        .librarySearchable(text: $query, prompt: "検索", horizontalMargin: horizontalMargin)
+        .libraryNavigationMargins(horizontalMargin)
         .overlay {
             if !source.isEmpty, tracks.isEmpty {
                 ContentUnavailableView.search(text: query)

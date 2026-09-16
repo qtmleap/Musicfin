@@ -392,6 +392,11 @@ struct CarouselSection<Content: View, Destination: View>: View {
     @ViewBuilder var destination: Destination
     @ViewBuilder var content: Content
 
+    /// 同じ画面のグリッドや大見出しと左端をそろえる。iPad の detail だけ 34.5 pt（仕様 6 章）。
+    private var horizontalMargin: CGFloat {
+        UIDevice.current.userInterfaceIdiom == .pad ? 34.5 : 20
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .center) {
@@ -412,14 +417,14 @@ struct CarouselSection<Content: View, Destination: View>: View {
                 .accessibilityLabel(Text("\(title)をすべて表示"))
                 Spacer(minLength: 8)
             }
-            .padding(.horizontal, 20)
+            .padding(.horizontal, horizontalMargin)
 
             ScrollView(.horizontal) {
                 LazyHStack(alignment: .top, spacing: 12) {
                     content
                 }
-                // 同じ画面のグリッドが 20 pt になったので、見出しとカードの左端もそこへ揃える。
-                .padding(.horizontal, 20)
+                // 同じ画面のグリッドと同じ余白にして、見出しとカードの左端も揃える。
+                .padding(.horizontal, horizontalMargin)
                 .scrollTargetLayout()
             }
             .scrollTargetBehavior(.viewAligned)
@@ -443,9 +448,11 @@ struct AlbumGridMetrics {
     let columns: Int
     let size: CGFloat
 
-    init(width: CGFloat) {
-        // 左右余白 20 pt ずつ（仕様 2 章）。2 列なら画像幅は `(表示幅 − 52) / 2` になる。
-        let available = max(1, width - 40)
+    /// `horizontalMargin` は呼び出し側がグリッドに与える左右余白。iPhone の 20 pt が既定で、
+    /// iPad の detail は 34.5 pt を渡す（仕様 6 章）。ここへ渡し忘れると列幅が余白ぶんだけはみ出す。
+    init(width: CGFloat, horizontalMargin: CGFloat = 20) {
+        // 左右余白ぶんを引いた残りに列を割る（仕様 2 章）。2 列なら画像幅は `(残り − 12) / 2` になる。
+        let available = max(1, width - horizontalMargin * 2)
         // 画像幅 1 列あたり。列数を増やすほど単調に縮む。
         let imageWidth = { (count: Int) in
             (available - CGFloat(count - 1) * Self.columnSpacing) / CGFloat(count)
@@ -504,9 +511,115 @@ struct LoadErrorView: View {
     }
 }
 
-// MARK: - ナビゲーションバーの余白
+// MARK: - 検索欄とナビゲーションバーの余白
 
-/// 画面名と検索欄はナビゲーションバーが描くので、SwiftUI 側の padding では左右を動かせない。
+/// iPad の drawer は split detail の端まで広がり、navigation bar の余白も継がない。
+/// 正確な detail 余白を保つ必要があるため、iPad だけ検索欄を自前で配置する。
+private struct LibrarySearchField: UIViewRepresentable {
+    @Binding var text: String
+    let prompt: String
+
+    func makeCoordinator() -> Coordinator { Coordinator(text: $text) }
+
+    func makeUIView(context: Context) -> UISearchTextField {
+        let field = UISearchTextField()
+        field.placeholder = prompt
+        field.returnKeyType = .search
+        field.delegate = context.coordinator
+        field.clearButtonMode = .whileEditing
+        field.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        field.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        field.addTarget(
+            context.coordinator,
+            action: #selector(Coordinator.textChanged(_:)),
+            for: .editingChanged
+        )
+        return field
+    }
+
+    func updateUIView(_ field: UISearchTextField, context: Context) {
+        context.coordinator.text = $text
+        field.placeholder = prompt
+        // 変換途中の文字を SwiftUI の再評価で壊さない。
+        guard field.markedTextRange == nil, field.text != text else { return }
+        // 再評価は入力より遅れて届くので、この欄が自分で送った値が古いまま返ってくる。
+        // 速く打つと「Ray」が「R」に戻るのはこれ。ただし編集中を丸ごと除くと、sidebar の
+        // 検索を選び直したときの `searchQuery = ""` まで届かなくなる。そこで「自分が送った値」
+        // だけを無視し、外から来た値は編集中でも反映する。
+        // 送った順に消すのは、編集中に一度空にした履歴が残ったままだと、
+        // 後から来た外部の空文字まで自分の echo と見なして無視してしまうため。
+        if let echo = context.coordinator.sentTexts.firstIndex(of: text) {
+            context.coordinator.sentTexts.removeFirst(echo + 1)
+            return
+        }
+        field.text = text
+        context.coordinator.sentTexts.removeAll()
+    }
+
+    func sizeThatFits(
+        _ proposal: ProposedViewSize,
+        uiView: UISearchTextField,
+        context: Context
+    ) -> CGSize? {
+        CGSize(
+            width: proposal.width ?? uiView.intrinsicContentSize.width,
+            height: uiView.intrinsicContentSize.height
+        )
+    }
+
+    final class Coordinator: NSObject, UITextFieldDelegate {
+        var text: Binding<String>
+        /// この欄が binding へ送った値を送った順に憶える。遅れて返ってくる再評価を外からの変更と見分ける。
+        var sentTexts: [String] = []
+
+        init(text: Binding<String>) { self.text = text }
+
+        @objc func textChanged(_ field: UISearchTextField) {
+            let current = field.text ?? ""
+            sentTexts.append(current)
+            text.wrappedValue = current
+        }
+
+        /// 検索キーでキーボードを閉じる。閉じないと iPad では結果の下半分が隠れたままになる。
+        func textFieldShouldReturn(_ textField: UITextField) -> Bool {
+            textField.resignFirstResponder()
+            return true
+        }
+
+        /// 編集を抜けたら憶えた値を捨てる。次の編集まで持ち越すと、外からの変更を取りこぼす。
+        func textFieldDidEndEditing(_ textField: UITextField) {
+            sentTexts.removeAll()
+        }
+    }
+}
+
+extension View {
+    /// iPhone は標準 drawer、iPad は detail 本文と同じ 34.5 pt に検索欄そのものを揃える。
+    @ViewBuilder
+    func librarySearchable(
+        text: Binding<String>,
+        prompt: LocalizedStringResource,
+        horizontalMargin: CGFloat
+    ) -> some View {
+        if UIDevice.current.userInterfaceIdiom == .pad {
+            safeAreaInset(edge: .top, spacing: 0) {
+                LibrarySearchField(text: text, prompt: String(localized: prompt))
+                    .padding(.horizontal, horizontalMargin)
+                    .padding(.top, 8)
+                    .padding(.bottom, 12)
+                    .background(.bar)
+            }
+        } else {
+            searchable(
+                text: text,
+                placement: .navigationBarDrawer(displayMode: .always),
+                prompt: Text(prompt)
+            )
+        }
+    }
+}
+
+/// 画面名はナビゲーションバーが描くので、SwiftUI 側の padding では左右を動かせない。
 /// バーは既定で iPhone の最小余白 16 pt に従うため、バー自身のレイアウト余白を 20 pt へ上書きする（仕様 1.1 章）。
 private struct NavigationBarMargins: UIViewRepresentable {
     let horizontal: CGFloat
@@ -558,7 +671,7 @@ private struct NavigationBarMargins: UIViewRepresentable {
 
 extension View {
     /// 画面名と検索欄の左右を、一覧本体と同じ 20 pt に揃える（仕様 1.1 章）。
-    func libraryNavigationMargins() -> some View {
-        background(NavigationBarMargins(horizontal: 20))
+    func libraryNavigationMargins(_ horizontal: CGFloat = 20) -> some View {
+        background(NavigationBarMargins(horizontal: horizontal))
     }
 }

@@ -2,7 +2,17 @@
   "schemaVersion": 1,
   "defaults": {
     "locale": "en_US",
-    "appearance": "dark"
+    "appearance": "dark",
+    "masks": {
+      "iPhone": [
+        {"kind":"statusTime","rect":[0.13,0.022,0.24,0.044]},
+        {"kind":"statusDevice","rect":[0.71,0.022,0.91,0.044]}
+      ],
+      "iPad": [
+        {"kind":"statusTime","rect":[0.010,0.007,0.100,0.024]},
+        {"kind":"statusDevice","rect":[0.923,0.007,0.995,0.024]}
+      ]
+    }
   },
   "stories": [
     {"id":"home","category":"Home","title":"Home","description":"ホームの通常表示","devices":{"iPhone":{"reference":"iPhone/home.webp","capture":"home"},"iPad":{"reference":"iPad/home.webp","capture":"home"}}},

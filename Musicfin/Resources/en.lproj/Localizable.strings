@@ -114,3 +114,29 @@
 "モバイル通信" = "Cellular";
 "ロスレスは通信量が大きく、変更は次の曲から反映されます。" = "Lossless uses more data. Changes apply to the next song.";
 "ログアウトしてもサーバーの URL は保持されます。" = "Your server URL will be kept after signing out.";
+/* iPad の sidebar。参照の項目名をそのまま英語で出す（仕様 6 章）。 */
+"新着" = "New";
+"ラジオ" = "Radio";
+"ピン" = "Pins";
+"ダウンロード済み" = "Downloaded";
+"購入した音楽" = "Purchased Music";
+"新規プレイリスト" = "New Playlist";
+"すべてのプレイリスト" = "All Playlists";
+"編集" = "Edit";
+"この項目は Jellyfin では扱えません。" = "This item isn’t available on Jellyfin.";
+
+/* ラジオ */
+"ステーションを作成中…" = "Creating Station…";
+"再生できるステーションがありません" = "No Stations Available";
+"ライブラリに音楽を追加すると、ステーションを作成できます。" = "Add music to your library to create a station.";
+
+/* 一覧・プレイヤーの補助 */
+"利用できる項目がありません" = "Nothing Available";
+"情報" = "Info";
+"その他" = "More";
+"曲の操作" = "Song Actions";
+"アートワークへ戻る" = "Back to Artwork";
+"連続再生" = "Continuous Play";
+"自動再生" = "Autoplay";
+"未対応" = "Unavailable";
+"この歌詞には時間情報がありません。再生に合わせた自動追従は行いません。" = "These lyrics have no timing information, so they don’t follow playback.";

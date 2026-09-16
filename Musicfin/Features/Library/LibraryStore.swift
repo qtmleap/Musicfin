@@ -17,6 +17,7 @@ final class LibraryStore {
     private(set) var recentlyAdded: [MediaItem] = []
     private(set) var frequentlyPlayed: [MediaItem] = []
     private(set) var favoriteTracks: [MediaItem] = []
+    private(set) var recentlyPlayedAlbums: [MediaItem] = []
     /// ライブラリ上部のカードに出す「最後に再生したアルバム」。履歴が無ければ nil。
     private(set) var lastPlayedAlbum: MediaItem?
 
@@ -51,6 +52,7 @@ final class LibraryStore {
         recentlyAdded = []
         frequentlyPlayed = []
         favoriteTracks = []
+        recentlyPlayedAlbums = []
         lastPlayedAlbum = nil
         albums = []
         tracks = []
@@ -75,12 +77,16 @@ final class LibraryStore {
             async let frequent = client.fetchFrequentlyPlayed(limit: 20)
             async let favorites = client.fetchFavoriteTracks(limit: 50)
             // 再生日時の降順で 1 件。未再生でも並びの先頭に来るので、再生回数で実際の履歴か確かめる。
-            async let lastPlayed = client.fetchAlbums(limit: 1, sortBy: "DatePlayed", sortOrder: "Descending")
+            async let lastPlayed = client.fetchAlbums(
+                limit: 20, sortBy: "DatePlayed", sortOrder: "Descending")
 
             recentlyAdded = try await recent
             frequentlyPlayed = try await frequent
             favoriteTracks = try await favorites
-            lastPlayedAlbum = try await lastPlayed.items.first { ($0.userData?.playCount ?? 0) > 0 }
+            recentlyPlayedAlbums = try await lastPlayed.items.filter {
+                ($0.userData?.playCount ?? 0) > 0
+            }
+            lastPlayedAlbum = recentlyPlayedAlbums.first
             homeState = .loaded
         } catch {
             logger.error("ホームの取得に失敗: \(error.localizedDescription, privacy: .public)")
@@ -123,7 +129,15 @@ final class LibraryStore {
     func loadArtists() async {
         guard let client, artists.isEmpty else { return }
         do {
-            artists = try await client.fetchAlbumArtists().items
+            var loaded: [MediaItem] = []
+            var total = 1
+            while loaded.count < total {
+                let page = try await client.fetchAlbumArtists(startIndex: loaded.count)
+                loaded.append(contentsOf: page.items)
+                total = page.totalRecordCount
+                if page.items.isEmpty { break }
+            }
+            artists = loaded
         } catch {
             logger.error("アーティストの取得に失敗: \(error.localizedDescription, privacy: .public)")
         }
