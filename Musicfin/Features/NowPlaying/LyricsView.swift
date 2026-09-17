@@ -103,9 +103,32 @@ struct LyricsView: View {
     /// 固定値や `.custom` にせず `@ScaledMetric` に持たせるのは、Dynamic Type へ追従させるため。
     @ScaledMetric(relativeTo: .title) private var lyricSize = 32.0
     @ScaledMetric(relativeTo: .title) private var lyricSpacing = 12.0
+    /// iPad の歌詞は参照から実測できている（仕様 6.2 章）。参照の歌詞は**和文**なので cap や
+    /// descender では測れず、全角 1 文字の字送りで測る。ただし **`.system` の和文フォールバックは
+    /// 全角を 1 em ではなく 15/16 em で送る**ので、指定サイズは字送りそのものではない。参照の
+    /// 字送り 44.7〜45.0 pt に対しては 45 ÷ (15/16) = **48 pt**（48 × 15/16 = 45.0）。
+    /// 45 を指定すると字送りが 42.2 pt しか出ず、参照より 6.25 % 小さくなる。
+    /// iPhone の 32 / 12 とは別の組み。
+    @ScaledMetric(relativeTo: .title) private var padLyricSize = 48.0
+    /// 塊の間隔。参照は塊の境が 98 pt で折返しが 57 pt なので、その差を入れる。
+    @ScaledMetric(relativeTo: .title) private var padLyricSpacing = 41.0
+    /// 折返しの行送り。和文フォールバックの既定行高は約 1.37 em で、48 pt では 65.8 pt 出てしまい
+    /// 参照の 57 pt に対して折返し 1 行ごとに 8.8 pt ずつ溜まる。`lineSpacing` は加算しかできない
+    /// ので、iOS 26 の `.lineHeight(.exact(points:))` でベースライン間そのものを指定する。
+    /// **行送りは字送りと違って 15/16 が掛からない**ので、ここは参照の実測値をそのまま入れる。
+    @ScaledMetric(relativeTo: .title) private var padLyricLineHeight = 57.0
     /// 現在行以外に掛けるぼかし（仕様 5.2 章）。**`docs/org/movie.mov` から測った値**で、
     /// 文字と一緒に伸びるよう `lyricSize` と同じ尺に載せる。測り方は仕様 5.2 章に書いた。
     @ScaledMetric(relativeTo: .title) private var lyricBlur = 1.7
+
+    /// iPad は面の中の寸法が iPhone と別（仕様 6.2 章）。
+    private var isPad: Bool { UIDevice.current.userInterfaceIdiom == .pad }
+    private var faceSize: CGFloat { isPad ? padLyricSize : lyricSize }
+    private var faceSpacing: CGFloat { isPad ? padLyricSpacing : lyricSpacing }
+    /// iPhone 側は §5.2 の暫定値のままなので、行高の指定は iPad だけに掛ける。
+    private var faceLineHeight: AttributedString.LineHeight? {
+        isPad ? .exact(points: padLyricLineHeight) : nil
+    }
     @State private var lines: [LyricLine] = []
     @State private var isLoading = true
     @State private var isFollowing = true
@@ -125,11 +148,12 @@ struct LyricsView: View {
     @State private var isJudgingScroll = false
     /// 指が画面上で実際に送っている間だけの印。通常の geometry は惰性も届くため分けて持つ。
     @State private var isInteractingScroll = false
-    /// スクロール幅が無い短い歌詞では、器の補間と `contentOffset` の押し戻しを実指と区別できない。
-    /// `DragGesture` 自身の translation を差分にするため、直前値と最新の幅を保持する。
+    /// スクロール幅が閾値より短い歌詞では、末尾へ着くまでの offset だけでは帯を隠せない。
+    /// `DragGesture` 自身の translation を差分にするため、直前値と判定経路の所有者を保持する。
     @State private var lastDragTranslationY: CGFloat?
     @State private var dragAccumulation: CGFloat = 0
-    @State private var hasScrollableRange = true
+    @State private var usesScrollGeometry = true
+    @State private var accessibilityVisibility: [Int: Bool] = [:]
 
     /// 手を止めてから自動追従へ戻るまで（仕様 5.2 章）。**Apple 実機の実測値ではない暫定値。**
     /// 読み返している最中に画面を奪い返さず、かつ放置されたまま追従が死なない長さとして置いた。
@@ -205,7 +229,17 @@ struct LyricsView: View {
         GeometryReader { viewport in
             ScrollViewReader { proxy in
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: lyricSpacing) {
+                    LazyVStack(alignment: .leading, spacing: faceSpacing) {
+                        // 同期歌詞の先頭時刻より前は、空白ではなく Apple Music と同じ active な省略記号を置く。
+                        // この行を現在行として扱うことで、後続だけに通常の upcoming blur が掛かる。
+                        if isSynced, active == nil {
+                            Text("…")
+                                .font(.system(size: faceSize, weight: .bold))
+                                .foregroundStyle(.primary)
+                                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                                .accessibilityIdentifier("lyrics.intro-placeholder")
+                                .accessibilityAddTraits(.isSelected)
+                        }
                         // 時刻の無い歌詞では現在行が決まらない。全行を強調して「どれも現在行」に見せるより、
                         // 追従できない歌詞だと先に断る（仕様 5.2 章）。時刻は作らない。
                         if !isSynced {
@@ -227,7 +261,8 @@ struct LyricsView: View {
                                         resumeTask = nil
                                         player.seek(to: start)
                                     } label: {
-                                        lineText(line, active: index == active, hasActiveLine: active != nil)
+                                        lineText(
+                                            line, active: index == active, hasActiveLine: active != nil || isSynced)
                                     }
                                     .buttonStyle(.plain)
                                     .accessibilityHint("この行の再生位置へ移動")
@@ -237,24 +272,35 @@ struct LyricsView: View {
                                     lineText(line, active: false, hasActiveLine: active != nil)
                                 }
                             }
+                            // LazyVStack は最大 viewport 内の切り抜き外も生成し得る。SwiftUI の clip は
+                            // VoiceOver の探索範囲を狭めないため、実際に見えている行だけを公開する。
+                            .onScrollVisibilityChange(threshold: 0.01) { visible in
+                                accessibilityVisibility[index] = visible
+                            }
+                            .accessibilityHidden(accessibilityVisibility[index] == false)
                             .id(index)
                         }
                     }
+                    // 折返しのベースライン間を参照に合わせる（仕様 6.2 章）。塊の間隔は
+                    // `LazyVStack` の `spacing` が持つので、ここは塊の中だけに効く。
+                    .lineHeight(faceLineHeight)
                     // 先頭行にも同じ 0.15 の位置を渡せるだけのスクロール可能な余白を作る。
                     // 外側へ padding すると本文の見える上端まで下がるので、内容側だけを延ばす。
                     .padding(.top, max(0, viewport.size.height - bottomExtension) * Self.activeLineTopRatio)
                     // 下の 24 pt は最終行が操作帯へ貼り付かないための余白なので残す。
                     .padding(.bottom, 24)
                     // 同じ画面の小アートワークや曲名と同じ左右 32 pt に載せる（仕様 5 章）。外側の 24 pt との差。
-                    .padding(.horizontal, 8)
+                    // iPad は面の左端から 2.5 pt で本文が始まる（仕様 6.2 章）。実測は字面の端なので、
+                    // 欧文の side bearing のぶんだけこちらが内側へ寄る可能性が残る。
+                    .padding(.horizontal, isPad ? 2.5 : 8)
                 }
                 .scrollIndicators(.hidden)
-                // 幅 0 の短い歌詞だけは geometry の位置を使えない。器の補間とゴム戻りから独立した
+                // 幅が隠す閾値未満の歌詞では geometry だけだと末尾まで送っても 32 pt に届かない。
                 // 指そのものの移動量を取り、通常と同じ閾値へ渡す。ScrollView のスクロールは妨げない。
                 .simultaneousGesture(
                     DragGesture(minimumDistance: 0)
                         .onChanged { value in
-                            guard !hasScrollableRange else { return }
+                            guard !usesScrollGeometry else { return }
                             let translation = value.translation.height
                             guard let previous = lastDragTranslationY else {
                                 // ScrollView が phase を出さない短い歌詞では、ここが独立した判定の開始点になる。
@@ -266,7 +312,7 @@ struct LyricsView: View {
                             judgeDragControls(delta: previous - translation)
                         }
                         .onEnded { _ in
-                            guard !hasScrollableRange else { return }
+                            guard !usesScrollGeometry else { return }
                             // 次の指へ前回の translation と積算を持ち越さない。長い歌詞では geometry 側が
                             // この後の惰性も数えるので、そちらの積算には触れない。
                             lastDragTranslationY = nil
@@ -313,34 +359,38 @@ struct LyricsView: View {
                         verticalInsets: geometry.contentInsets.top + geometry.contentInsets.bottom
                     )
                 } action: { old, new in
-                    // 器の大きさが変わった回は数えない。文字の拡大や画面の向きに加え、
-                    // **操作帯の退避でこの本文自身が伸び縮みする**ときもここへ来る。
-                    // その回の差分は送った量ではないので、基準だけ置き直す。器は補間中に毎フレーム
-                    // 変わるため、時間の猶予を立て直すと反対向きの指操作まで捨て続けてしまう。
+                    // 器の大きさが変わった回は数えない。文字の拡大や画面の向きによる変化は
+                    // 指が送った量ではないので、基準だけを置き直す。操作帯の退避中は外側の
+                    // 切り抜きだけが動き、この ScrollView の器は最大高のまま変えない。
                     // **末尾で境界そのものが動いた回も同じ**（仕様 5.1 章 第 5 版）。`LazyVStack` が見積もりを
                     // 実測へ入れ替えたときなど、器はそのままでも境界だけが下がることがあり、
                     // 末尾で引き伸ばされている最中なら指が止まっていても挟んだ位置が一緒に下がる。
                     // それを「上へ送った」と読むと操作帯が勝手に戻るので、ここで基準を置き直す。
                     let boundaryMoved = LyricsScrollProbe.boundaryMoved(from: old, to: new)
                     let containerChanged = old.containerSize != new.containerSize
-                    // 所有者は常に**現在**の幅で決める。early return より前に更新し、0 ↔ 正の切り替えでは
-                    // 前の所有者の translation と積算を次の経路へ持ち越さない。
-                    let scrollable = new.maximumOffset > 0
-                    if hasScrollableRange != scrollable {
-                        hasScrollableRange = scrollable
+                    // 所有者は常に**現在**の幅で決める。early return より前に更新し、32 pt 未満 ↔ 以上の
+                    // 切り替えでは前の所有者の translation と積算を次の経路へ持ち越さない。
+                    let geometryOwnsGesture = new.maximumOffset >= Self.hideThreshold
+                    if usesScrollGeometry != geometryOwnsGesture {
+                        usesScrollGeometry = geometryOwnsGesture
                         lastDragTranslationY = nil
                         dragAccumulation = 0
                         scrollAccumulation = 0
                     }
                     if boundaryMoved || (containerChanged && !isJudgingScroll) {
                         lastJudgedOffset = new.judgedOffset
-                        // 短い歌詞の指操作は別の積算器が所有するので、器の毎フレーム更新では消さない。
-                        if scrollable { scrollAccumulation = 0 }
+                        // 短い歌詞の指操作は別の積算器が所有するので、器の更新では消さない。
+                        if geometryOwnsGesture { scrollAccumulation = 0 }
                         return
                     }
-                    // 指が送っている間は、器の補間と同じ回でも offset の差を読む。器は 0.4 秒間
-                    // 毎フレーム変わるため、この差まで捨てると途中で反転した操作を一度も認識できない。
-                    // ただし先頭の近道は、器が伸びて末尾が 0 へ潰れた結果ではなく、実際に指が
+                    guard geometryOwnsGesture else {
+                        // 32 pt 未満の幅は実指側だけで数え、末尾 clamp と同じ移動を二重加算しない。
+                        lastJudgedOffset = new.judgedOffset
+                        return
+                    }
+                    // 指が送っている間は、器の更新と同じ回でも offset の差を読む。画面回転などと
+                    // 指操作が重なった回まで捨てると、途中で反転した操作を認識できない。
+                    // ただし先頭の近道は、器が変わって末尾が 0 へ潰れた結果ではなく、実際に指が
                     // 上へ戻した回だけに限る。短い歌詞が自動で 0 に挟まれて帯を出すのを防ぐ。
                     let movedTowardTop = isJudgingScroll && new.offset < old.offset
                     // スクロールできない短い歌詞では `maximumOffset == 0` が先頭と末尾を兼ねる。
@@ -349,7 +399,7 @@ struct LyricsView: View {
                     // 実指の差分として重ねて渡さない。
                     judgeControls(
                         offset: new.judgedOffset,
-                        allowTopShortcut: !containerChanged && movedTowardTop && scrollable
+                        allowTopShortcut: !containerChanged && movedTowardTop && geometryOwnsGesture
                     )
                 }
                 // **`isFollowing` が止めるのはスクロールだけ**（仕様 5.2 章）。過去の歌詞を手で読んでいる間も
@@ -466,7 +516,7 @@ struct LyricsView: View {
     /// 段内に `lineSpacing` を足さないのも同じ理由で、項目間隔だけで間を作る。
     private func lineText(_ line: LyricLine, active: Bool, hasActiveLine: Bool) -> some View {
         Text(line.text.isEmpty ? " " : line.text)
-            .font(.system(size: lyricSize, weight: .bold))
+            .font(.system(size: faceSize, weight: .bold))
             .foregroundStyle(active ? .primary : .secondary)
             // ぼかすのは**文字だけ**。`.frame` と `.contentShape` より前に掛けることで、
             // 押せる範囲と読み上げの範囲はぼかしても動かない。
@@ -518,7 +568,7 @@ struct LyricsView: View {
         isInteractingScroll = false
         lastDragTranslationY = nil
         dragAccumulation = 0
-        hasScrollableRange = true
+        usesScrollGeometry = true
         scrollAccumulation = 0
         lastJudgedOffset = nil
         // 曲が替わったら操作帯は出した状態から始める。`.id(track.id)` で作り直される側は
