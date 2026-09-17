@@ -19,7 +19,7 @@ gpt-6-astra との設計相談で確定した決定事項。実装はこの仕�
 
 ## 1.1 Apple Music 実機参照に合わせた表示
 
-`docs/screenshots/reference/` の Apple Music 実機スクリーンショットを比較対象とする。
+`docs/app/` の Apple Music 実機スクリーンショットを比較対象とする。
 ユーザーが指定した実機参照に従い、**ニューとラジオを含む 5 つの行き先**を設ける。
 ニューは実在する最近追加アルバム、ラジオは実在するライブラリ項目を種にした Instant Mix を表示する。
 Apple Account・契約・ダウンロードなど Jellyfin に無い機能は模倣しない。
@@ -1499,27 +1499,19 @@ preset の 0.15 の弾みは 1 pt 未満に収まって行き過ぎとして見�
 
 ### 6.1 iPad の画像比較
 
-撮影は `MusicfinUITests` と `scripts/capture-screens.sh` の iPad 導線から行い、比較処理を始める直前に
-画像寸法が **2732 × 2048 px** であることを assert する。向きや scale が違う画像を resize して
-比較対象にしてはならない。
+撮影は `MusicfinUITests` と `scripts/capture-screens.sh` の iPad 導線から行い、ワークスペースへ
+書き出す直前に画像寸法が **2732 × 2048 px** であることを assert する。向きや scale が違う画像を
+resize して比較対象にしてはならない。
 
-- 比較前に reference / current の両方を **sRGB・RGB 8 bit** へ正規化する
-- report は `docs/screenshots/ipad-report/` 以下へ毎回生成する。利用者が削除中の
-  `docs/screenshots/index.html` は復元も上書きもせず、既存の phone report と入口を共有しない
-- 各画面について reference、current、overlay、raw difference、masked difference を生成する。
-  数値判定に使う raw metric と、目視しやすいよう増幅した difference 画像は分離し、増幅画像から
-  mismatch を算出しない
-- raw metric は mask 外で `abs(channel delta) > 8 / 255` となる pixel の mismatch ratio と
-  RGB MAE を最低限記録する。画面ごとの許容閾値を超えた場合に加え、mask の総面積率が上限を
-  超えた場合も fail とする
-- mask は正規化座標で定義してよい。許可する動的領域は status/account 表示、動的 artwork、
-  動的 text、再生 progress だけとする。sidebar の輪郭・選択状態、detail margin、mini-player bounds、
-  player の位置には mask を掛けない
-- manifest には device、orientation、pixelSize、scale、locale、appearance、reference/current の hash、
-  tolerance、mask の名前・正規化矩形・面積率、raw metrics、最終 pass/fail を記録する
-- viewer は reference / current / difference / overlay / masked difference と raw / masked の差分率を
-  同じ report から確認できるようにする。Connect 固有の基盤は前提にせず、Musicfin の既存撮影導線を
-  拡張する
+- 差分の計算と表示は mock-diff ビューアが持つ。撮影側は参照と実装を `docs/mock-diff/` へ
+  並べるところまでを受け持ち、閾値で撮影を落とさない
+- ビューアにマスク機能が無いため、`scripts/build-mock-diff-workspace.py` が
+  `docs/app/catalog.json` の `defaults.masks` を参照と実装の**両方**へ焼き込んでから渡す。
+  マスクの総面積率が上限を超えた場合は生成時に警告する
+- 許可する動的領域は status/account 表示、動的 artwork、動的 text、再生 progress だけとする。
+  sidebar の輪郭・選択状態、detail margin、mini-player bounds、player の位置にはマスクを掛けない
+- 参照と実装は寸法が一致していなければならない。ビューアは寸法差を左上詰めで埋めるだけなので、
+  食い違うものは生成時に弾く
 
 ## 7. アルバム詳細の再生ボタン
 
@@ -1695,7 +1687,7 @@ artist の曲行（Musicfin も Apple もグリッドで、曲行がない）。
 `album.type == .playlist`で分岐し、画像・題名・再生操作・メニューの実行処理は共用したうえで、
 ヘッダーと曲一覧だけをプレイリスト用に描く。アルバム側の表示（§7 を含む）は変更しない。
 
-参照は`docs/screenshots/reference/playlist.png`。Apple元画像393×852ptに換算した実測。
+参照画像はリポジトリに無い（プレイリスト詳細は `docs/app/` の撮影対象に入っていない）。以下はApple元画像を393×852ptに換算した実測。
 
 ### 共用するもの
 
