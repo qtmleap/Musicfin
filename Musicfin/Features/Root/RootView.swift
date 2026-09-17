@@ -93,9 +93,14 @@ struct RootView: View {
     @Environment(AuthStore.self) private var auth
     @Environment(LibraryStore.self) private var library
     @Environment(PlaybackEngine.self) private var player
+    /// shell をどちらにするかは端末名ではなく利用可能幅で決める（仕様 6 章）。板 + detail の 2 列は
+    /// 窓が狭くなると成り立たないので、幅の級を見て 1 列へ落とす。
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var catalog = AlbumCatalog()
     @State private var selection: RootTab = .home
-    @State private var padSelection: PadDestination = .home
+    @State private var padSelection: PadDestination? = .home
+    /// 標準 split view の列の見え方。参照の板は閉じられないので `.all` から動かさない。
+    @State private var padColumnVisibility = NavigationSplitViewVisibility.all
     /// sidebar の区分は参照どおり開閉できる。初期は両方とも開いた状態を正とする。
     @State private var showsLibrarySection = true
     @State private var showsPlaylistSection = true
@@ -127,7 +132,7 @@ struct RootView: View {
 
     var body: some View {
         Group {
-            if isPhonePlayer {
+            if usesTabShell {
                 phoneTabs
             } else {
                 padSplitView
@@ -151,6 +156,13 @@ struct RootView: View {
         // 待ち行列が空になったら忘れる（仕様 3 章）。次に積んだだけの曲でまた出てしまわないように。
         .onChange(of: player.queue.isEmpty) { _, isEmpty in
             if isEmpty { hasStartedPlayback = false }
+        }
+        // 幅が変わって shell が入れ替わるとき、2 つの shell が共有している path を持ち越すと、
+        // 別の root の上へ積まれたままの経路が復元されてしまう。入口へ戻してから渡す。
+        .onChange(of: usesTabShell) { _, _ in
+            homePath = NavigationPath()
+            libraryPath = NavigationPath()
+            searchPath = NavigationPath()
         }
         // 帯が消えたら矩形を捨てる。報告してくるのは `MiniPlayerView` 自身なので、
         // 消えたあとは古い矩形が残り、**居ない帯から広がって見える**（仕様 4.1.1 章）。
@@ -194,18 +206,17 @@ struct RootView: View {
         }
     }
 
-    /// 参照の iPad は黒い窓の上に sidebar の板が浮き、detail はその板の下へ潜らない。
-    /// `NavigationSplitView` は横向きでも左カラムを detail に重ねて出し、端の払いや toolbar の
-    /// 切り替えで閉じてしまうので、板と detail を自分で並べる。閉じる導線はそもそも作らない。
+    /// 参照の板は常に見えていて閉じられない。`.balanced` の split view は detail へ重ねずに
+    /// 並べてくれるが、列幅と閉じる導線は SwiftUI 側から決められないので、
+    /// `PadSplitViewConfigurator` が裏の `UISplitViewController` を直に設定する（仕様 6 章）。
     private var padSplitView: some View {
-        ZStack(alignment: .topLeading) {
-            // 窓の地は黒一色。detail は板ではなくこの地に続き、境目の線も置かない。
-            Color.black
-                .ignoresSafeArea()
-            padDetailColumn
-                .padding(.leading, PadShell.detailOrigin)
+        NavigationSplitView(columnVisibility: $padColumnVisibility) {
             padSidebar
-                .frame(width: PadShell.sidebarWidth)
+                // 列そのものが地を持つので、板の material を見せるには一覧側と同じく外す。
+                .scrollContentBackground(.hidden)
+                .toolbar(removing: .sidebarToggle)
+                .toolbarBackground(.hidden, for: .navigationBar)
+                .toolbarVisibility(.hidden, for: .navigationBar)
                 .background {
                     let shape = RoundedRectangle(
                         cornerRadius: PadShell.sidebarCornerRadius, style: .continuous)
@@ -213,15 +224,27 @@ struct RootView: View {
                     // 素の material は黒地の上で白 12 % まで明るくなる。参照の板は実測 6 % なので、
                     // 透け方は残したまま黒を重ねて明るさだけ合わせる。
                     shape.fill(Color.black.opacity(0.5))
+                    // `.navigationSplitViewColumnWidth` は `.balanced` では無視され、列幅が
+                    // 320 pt に固定される。板を参照の 269.5 pt にできる唯一の経路がこれ。
+                    PadSplitViewConfigurator(primaryColumnWidth: PadShell.sidebarWidth)
                 }
-                .clipShape(
-                    .rect(cornerRadius: PadShell.sidebarCornerRadius, style: .continuous)
-                )
-                .padding(.leading, PadShell.sidebarLeading)
-                .padding(.top, PadShell.sidebarTop)
-                .padding(.bottom, PadShell.sidebarBottom)
-                // 板の位置は窓の端から測る。safe area を挟むと状態表示ぶんだけ下へずれる。
-                .ignoresSafeArea()
+        } detail: {
+            padDetailColumn
+                .toolbar(removing: .sidebarToggle)
+        }
+        .navigationSplitViewStyle(.balanced)
+        // 端の払いや toolbar から閉じられても、参照どおり常に開いた状態へ戻す。
+        // 狭い窓はこの shell へ来ない（`usesTabShell`）ので、ここで固定して詰むことはない。
+        .onChange(of: padColumnVisibility) { _, visibility in
+            if visibility != .all { padColumnVisibility = .all }
+        }
+        // 選択が変わったら detail に残った深い path を捨て、常に選択先の root から見せる。
+        // 行が `Button` だったときは押した側でやっていた片付けで、選択へ移したぶんをここへ寄せる。
+        .onChange(of: padSelection) { _, destination in
+            homePath = NavigationPath()
+            libraryPath = NavigationPath()
+            searchPath = NavigationPath()
+            if destination == .search { searchQuery = "" }
         }
         .sheet(isPresented: $showsAccount) { AccountView() }
     }
@@ -240,14 +263,14 @@ struct RootView: View {
             .padding(.top, 12)
             .padding(.bottom, 6)
 
-            List {
+            List(selection: $padSelection) {
                 padSidebarRow("検索", systemImage: "magnifyingglass", destination: .search)
                 padSidebarRow("ホーム", systemImage: "house", destination: .home, accentsIcon: true)
                 padSidebarRow("新着", systemImage: "square.grid.2x2", destination: .new)
                 padSidebarRow(
                     "ラジオ", systemImage: "dot.radiowaves.left.and.right", destination: .radio,
                     accentsIcon: true)
-                Section("ライブラリ", isExpanded: $showsLibrarySection) {
+                Section(isExpanded: $showsLibrarySection) {
                     padPinsSidebarRow
                     padSidebarRow(
                         "最近追加した項目", systemImage: "clock", destination: .recentlyAdded,
@@ -260,8 +283,10 @@ struct RootView: View {
                         accentsIcon: true)
                     padSidebarRow("曲", systemImage: "music.note", destination: .songs, accentsIcon: true)
                     padSidebarRow(unavailable: .downloaded)
+                } header: {
+                    padSidebarSectionHeader("ライブラリ")
                 }
-                Section("プレイリスト", isExpanded: $showsPlaylistSection) {
+                Section(isExpanded: $showsPlaylistSection) {
                     padSidebarRow(
                         "すべてのプレイリスト", systemImage: "square.grid.3x3",
                         destination: .playlists, accentsIcon: true)
@@ -271,6 +296,8 @@ struct RootView: View {
                         padPlaylistSidebarRow(playlist)
                     }
                     padSidebarRow(unavailable: .newPlaylist)
+                } header: {
+                    padSidebarSectionHeader("プレイリスト")
                 }
             }
             // split view の外では一覧形式が既定に戻り、区分の開閉も行の余白も参照と食い違うので明示する。
@@ -278,7 +305,7 @@ struct RootView: View {
             // 一覧側の下限を下げないと、行に高さを与えても sidebar 既定の 52 pt まで戻される。
             .environment(\.defaultMinListRowHeight, PadShell.sidebarRowHeight)
             // 区分の前の余白も既定のままだと参照より広い。見出しの位置を実測に合わせる。
-            .listSectionSpacing(.custom(12))
+            .listSectionSpacing(.custom(8.5))
             // 板の material を見せるため、一覧が持つ地は外す。
             .scrollContentBackground(.hidden)
             // 一覧の既定の上余白ぶんだけ「編集」から離れるので、板の中では自分で詰める。
@@ -314,6 +341,12 @@ struct RootView: View {
                 .ignoresSafeArea(edges: .bottom)
             }
         }
+    }
+
+    /// 区分の見出し。split view の sidebar 列は見出しの下余白を既定より 1.5 pt 広く取るので、
+    /// 参照どおりの行送りに戻すぶんだけ詰める。`Section("…")` の簡易形では触れない。
+    private func padSidebarSectionHeader(_ title: LocalizedStringKey) -> some View {
+        Text(title).padding(.bottom, -1.5)
     }
 
     /// `accentsIcon` は基準画像で記号だけ pink に塗られている行。文字は選ばれるまで白のままなので、
@@ -414,41 +447,35 @@ struct RootView: View {
         _ destination: PadDestination, usesFixedHeight: Bool = true,
         @ViewBuilder label: () -> Label
     ) -> some View {
-        Button {
-            // detail に残った深い path を破棄してから切り替え、常に選択先の root を表示する。
-            homePath = NavigationPath()
-            libraryPath = NavigationPath()
-            searchPath = NavigationPath()
-            if destination == .search { searchQuery = "" }
-            padSelection = destination
-        } label: {
-            label()
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .frame(
-                    height: usesFixedHeight
-                        ? PadShell.sidebarRowHeight : PadShell.sidebarArtworkRowHeight
-                )
-                .contentShape(.rect)
-        }
-        .buttonStyle(.plain)
-        // 行の高さは自分で決める。既定の上下余白を残すと 52 pt になり、参照の 44 pt に収まらない。
-        .listRowInsets(
-            EdgeInsets(
-                top: 0, leading: PadShell.sidebarRowInset, bottom: 0,
-                trailing: PadShell.sidebarRowInset)
-        )
-        // 参照の板に行の区切り線は無い。一覧側へまとめて指定しても行までは届かない。
-        .listRowSeparator(.hidden)
-        .accessibilityIdentifier("sidebar.\(destination.identifier)")
-        .foregroundStyle(padSelection == destination ? PadShell.sidebarAccent : Color.primary)
-        // 参照の選択背景は左右に余白を置いた 473×88 px（236.5×44 pt）で、角の半径は高さの半分に一致した。
-        // 矩形のまま塗ると選択行だけ角が立つので、行の高さに追従する Capsule で塗る。
-        // 左右の余白は sidebar 既定の行 inset が既に実測と 1 px 差で一致するため、ここでは足さない。
-        .listRowBackground(
-            Capsule(style: .continuous)
-                .fill(padSelection == destination ? Color(.tertiarySystemFill) : Color.clear)
-        )
-        .accessibilityAddTraits(padSelection == destination ? .isSelected : [])
+        // 行は `Button` ではなく `List(selection:)` の選択肢にする。ボタンで `padSelection` を
+        // 書くだけでは split view は選択を知らないままで、選択状態の読み上げも列の追従も自分で
+        // 作ることになる。選択として渡せば板と detail の対応は SwiftUI 側が持つ。
+        label()
+            .frame(maxWidth: .infinity, alignment: .leading)
+            // 行の高さは自分で決める。既定の上下余白を残すと 52 pt になり、参照の 44 pt に収まらない。
+            .frame(
+                height: usesFixedHeight
+                    ? PadShell.sidebarRowHeight : PadShell.sidebarArtworkRowHeight
+            )
+            .contentShape(.rect)
+            .tag(destination)
+            .listRowInsets(
+                EdgeInsets(
+                    top: 0, leading: PadShell.sidebarRowInset, bottom: 0,
+                    trailing: PadShell.sidebarRowInset)
+            )
+            // 参照の板に行の区切り線は無い。一覧側へまとめて指定しても行までは届かない。
+            .listRowSeparator(.hidden)
+            .accessibilityIdentifier("sidebar.\(destination.identifier)")
+            .foregroundStyle(padSelection == destination ? PadShell.sidebarAccent : Color.primary)
+            // 参照の選択背景は左右に余白を置いた 473×88 px（236.5×44 pt）で、角の半径は高さの半分に一致した。
+            // 矩形のまま塗ると選択行だけ角が立つので、行の高さに追従する Capsule で塗る。
+            // 左右の余白は sidebar 既定の行 inset が既に実測と 1 px 差で一致するため、ここでは足さない。
+            // 選択の地は自分で描くので、`List` の既定の選択色は出させない。
+            .listRowBackground(
+                Capsule(style: .continuous)
+                    .fill(padSelection == destination ? Color(.tertiarySystemFill) : Color.clear)
+            )
     }
 
     /// sidebar 下端に固定するアカウント行。参照では一覧が下を通り抜けるので、押し下げずに重ねる。
@@ -480,9 +507,19 @@ struct RootView: View {
         return nil
     }
 
+    /// `List(selection:)` は選択解除のために optional を要求するが、参照の板は必ずどこかが
+    /// 選ばれている。空になった場合はホームとして扱い、detail を空白にしない。
+    private var padDestination: PadDestination { padSelection ?? .home }
+
+    /// 1 列のタブ shell を使うか。iPhone は従来どおり常にこちら。iPad も Split View や Slide Over で
+    /// 窓が狭くなると板 + detail の 2 列は成り立たないので、幅で 1 列へ落とす（仕様 6 章の末尾）。
+    /// `NavigationSplitView` の折り畳みには頼らない。折り畳んだ detail は各行が自分の
+    /// `NavigationStack` を持つうえ、ホームは bar を隠すので、戻る導線が 1 つも出ず板へ帰れなくなる。
+    private var usesTabShell: Bool { isPhonePlayer || horizontalSizeClass == .compact }
+
     @ViewBuilder
     private var padDetail: some View {
-        switch padSelection {
+        switch padDestination {
         case .home:
             homeNavigation
         case .search:
@@ -534,7 +571,7 @@ struct RootView: View {
     private var homeNavigation: some View {
         NavigationStack(path: $homePath) {
             HomeView {
-                if isPhonePlayer {
+                if usesTabShell {
                     libraryPath = NavigationPath([LibraryRoute.albums])
                     selection = .library
                 } else {
@@ -551,7 +588,7 @@ struct RootView: View {
 
     @ViewBuilder
     private var searchNavigation: some View {
-        if isPhonePlayer {
+        if usesTabShell {
             NavigationStack(path: $searchPath) { SearchView(query: $searchQuery) }
         } else {
             // iPad の automatic placement は split detail で検索欄を toolbar から完全に隠すため、

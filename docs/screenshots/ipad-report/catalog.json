@@ -10,7 +10,7 @@
       "current": "current/home.png",
       "capture": "home",
       "carriedOver": false,
-      "capturedAt": "2026-09-17T02:45:13+09:00",
+      "capturedAt": "2026-09-17T18:11:20+09:00",
       "counterpart": "iPhone"
     },
     {
@@ -22,7 +22,7 @@
       "current": "current/account.png",
       "capture": "account",
       "carriedOver": false,
-      "capturedAt": "2026-09-17T02:45:13+09:00",
+      "capturedAt": "2026-09-17T18:11:20+09:00",
       "counterpart": null
     },
     {
@@ -34,7 +34,7 @@
       "current": "current/artists.png",
       "capture": "artists",
       "carriedOver": false,
-      "capturedAt": "2026-09-17T02:45:13+09:00",
+      "capturedAt": "2026-09-17T18:11:20+09:00",
       "counterpart": null
     },
     {
@@ -46,7 +46,7 @@
       "current": "current/albums.png",
       "capture": "albums",
       "carriedOver": false,
-      "capturedAt": "2026-09-17T02:45:13+09:00",
+      "capturedAt": "2026-09-17T18:11:20+09:00",
       "counterpart": "iPhone"
     },
     {
@@ -58,7 +58,7 @@
       "current": "current/songs.png",
       "capture": "songs",
       "carriedOver": false,
-      "capturedAt": "2026-09-17T02:45:13+09:00",
+      "capturedAt": "2026-09-17T18:11:20+09:00",
       "counterpart": null
     },
     {
@@ -69,8 +69,8 @@
       "reference": "references/album-detail-cosmic-princess-kaguya.webp",
       "current": "current/album.png",
       "capture": "album",
-      "carriedOver": false,
-      "capturedAt": "2026-09-17T02:45:13+09:00",
+      "carriedOver": true,
+      "capturedAt": null,
       "counterpart": "iPhone"
     },
     {
@@ -81,8 +81,8 @@
       "reference": "references/album-detail-ill-live-with-my-heart-on-my-sleeve-search-context.webp",
       "current": "current/search-album-detail.png",
       "capture": "search-album-detail",
-      "carriedOver": false,
-      "capturedAt": "2026-09-17T02:45:13+09:00",
+      "carriedOver": true,
+      "capturedAt": null,
       "counterpart": null
     },
     {
@@ -93,8 +93,8 @@
       "reference": "references/artist-detail-togenashi-top-search-context.webp",
       "current": "current/search-artist.png",
       "capture": "search-artist",
-      "carriedOver": false,
-      "capturedAt": "2026-09-17T02:45:13+09:00",
+      "carriedOver": true,
+      "capturedAt": null,
       "counterpart": null
     },
     {
@@ -105,8 +105,8 @@
       "reference": "references/artist-detail-togenashi-bottom-search-context.webp",
       "current": "current/search-artist-bottom.png",
       "capture": "search-artist-bottom",
-      "carriedOver": false,
-      "capturedAt": "2026-09-17T02:45:13+09:00",
+      "carriedOver": true,
+      "capturedAt": null,
       "counterpart": null
     },
     {
@@ -118,7 +118,7 @@
       "current": "current/artist.png",
       "capture": "artist",
       "carriedOver": false,
-      "capturedAt": "2026-09-17T02:45:13+09:00",
+      "capturedAt": "2026-09-17T18:11:20+09:00",
       "counterpart": null
     },
     {
@@ -130,7 +130,7 @@
       "current": "current/playing.png",
       "capture": "playing",
       "carriedOver": false,
-      "capturedAt": "2026-09-17T02:45:13+09:00",
+      "capturedAt": "2026-09-17T18:11:20+09:00",
       "counterpart": null
     },
     {
@@ -141,8 +141,8 @@
       "reference": "references/now-playing-controls.webp",
       "current": "current/nowplaying.png",
       "capture": "nowplaying",
-      "carriedOver": false,
-      "capturedAt": "2026-09-17T02:45:13+09:00",
+      "carriedOver": true,
+      "capturedAt": null,
       "counterpart": "iPhone"
     },
     {
@@ -165,8 +165,8 @@
       "reference": "references/now-playing-lyrics-loading.webp",
       "current": "current/lyrics-loading.png",
       "capture": "lyrics-loading",
-      "carriedOver": false,
-      "capturedAt": "2026-09-17T02:45:13+09:00",
+      "carriedOver": true,
+      "capturedAt": null,
       "counterpart": "iPhone"
     },
     {
@@ -177,8 +177,8 @@
       "reference": "references/now-playing-lyrics.webp",
       "current": "current/lyrics.png",
       "capture": "lyrics",
-      "carriedOver": false,
-      "capturedAt": "2026-09-17T02:45:13+09:00",
+      "carriedOver": true,
+      "capturedAt": null,
       "counterpart": "iPhone"
     }
   ]

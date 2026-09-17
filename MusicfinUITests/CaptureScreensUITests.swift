@@ -97,6 +97,13 @@ final class CaptureScreensUITests: XCTestCase {
         return app.descendants(matching: type)[english[japanese] ?? japanese]
     }
 
+    /// 板の行は `List(selection:)` の選択肢なので button ではなく、選択状態を持つ静的テキストとして出る。
+    /// 行に付けた識別子は記号側にも伝わるため、行の幅を持つ静的テキストだけを引く。
+    @MainActor
+    private func padSidebarRow(_ identifier: String) -> XCUIElement {
+        app.descendants(matching: .staticText).matching(identifier: identifier).firstMatch
+    }
+
     override func setUpWithError() throws {
         // 1 つの画面が撮れなくても残りは撮り切りたい。
         continueAfterFailure = true
@@ -353,7 +360,7 @@ final class CaptureScreensUITests: XCTestCase {
         settle()
         capture("home")
 
-        app.buttons["sidebar.search"].tap()
+        padSidebarRow("sidebar.search").tap()
         let searchField = searchFieldElement
         XCTAssertTrue(searchField.waitForExistence(timeout: 20), "iPad の検索欄が表示されなかった")
         // 入力前のジャンルタイルは全アルバムを辿ってから並ぶ。読込中の輪だけを撮っても配置の比較にならない。
@@ -375,13 +382,64 @@ final class CaptureScreensUITests: XCTestCase {
 
         capturePadSidebarChild(identifier: "sidebar.artists", title: "アーティスト", screen: "artists")
         capturePadSidebarChild(identifier: "sidebar.songs", title: "曲", screen: "songs")
-        app.buttons["sidebar.albums"].tap()
+        padSidebarRow("sidebar.albums").tap()
         let firstAlbum = app.buttons.matching(
             NSPredicate(format: "identifier BEGINSWITH %@", "album.card.")
         ).firstMatch
         XCTAssertTrue(firstAlbum.waitForExistence(timeout: 30), "アルバムが 1 件も読み込まれなかった")
         settle()
         capture("albums")
+    }
+
+    /// 板が閉じられないこと、表示モードボタンが出ないことの確認（仕様 6 章）。
+    /// 静止画では見えない要件なので、実際に払って板の位置と幅が動かないことで確かめる。
+    @MainActor
+    func testPadSidebarCannotBeDismissed() throws {
+        guard isIPadCapture else { throw XCTSkip("iPad 専用の確認") }
+        launchApp()
+        ensureSignedIn()
+
+        let albums = padSidebarRow("sidebar.albums")
+        XCTAssertTrue(albums.waitForExistence(timeout: 30), "sidebar が表示されなかった")
+        let before = albums.frame
+        XCTAssertLessThan(before.maxX, 280, "sidebar の行が板の幅に収まっていない: \(before)")
+
+        let toggles = app.descendants(matching: .button).matching(
+            NSPredicate(format: "identifier == %@ OR label CONTAINS[c] %@", "ToggleSidebar", "sidebar")
+        )
+        XCTAssertEqual(
+            toggles.count, 0,
+            "sidebar toggle が残っている: \(toggles.allElementsBoundByIndex.map(\.label))")
+
+        let window = app.windows.firstMatch
+        func drag(_ fromX: CGFloat, _ toX: CGFloat, _ what: String) {
+            let origin = window.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 0))
+            origin.withOffset(CGVector(dx: fromX, dy: 512))
+                .press(
+                    forDuration: 0.1,
+                    thenDragTo: origin.withOffset(CGVector(dx: toX, dy: 512)))
+            settle()
+            XCTAssertTrue(albums.exists, "\(what) の後に sidebar が消えた")
+            XCTAssertEqual(
+                albums.frame.minX, before.minX, accuracy: 0.5, "\(what) で板が動いた")
+            XCTAssertEqual(
+                albums.frame.maxX, before.maxX, accuracy: 0.5, "\(what) で板の幅が変わった")
+        }
+        albums.swipeLeft()
+        settle()
+        XCTAssertEqual(albums.frame.minX, before.minX, accuracy: 0.5, "行の上で素早く左へ払ったら動いた")
+        window.swipeRight()
+        settle()
+        XCTAssertEqual(albums.frame.minX, before.minX, accuracy: 0.5, "窓の上で素早く右へ払ったら動いた")
+        // 板と detail の開始位置は画素ではなく要素の枠でも確かめる（仕様 6 章）。
+        let account = app.buttons["sidebar.account"]
+        // 仕様 6 章の 10 pt / 269.5 pt。UI test は app と型を共有しないので数値を直に書く。
+        XCTAssertEqual(account.frame.minX, 10, accuracy: 0.5, "板の左端が 10 pt でない")
+        XCTAssertEqual(account.frame.width, 269.5, accuracy: 0.5, "板の幅が 269.5 pt でない")
+        drag(140, 0, "板の中央から左へ払う")
+        drag(275, 20, "板の右端から左へ払う")
+        drag(1, 400, "窓の左端から右へ払う")
+        drag(320, 900, "detail の左端から右へ払う")
     }
 
     @MainActor
@@ -426,7 +484,10 @@ final class CaptureScreensUITests: XCTestCase {
                 self.captureArtistDetail()
             }
             capturePadSidebarChild(identifier: "sidebar.songs", title: "曲", screen: "songs")
-            app.buttons["sidebar.albums"].tap()
+            padSidebarRow("sidebar.albums").tap()
+            // iPhone 側は `captureLibraryChild` が走査を待つが、sidebar 経由はそこを通らない。
+            // 全アルバムの走査中にグリッドを待ち始めると、カードが並ぶ前に待ち時間を使い切る。
+            waitForCatalogScan()
         } else {
             selectTab("ライブラリ")
             XCTAssertTrue(
@@ -454,7 +515,7 @@ final class CaptureScreensUITests: XCTestCase {
         }
         // 位置で引くと一覧の先頭にある「再生」を掴んでしまい、詳細ではなく一覧が撮れる。
         let firstAlbum = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "album.card.")).firstMatch
-        XCTAssertTrue(firstAlbum.waitForExistence(timeout: 20), "アルバムが 1 件も読み込まれなかった")
+        XCTAssertTrue(firstAlbum.waitForExistence(timeout: 30), "アルバムが 1 件も読み込まれなかった")
         if !isIPadCapture {
             let actions = app.otherElements["library.albums.actions"]
             XCTAssertTrue(actions.waitForExistence(timeout: 5), "アルバムの固定再生操作が表示されなかった")
@@ -532,7 +593,7 @@ final class CaptureScreensUITests: XCTestCase {
     private func capturePadSidebarChild(
         identifier: String, title: String, screen: String, then drillDown: (() -> Void)? = nil
     ) {
-        let sidebar = app.buttons[identifier]
+        let sidebar = padSidebarRow(identifier)
         guard sidebar.waitForExistence(timeout: 10) else {
             skippedScreens.append(screen)
             return
@@ -751,7 +812,7 @@ final class CaptureScreensUITests: XCTestCase {
         let albumCard = app.buttons["album.card.\(Self.cosmicAlbumID)"]
         if !albumCard.exists {
             if isIPadCapture {
-                app.buttons["sidebar.albums"].tap()
+                padSidebarRow("sidebar.albums").tap()
             } else if app.buttons["library.account"].exists {
                 app.buttons["library.albums"].tap()
             } else {
@@ -1515,7 +1576,7 @@ final class CaptureScreensUITests: XCTestCase {
         let localizedTitle = labels[title] ?? title
         if isIPadCapture {
             let routeNames = ["ホーム": "home", "ライブラリ": "library", "検索": "search"]
-            let sidebar = app.buttons["sidebar.\(routeNames[title] ?? title)"]
+            let sidebar = padSidebarRow("sidebar.\(routeNames[title] ?? title)")
             guard sidebar.waitForExistence(timeout: 10) else {
                 XCTFail("iPad sidebar を選べなかった: \(localizedTitle)")
                 return
