@@ -92,7 +92,8 @@ final class CaptureScreensUITests: XCTestCase {
             "ライブラリ": "Library", "アルバム": "Albums", "アーティスト": "Artists", "プレイリスト": "Playlists",
             "ジャンル": "Genres", "曲": "Songs", "お気に入りの曲": "Favorite Songs", "再生": "Play", "歌詞": "Lyrics",
             "すべてのアルバムを確認中…": "Loading all albums…", "一時停止": "Pause", "次に再生": "Play Next",
-            "アルバムがありません": "No Albums",
+            "アルバムがありません": "No Albums", "アーティストがありません": "No Artists",
+            "曲がありません": "No Songs", "再試行": "Try Again",
         ]
         return app.descendants(matching: type)[english[japanese] ?? japanese]
     }
@@ -548,7 +549,10 @@ final class CaptureScreensUITests: XCTestCase {
         captureReplyPlayerScreens()
         recoverIfTerminated()
         if isIPadCapture {
-            XCTAssertTrue(skippedScreens.isEmpty, "撮れなかった画面: \(skippedScreens.joined(separator: ", "))")
+            // 同じ画面を 2 度撮りに行く経路があり、1 度目で諦めても 2 度目で撮れていることがある。
+            // `skippedScreens` は積むだけなので、実際に撮れた分を引いてから判定する。
+            let missing = skippedScreens.filter { !capturedNames.contains($0) }
+            XCTAssertTrue(missing.isEmpty, "撮れなかった画面: \(missing.joined(separator: ", "))")
             return
         }
 
@@ -588,6 +592,10 @@ final class CaptureScreensUITests: XCTestCase {
         XCTAssertTrue(skippedScreens.isEmpty, "撮れなかった画面: \(skippedScreens.joined(separator: ", "))")
     }
 
+    /// sidebar から潜った先の一覧が出るまでの待ち時間。曲の全件取得はデモサーバー相手だと
+    /// 初回だけ 20 秒では足りず、2 回目（キャッシュ済み）は通るという落ち方をしていたので長く取る。
+    private static let sidebarChildTimeout: TimeInterval = 60
+
     /// iPad の sidebar 項目を直接 detail root に出し、深い遷移が残っていても次の選択で破棄する。
     @MainActor
     private func capturePadSidebarChild(
@@ -603,27 +611,52 @@ final class CaptureScreensUITests: XCTestCase {
             skippedScreens.append(screen)
             return
         }
-        let loaded: Bool
-        switch identifier {
-        case "sidebar.artists":
-            loaded = waitForAny(
-                [
-                    app.buttons.matching(
-                        NSPredicate(format: "identifier BEGINSWITH %@", "artist.row.")
-                    )
-                    .firstMatch,
-                    element(.staticText, "アーティストがありません"),
-                ],
-                timeout: 20)
-        case "sidebar.songs":
-            loaded = waitForAny(
-                [app.buttons["song.row"].firstMatch, element(.staticText, "曲がありません")],
-                timeout: 20)
-        default:
-            loaded = true
+        let waitForContent: () -> Bool = { [self] in
+            switch identifier {
+            case "sidebar.artists":
+                waitForAny(
+                    [
+                        app.buttons.matching(
+                            NSPredicate(format: "identifier BEGINSWITH %@", "artist.row.")
+                        )
+                        .firstMatch,
+                        element(.staticText, "アーティストがありません"),
+                    ],
+                    timeout: Self.sidebarChildTimeout)
+            case "sidebar.songs":
+                waitForAny(
+                    [app.buttons["song.row"].firstMatch, element(.staticText, "曲がありません")],
+                    timeout: Self.sidebarChildTimeout)
+            default:
+                true
+            }
+        }
+
+        // 取得が一度でも失敗すると `LibraryStore` は `.failed` で止まり、案内の「再試行」を押すまで
+        // 読み直さない。待ち時間を延ばしても行は出てこないので、案内が出ていたら押して待ち直す。
+        var loaded = waitForContent()
+        var attempts = 0
+        while !loaded, attempts < 2 {
+            let retry = element(.button, "再試行")
+            guard retry.waitForExistence(timeout: 3) else { break }
+            retry.tap()
+            attempts += 1
+            loaded = waitForContent()
         }
         guard loaded else {
-            XCTFail("iPad sidebar の遷移先を読み込めなかった: \(identifier)")
+            // 行が出ないのか空表示なのか、それとも読み込み中のままなのかで原因が違う。
+            // 数だけでは「行も輪も無いまま止まった」先が何の画面なのか分からないので、
+            // 出ている文字を数語だけ添える。全部読み上げると失敗文が長くなるので頭から 12 件。
+            let rows = app.buttons.matching(identifier: "song.row").count
+            let texts = (0..<min(app.staticTexts.count, 12)).map {
+                app.staticTexts.element(boundBy: $0).label
+            }
+            XCTFail(
+                "iPad sidebar の遷移先を読み込めなかった: \(identifier) "
+                    + "(再試行 \(attempts) 回 / song.row \(rows) 件 / "
+                    + "静的テキスト \(app.staticTexts.count) 件 / "
+                    + "進捗 \(app.activityIndicators.count) 件) 文字: "
+                    + texts.joined(separator: " | "))
             skippedScreens.append(screen)
             return
         }
@@ -1301,15 +1334,41 @@ final class CaptureScreensUITests: XCTestCase {
             NSPredicate(format: "identifier BEGINSWITH %@", "queue.upcoming."))
         let firstUpcoming = upcomingRows.element(boundBy: 0)
         let secondUpcoming = upcomingRows.element(boundBy: 1)
-        guard sharedTitle.waitForExistence(timeout: 10), sharedTitle.label == "Reply",
-            sharedTitle.value as? String == Self.replyItemID,
-            firstUpcoming.waitForExistence(timeout: 10), secondUpcoming.waitForExistence(timeout: 10),
-            firstUpcoming.identifier == "queue.upcoming.\(Self.rayItemID)",
-            secondUpcoming.identifier == "queue.upcoming.\(Self.meltItemID)",
-            firstUpcoming.label.localizedCaseInsensitiveContains("ray"),
-            secondUpcoming.label.localizedCaseInsensitiveContains("Melt")
-        else {
-            XCTFail("Queue が exact Reply → Ray → Melt のアルバム順ではなかった")
+        // 8 条件を 1 つの XCTFail にまとめると、落ちた条件が分からず原因に辿れない。
+        // 撮影を止める判断は変えず、どれが崩れていたかだけを言い足す。
+        var problems: [String] = []
+        if !sharedTitle.waitForExistence(timeout: 10) {
+            problems.append("nowplaying.title が出ない")
+        } else {
+            if sharedTitle.label != "Reply" { problems.append("曲名が \(sharedTitle.label)") }
+            if sharedTitle.value as? String != Self.replyItemID {
+                problems.append("曲 ID が \(sharedTitle.value as? String ?? "nil")")
+            }
+        }
+        if !firstUpcoming.waitForExistence(timeout: 10) {
+            problems.append("続く曲が 0 行")
+        } else if !secondUpcoming.waitForExistence(timeout: 10) {
+            problems.append("続く曲が 1 行だけ（1 行目 \(firstUpcoming.label)）")
+        } else {
+            // 崩れた並びを見るための行なので、長い待ち行列を全部読み上げる必要は無い。
+            let actual = (0..<min(upcomingRows.count, 5)).map {
+                upcomingRows.element(boundBy: $0).label
+            }
+            // 同一性は item ID だけで見る。曲名でも照合していたが、サーバーの曲名は
+            // 「メルト (かぐや ver.) [CPK! Remix]」とカタカナで、"Melt" とは決して一致しない。
+            // ID が合っていれば曲は確定しているので、曲名は診断に出すだけにする。
+            if firstUpcoming.identifier != "queue.upcoming.\(Self.rayItemID)"
+                || secondUpcoming.identifier != "queue.upcoming.\(Self.meltItemID)"
+            {
+                problems.append("並びが \(actual.joined(separator: " → "))")
+                problems.append("1 行目の識別子 \(firstUpcoming.identifier)")
+                problems.append("2 行目の識別子 \(secondUpcoming.identifier)")
+            }
+        }
+        guard problems.isEmpty else {
+            XCTFail(
+                "Queue が exact Reply → Ray → Melt のアルバム順ではなかった: "
+                    + problems.joined(separator: " / "))
             skippedScreens.append("queue")
             return
         }
@@ -1443,7 +1502,11 @@ final class CaptureScreensUITests: XCTestCase {
             }
         }
         guard searchField.waitForExistence(timeout: 10) else {
-            XCTFail("Reply 撮影後に検索欄へ戻れなかった")
+            // プレイヤーが開いたままなのか、閉じたのに検索欄が戻らないのかで原因が別なので書き分ける。
+            XCTFail(
+                "Reply 撮影後に検索欄へ戻れなかった"
+                    + "（プレイヤー \(element(.button, "歌詞").exists ? "開" : "閉")"
+                    + " / 文字 \(app.staticTexts.count) 件）")
             return
         }
         if isIPadCapture {
