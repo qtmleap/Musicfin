@@ -53,7 +53,9 @@ docs/screenshots/baseline/
 docs/screenshots/reference/
 
 ## 撮り直しのたびに入れ替わる比較用の出力。reference との差分を見るためだけのもの
+## 突き合わせに使う版は scripts/build-mock-diff-workspace.py が docs/mock-diff/ に焼き直す
 docs/screenshots/current/
+docs/screenshots/ipad-report/current/
 docs/screenshots/previous/
 docs/screenshots/comparison/
 
