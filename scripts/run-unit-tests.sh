@@ -10,3 +10,9 @@ xcrun swiftc -parse-as-library -swift-version 6 \
   Musicfin/Features/Library/AlbumCatalog.swift \
   Tests/AlbumCatalogTests.swift -o "$test_dir/album-catalog-tests"
 "$test_dir/album-catalog-tests"
+
+cp Tests/PlaybackQueueOrderTests.swift "$test_dir/main.swift"
+xcrun swiftc -swift-version 6 \
+  Musicfin/Player/PlaybackQueueOrder.swift \
+  "$test_dir/main.swift" -o "$test_dir/playback-queue-order-tests"
+"$test_dir/playback-queue-order-tests"
