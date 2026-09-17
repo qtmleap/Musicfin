@@ -7,7 +7,6 @@
     "**/.venv": true,
     "**/xcuserdata": true,
     ".build": true,
-    ".claude/settings.local.json": true,
     ".claude/worktrees": true,
     ".swiftpm": true,
     "DerivedData": true,

@@ -151,6 +151,8 @@ struct AlbumDetailView: View {
                     .frame(maxWidth: .infinity, minHeight: 48)
                     .background(.white.opacity(0.14), in: .capsule)
             }
+            // 再生側と同じく識別子を持たせ、UI テストから 2 つのカプセルを対で掴めるようにする。
+            .accessibilityIdentifier("album.shuffle")
         }
         .font(.headline)
         .foregroundStyle(.tint)

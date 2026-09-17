@@ -55,6 +55,7 @@
 "お気に入りの曲がありません" = "No Favorite Songs";
 "すべてのアルバムを確認中…" = "Loading all albums…";
 "次に再生" = "Play Next";
+"queue.continue-playing" = "Continue Playing";
 "最後に追加" = "Add to Queue";
 "お気に入り" = "Favorite";
 "お気に入りに追加" = "Add to Favorites";
@@ -114,6 +115,7 @@
 "モバイル通信" = "Cellular";
 "ロスレスは通信量が大きく、変更は次の曲から反映されます。" = "Lossless uses more data. Changes apply to the next song.";
 "ログアウトしてもサーバーの URL は保持されます。" = "Your server URL will be kept after signing out.";
+
 /* iPad の sidebar。参照の項目名をそのまま英語で出す（仕様 6 章）。 */
 "新着" = "New";
 "ラジオ" = "Radio";
@@ -140,3 +142,16 @@
 "自動再生" = "Autoplay";
 "未対応" = "Unavailable";
 "この歌詞には時間情報がありません。再生に合わせた自動追従は行いません。" = "These lyrics have no timing information, so they don’t follow playback.";
+
+/* アカウント画面の一時的な切り替え（仕様 4.1.1・5.2 章） */
+"プレイヤー" = "Player";
+"実機比較用の一時的な切り替えです。" = "Temporary switches for on-device comparison.";
+"歌詞の行送り" = "Lyrics Scrolling";
+"開き方" = "Presentation";
+"加減速（現行）" = "Ease (Current)";
+"弾まないばね" = "Spring, No Bounce";
+"小さく弾むばね" = "Spring, Slight Bounce";
+"大きく弾むばね" = "Spring, Strong Bounce";
+"せり上がり（現行）" = "Slide Up (Current)";
+"ミニプレイヤーから展開" = "Expand from Mini Player";
+"システムZoom" = "System Zoom";
