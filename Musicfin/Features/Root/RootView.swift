@@ -143,6 +143,8 @@ struct RootView: View {
         .environment(catalog)
         // iPad は参照どおり sidebar を含む全窓を覆う。fitted sheet へ戻すと左右の構成が残ってしまう。
         .fullScreenCover(isPresented: padPlayerPresented) { playerContent }
+        // account は iPhone / iPad で共通の提示なので、shell の外に付けて両方から同じ形で出す。
+        .sheet(isPresented: $showsAccount) { AccountView() }
         .playerPresentation(
             isPresented: customPlayerPresented,
             source: miniPlayerSource,
@@ -226,27 +228,26 @@ struct RootView: View {
                     shape.fill(Color.black.opacity(0.5))
                     // `.navigationSplitViewColumnWidth` は `.balanced` では無視され、列幅が
                     // 320 pt に固定される。板を参照の 269.5 pt にできる唯一の経路がこれ。
-                    PadSplitViewConfigurator(primaryColumnWidth: PadShell.sidebarWidth)
+                    // フルプレイヤーは shell を全面で覆うので、その間は当て直しの時計を止める。
+                    PadSplitViewConfigurator(
+                        primaryColumnWidth: PadShell.sidebarWidth,
+                        isCovered: padPlayerPresented.wrappedValue
+                    )
                 }
         } detail: {
-            padDetailColumn
+            padDetail
                 .toolbar(removing: .sidebarToggle)
         }
         .navigationSplitViewStyle(.balanced)
+        // 帯は detail の `NavigationStack` より外に重ねる。列の中に置くと、アルバム詳細などを
+        // 積んだ時点で SwiftUI が detail 列の navigation controller ごと差し替えてしまい、
+        // 再生中でも帯が消える（積んだ画面から再生しても出てこない不具合の原因）。
+        .overlay(alignment: .bottom) { padMiniPlayerBar }
         // 端の払いや toolbar から閉じられても、参照どおり常に開いた状態へ戻す。
         // 狭い窓はこの shell へ来ない（`usesTabShell`）ので、ここで固定して詰むことはない。
         .onChange(of: padColumnVisibility) { _, visibility in
             if visibility != .all { padColumnVisibility = .all }
         }
-        // 選択が変わったら detail に残った深い path を捨て、常に選択先の root から見せる。
-        // 行が `Button` だったときは押した側でやっていた片付けで、選択へ移したぶんをここへ寄せる。
-        .onChange(of: padSelection) { _, destination in
-            homePath = NavigationPath()
-            libraryPath = NavigationPath()
-            searchPath = NavigationPath()
-            if destination == .search { searchQuery = "" }
-        }
-        .sheet(isPresented: $showsAccount) { AccountView() }
     }
 
     private var padSidebar: some View {
@@ -263,7 +264,7 @@ struct RootView: View {
             .padding(.top, 12)
             .padding(.bottom, 6)
 
-            List(selection: $padSelection) {
+            List(selection: padSelectionBinding) {
                 padSidebarRow("検索", systemImage: "magnifyingglass", destination: .search)
                 padSidebarRow("ホーム", systemImage: "house", destination: .home, accentsIcon: true)
                 padSidebarRow("新着", systemImage: "square.grid.2x2", destination: .new)
@@ -320,26 +321,26 @@ struct RootView: View {
         }
     }
 
-    private var padDetailColumn: some View {
-        ZStack(alignment: .bottom) {
-            padDetail
-            if showsMiniPlayer {
-                MiniPlayerView(
-                    onFrameChange: { miniPlayerSource.rect = $0 },
-                    forceExpanded: true
-                ) { showsPlayer = true }
-                .frame(maxWidth: 689)
-                .frame(height: 63.5)
-                .glassEffect(.regular, in: .rect(cornerRadius: 24, style: .continuous))
-                .padding(.horizontal, 16)
-                .background { PlayerZoomSource(source: miniPlayerSource) }
-                // 下端 25 pt は窓の下端から測る（仕様 6 章）。帯は高さが決まっているので
-                // `ignoresSafeArea` だけでは動かない。伸び縮みする枠でいったん包み、その枠を
-                // 窓の下端まで広げてから 25 pt 詰める。枠のままだとホームインジケータぶん浮く。
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-                .padding(.bottom, 25)
-                .ignoresSafeArea(edges: .bottom)
-            }
+    @ViewBuilder private var padMiniPlayerBar: some View {
+        if showsMiniPlayer {
+            MiniPlayerView(
+                onFrameChange: { miniPlayerSource.rect = $0 },
+                forceExpanded: true
+            ) { showsPlayer = true }
+            .frame(maxWidth: 689)
+            .frame(height: 63.5)
+            .glassEffect(.regular, in: .rect(cornerRadius: 24, style: .continuous))
+            .padding(.horizontal, 16)
+            .background { PlayerZoomSource(source: miniPlayerSource) }
+            // 下端 25 pt は窓の下端から測る（仕様 6 章）。帯は高さが決まっているので
+            // `ignoresSafeArea` だけでは動かない。伸び縮みする枠でいったん包み、その枠を
+            // 窓の下端まで広げてから 25 pt 詰める。枠のままだとホームインジケータぶん浮く。
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+            // 窓に重ねているので、板のぶんだけ左を削ってから中央へ置く。窓全体の中央だと
+            // 板の半幅だけ左へずれる（仕様 6 章）。
+            .padding(.leading, PadShell.detailOrigin)
+            .padding(.bottom, 25)
+            .ignoresSafeArea(edges: .bottom)
         }
     }
 
@@ -507,6 +508,28 @@ struct RootView: View {
         return nil
     }
 
+    /// sidebar の選択を書き込む口。参照の detail は行を選んだ瞬間に中身だけ入れ替わり、
+    /// push のようなスライドを見せないので、選択と後片付けをまとめて **アニメーション無しの
+    /// transaction** で流す。detail 側に常設で `.transaction` を掛けると、detail の中で
+    /// 残したい push / pop まで止まってしまう。
+    private var padSelectionBinding: Binding<PadDestination?> {
+        Binding(get: { padSelection }, set: { select($0) })
+    }
+
+    /// 選択の切り替え。detail に残った深い path を捨て、常に選択先の root から見せる。
+    /// プログラムから選ぶ経路もここを通す。binding だけに transaction を付けると素通りする。
+    private func select(_ destination: PadDestination?) {
+        var transaction = Transaction(animation: nil)
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            padSelection = destination
+            homePath = NavigationPath()
+            libraryPath = NavigationPath()
+            searchPath = NavigationPath()
+            if destination == .search { searchQuery = "" }
+        }
+    }
+
     /// `List(selection:)` は選択解除のために optional を要求するが、参照の板は必ずどこかが
     /// 選ばれている。空になった場合はホームとして扱い、detail を空白にしない。
     private var padDestination: PadDestination { padSelection ?? .home }
@@ -575,8 +598,7 @@ struct RootView: View {
                     libraryPath = NavigationPath([LibraryRoute.albums])
                     selection = .library
                 } else {
-                    libraryPath = NavigationPath()
-                    padSelection = .albums
+                    select(.albums)
                 }
             }
         }
