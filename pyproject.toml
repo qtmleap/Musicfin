@@ -4,5 +4,8 @@ version = "0.1.0"
 requires-python = ">=3.10"
 dependencies = [
     "mutagen>=1.48.1",
+    # 参照 (webp) の読み込みとステータスバーの塗り潰し。mock-diff にマスク機能が無いぶんを
+    # scripts/build-mock-diff-workspace.py が肩代わりする。撮影と同じく macOS 側で動かす。
+    "pillow>=10.2",
     "pymobiledevice3>=11.12.4",
 ]
