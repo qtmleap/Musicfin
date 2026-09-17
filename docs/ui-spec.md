@@ -1455,11 +1455,23 @@ preset の 0.15 の弾みは 1 pt 未満に収まって行き過ぎとして見�
 基準画像はすべて 2732 × 2048 px（2 倍、論理 1366 × 1024 pt）なので、比較撮影も
 **iPad Air 13-inch (M3) の横向き**へ固定する。
 
-- iPad の shell は `NavigationSplitView` を使わない。標準の split view は横向きでも左カラムを
-  detail へ重ねる overlay 表示になり、端の払いや toolbar のボタンで閉じられてしまう。基準画像の
-  sidebar は常に見えている固定の板なので、`RootView` が黒い window の上へ板と detail を自分で
-  並べる。閉じる導線・sidebar toggle・`columnVisibility` の類は置かない。各タブの画面が個別に
-  split view を持ったり、iPhone の `TabView` を iPad でも上部タブとして使ったりしない
+- iPad の shell は `RootView` が持つ 1 つの `NavigationSplitView(columnVisibility:)` とし、
+  `.navigationSplitViewStyle(.balanced)` を当てる。`.balanced` は左カラムを detail へ重ねず
+  並べてくれるが、**列幅と閉じる導線は SwiftUI 側からは決められない**。
+  `.navigationSplitViewColumnWidth(min:ideal:max:)` は無視され、列幅は 320 pt に固定される
+  （269.5 pt を渡しても 400 pt を渡しても実測が変わらないことを確認済み）。基準画像の sidebar は
+  常に見えている固定の板なので、`PadSplitViewConfigurator` が応答者連鎖をたどって裏の
+  `UISplitViewController` を掴み、レイアウトのたびに次を当て直す
+  - `minimumPrimaryColumnWidth` / `maximumPrimaryColumnWidth` / `preferredPrimaryColumnWidth`
+    を **269.5 pt** に固定する。板幅と detail 開始 279.5 pt・本文左端 314 pt はこれで出る
+  - `preferredSplitBehavior = .tile` と `preferredDisplayMode = .oneBesideSecondary` で、
+    overlay や 1 カラムへ落ちないようにする
+  - `presentsWithGesture = false` で端の払いによる開閉を止める
+  - `displayModeButtonVisibility = .never` で detail 側の表示モードボタンを出さない
+
+  併せて `columnVisibility` は `.all` に固定し、両カラムへ `.toolbar(removing: .sidebarToggle)`
+  を当てて SwiftUI 側の toggle も置かない。各タブの画面が個別に split view を持ったり、
+  iPhone の `TabView` を iPad でも上部タブとして使ったりしない
 - sidebar は window の端（safe area ではない）から測って **左 10 pt・上 32 pt・下 10 pt** に浮かせた
   角丸の板とする。幅は画像上 539 / 2732 = 19.73%、論理 **269.5 pt**、高さ約 982 pt、角丸 **24 pt**。
   板だけを半透明 material で描き、window と detail の地は黒一色にする。detail に板のような面は敷かない
@@ -1470,7 +1482,9 @@ preset の 0.15 の弾みは 1 pt 未満に収まって行き過ぎとして見�
   314 pt 以外になる画面を作らない
 - sidebar の行は記号と文字だけなら高さ 44 pt で、行送りも 44 pt（基準画像 88 px）にそろえる。
   選択中の行は行いっぱいの 236.5 × 44 pt の capsule で塗り、板の左右へ 16.5 pt ずつ余白を置く。
-  作品画像を出す行だけ 51 pt と高い。「ピン」の見出しのように選ばれない行は地を持たせない
+  作品画像を出す行だけ 51 pt と高い。「ピン」の見出しのように選ばれない行は地を持たせない。
+  区分（「ライブラリ」「プレイリスト」）の見出しの前は **8.5 pt** 空ける。split view の sidebar 列は
+  見出しの下にも既定より広い余白を取るので、見出しの側で 1.5 pt 詰めて行送りを参照へ戻す
 - ミニプレイヤーは sidebar や `tabViewBottomAccessory` の中へ置かない。右の detail 座標系で
   水平中央に置く floating bar とし、論理約 689 × 63.5 pt、下端余白約 25 pt を基準にする。
   25 pt は **window の下端から**測る。safe area の内側に置くとホームインジケータぶんだけ浮く。
@@ -1509,7 +1523,8 @@ preset の 0.15 の弾みは 1 pt 未満に収まって行き過ぎとして見�
 
 ## 7. アルバム詳細の再生ボタン
 
-アルバム詳細は **シャッフルの円 / Playのカプセル / ダウンロードの円** の3ボタンにする。アルバム一覧の「Play / Shuffle」2カプセルとは別構成である。
+iPhone のアルバム詳細は **シャッフルの円 / Playのカプセル / ダウンロードの円** の3ボタンにする。アルバム一覧の「Play / Shuffle」2カプセルとは別構成である。
+iPad の横長詳細は Apple Music の基準画像どおり、黒い地にアートワークとメタデータを横並びにし、その下へ Play / Shuffle の2カプセルを置く。
 
 参照は`docs/screenshots/comparison/album/reference.png`。Apple元画像393×852ptに換算した通常文字サイズの実測は次のとおり（約、±2pt）。
 

@@ -8,7 +8,7 @@
   "scale": 2,
   "locale": "en_US",
   "appearance": "dark",
-  "generatedAt": "2026-09-17T02:46:06+09:00",
+  "generatedAt": "2026-09-17T18:12:14+09:00",
   "screens": [
     {
       "id": "home",
@@ -17,7 +17,7 @@
       "title": "Home",
       "reference": "iPad/home.webp",
       "referenceHash": "bf4f43b51a7258784a404960660a056b1211f20bced75cc97cfff07584726c33",
-      "currentHash": "bb576beeb8f71c4bd91eac53a131723ec1d66ab2d09b4a90aa075f60f1df40bf",
+      "currentHash": "83140acb76866140cc00613e5a5d6bdbcbfbb366a5b7e4ae88b9b4ded57d3ab9",
       "tolerance": {
         "channelDelta": 8,
         "mismatchRatio": 0.1,
@@ -45,10 +45,10 @@
       ],
       "maskAreaRatio": 0.002764901514458272,
       "metrics": {
-        "rawMismatchRatio": 0.5533436542025073,
-        "rawRGBMAE": 0.26002826254991074,
-        "mismatchRatio": 0.5542304861975609,
-        "rgbMAE": 0.2603427837947589,
+        "rawMismatchRatio": 0.541671194408858,
+        "rawRGBMAE": 0.2600251092508212,
+        "mismatchRatio": 0.5425536223852826,
+        "rgbMAE": 0.2603782838464417,
         "maskAreaRatio": 0.002764901514458272
       },
       "carriedOver": false,
@@ -61,7 +61,7 @@
       "title": "Music Account",
       "reference": "iPad/music-account-sheet.webp",
       "referenceHash": "0826a1e15452ce94d1f2b50a86bee636adb50dda51675e1b4068e2c8c9a7b378",
-      "currentHash": "7148a92beb41d3a59c46b4654fb82468dfbf0c9dcfe4d172486a232913256972",
+      "currentHash": "0380a8ef0014cab39cf2f9f76b9f3c0e8e617424af8d8d887227900f8bd64759",
       "tolerance": {
         "channelDelta": 8,
         "mismatchRatio": 0.1,
@@ -89,10 +89,10 @@
       ],
       "maskAreaRatio": 0.002764901514458272,
       "metrics": {
-        "rawMismatchRatio": 0.47242033080161056,
-        "rawRGBMAE": 0.07425259125162083,
-        "mismatchRatio": 0.47329463806614946,
-        "rgbMAE": 0.07417666663857682,
+        "rawMismatchRatio": 0.3166982893713397,
+        "rawRGBMAE": 0.07185112562194075,
+        "mismatchRatio": 0.31704227457342427,
+        "rgbMAE": 0.07168225467540283,
         "maskAreaRatio": 0.002764901514458272
       },
       "carriedOver": false,
@@ -105,7 +105,7 @@
       "title": "Artists \u2014 Selected",
       "reference": "iPad/library-artists-selected-togenashi.webp",
       "referenceHash": "6dd089dc1408c930406b2c409cb52e89a8ddbc68552f978253abbf59b32e219d",
-      "currentHash": "e46f2153970f99e694929076c6190507ddf390eb7250e955461e33ca6c0467d5",
+      "currentHash": "888d4f3d35351e5d470cd0acdf1c2d6ea6f89c8b30c48a3aa7ed2871d7aad946",
       "tolerance": {
         "channelDelta": 8,
         "mismatchRatio": 0.1,
@@ -133,10 +133,10 @@
       ],
       "maskAreaRatio": 0.002764901514458272,
       "metrics": {
-        "rawMismatchRatio": 0.45908446193265007,
-        "rawRGBMAE": 0.17569985974559266,
-        "mismatchRatio": 0.4587364189899539,
-        "rgbMAE": 0.17563022214680363,
+        "rawMismatchRatio": 0.4025349875320278,
+        "rawRGBMAE": 0.17328090179840236,
+        "mismatchRatio": 0.4028101323627615,
+        "rgbMAE": 0.17319944273188848,
         "maskAreaRatio": 0.002764901514458272
       },
       "carriedOver": false,
@@ -149,7 +149,7 @@
       "title": "Albums",
       "reference": "iPad/library-albums.webp",
       "referenceHash": "034dafdb36e90fbdea3c2a498d0956ea044343cfd119cdf27477cb682c1099d2",
-      "currentHash": "ce8ead2dbe6cdef2d90c39470fea54e38a44a614d6230dcad31bb99361b280e1",
+      "currentHash": "1c31a185e647299f3d457092131c22eb43ab824344026bab43c15ecedee1fb5d",
       "tolerance": {
         "channelDelta": 8,
         "mismatchRatio": 0.1,
@@ -177,10 +177,10 @@
       ],
       "maskAreaRatio": 0.002764901514458272,
       "metrics": {
-        "rawMismatchRatio": 0.6356905354936859,
-        "rawRGBMAE": 0.23679549429562424,
-        "mismatchRatio": 0.6358321447914624,
-        "rgbMAE": 0.23689524846087434,
+        "rawMismatchRatio": 0.5563852245950769,
+        "rawRGBMAE": 0.23231435000088219,
+        "mismatchRatio": 0.5570869295760714,
+        "rgbMAE": 0.2323965651477876,
         "maskAreaRatio": 0.002764901514458272
       },
       "carriedOver": false,
@@ -193,7 +193,7 @@
       "title": "Songs",
       "reference": "iPad/library-songs.webp",
       "referenceHash": "50b8474e993e209163da2de845048c8d05bd5febbe7a30f8ce4bc18529f6a3a3",
-      "currentHash": "fc73d6fce42cfb9868139f217fd17a10777b26adcce194055e35e2bb3b8eb57c",
+      "currentHash": "ad1d887bdb646ddfe93cdded7c498e90c37ff4ffffc53c8cd9d7c05df4836b42",
       "tolerance": {
         "channelDelta": 8,
         "mismatchRatio": 0.1,
@@ -221,10 +221,10 @@
       ],
       "maskAreaRatio": 0.002764901514458272,
       "metrics": {
-        "rawMismatchRatio": 0.2534092111433931,
-        "rawRGBMAE": 0.0535475067999305,
-        "mismatchRatio": 0.25249091970738036,
-        "rgbMAE": 0.053139193570723935,
+        "rawMismatchRatio": 0.2010962736205161,
+        "rawRGBMAE": 0.05065978805905141,
+        "mismatchRatio": 0.20081291604192797,
+        "rgbMAE": 0.050238353691229566,
         "maskAreaRatio": 0.002764901514458272
       },
       "carriedOver": false,
@@ -271,7 +271,7 @@
         "rgbMAE": 0.052154027426511054,
         "maskAreaRatio": 0.002764901514458272
       },
-      "carriedOver": false,
+      "carriedOver": true,
       "pass": false
     },
     {
@@ -315,7 +315,7 @@
         "rgbMAE": 0.05951596596726504,
         "maskAreaRatio": 0.002764901514458272
       },
-      "carriedOver": false,
+      "carriedOver": true,
       "pass": false
     },
     {
@@ -359,7 +359,7 @@
         "rgbMAE": 0.1351473609066426,
         "maskAreaRatio": 0.002764901514458272
       },
-      "carriedOver": false,
+      "carriedOver": true,
       "pass": false
     },
     {
@@ -403,7 +403,7 @@
         "rgbMAE": 0.15298242428355907,
         "maskAreaRatio": 0.002764901514458272
       },
-      "carriedOver": false,
+      "carriedOver": true,
       "pass": false
     },
     {
@@ -413,7 +413,7 @@
       "title": "TOGENASHI TOGEARI \u2014 Library",
       "reference": "iPad/artist-detail-togenashi-top-library-context.webp",
       "referenceHash": "0127fc4cf8f9dac7bfaea9d0e2435c61506bdd3822bc1f667cb387ad7db91454",
-      "currentHash": "ebfeb31eccffa1714084f73bd987c7df86d56255a403d44affc15f6d19880301",
+      "currentHash": "aa9d757e3d70f148ff67bce2269220a40390f3eb4f505c49d648c4946bd4a769",
       "tolerance": {
         "channelDelta": 8,
         "mismatchRatio": 0.1,
@@ -441,10 +441,10 @@
       ],
       "maskAreaRatio": 0.002764901514458272,
       "metrics": {
-        "rawMismatchRatio": 0.31209607773609077,
-        "rawRGBMAE": 0.13557146358383212,
-        "mismatchRatio": 0.3121900128072182,
-        "rgbMAE": 0.13546357235162265,
+        "rawMismatchRatio": 0.3340660530861091,
+        "rawRGBMAE": 0.13786619832150007,
+        "mismatchRatio": 0.33409472896764786,
+        "rgbMAE": 0.13764925170667966,
         "maskAreaRatio": 0.002764901514458272
       },
       "carriedOver": false,
@@ -457,7 +457,7 @@
       "title": "Not Playing",
       "reference": "iPad/now-playing-not-playing.webp",
       "referenceHash": "cf14ff090af977b6bb159a75cd5089f9acb72e5d254ad454d2d8eaa5408d74a0",
-      "currentHash": "29e8e6fd4c6802b7e8f2baf5cca9514d4628d92ec7c8988940e5a3e6e1185f10",
+      "currentHash": "c7b28026b6a79dd7ca7946e4aace384db35bb48d98753ad3bdc2f95f036dd77a",
       "tolerance": {
         "channelDelta": 8,
         "mismatchRatio": 0.1,
@@ -485,8 +485,8 @@
       ],
       "maskAreaRatio": 0.002764901514458272,
       "metrics": {
-        "rawMismatchRatio": 0.5915564876349744,
-        "rawRGBMAE": 0.05837002369826805,
+        "rawMismatchRatio": 0.5915657814215776,
+        "rawRGBMAE": 0.05837563361289642,
         "mismatchRatio": 0.5907430659828026,
         "rgbMAE": 0.0582270184331248,
         "maskAreaRatio": 0.002764901514458272
@@ -535,7 +535,7 @@
         "rgbMAE": 0.085373581137985,
         "maskAreaRatio": 0.002764901514458272
       },
-      "carriedOver": false,
+      "carriedOver": true,
       "pass": false
     },
     {
@@ -623,7 +623,7 @@
         "rgbMAE": 0.06313298735202716,
         "maskAreaRatio": 0.002764901514458272
       },
-      "carriedOver": false,
+      "carriedOver": true,
       "pass": false
     },
     {
@@ -667,7 +667,7 @@
         "rgbMAE": 0.068954481120592,
         "maskAreaRatio": 0.002764901514458272
       },
-      "carriedOver": false,
+      "carriedOver": true,
       "pass": false
     }
   ]

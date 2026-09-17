@@ -607,7 +607,10 @@ extension View {
                     .padding(.horizontal, horizontalMargin)
                     .padding(.top, 8)
                     .padding(.bottom, 12)
-                    .background(.bar)
+                    // 地は黒一色で、detail に板のような面は敷かない（仕様 6 章）。`.bar` の material は
+                    // 上端に半透明の帯を作り、split view では窓幅いっぱい（板の上まで）広がってしまう。
+                    // 透かさず黒で塞ぐことで、下をくぐる本文も見せない。
+                    .background(Color.black)
             }
         } else {
             searchable(
