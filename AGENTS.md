@@ -27,8 +27,10 @@ xcodebuild -project Musicfin.xcodeproj -scheme Musicfin -configuration Debug \
 ```
 
 - Screenshots: `./scripts/capture-screens.sh` (UI tests capture the main screens)
-- Viewer to compare what was captured: `./scripts/launch.py`
-  (http://127.0.0.1:18755/, stays in the foreground; Ctrl+C to stop)
+- Workspace the viewer reads: `docs/mock-diff/`, rebuilt from `docs/app/` by
+  `scripts/build-mock-diff-workspace.py` at the end of every capture
+- Viewer: the `mock-diff` service in `.devcontainer/compose.yaml` inside the
+  container, `bun run dev` in the viewer checkout on the Mac
 - Unit tests: `./scripts/run-unit-tests.sh` (details in `Tests/README.md`)
 - CI locally: `./scripts/act.sh` (`--host <job>` for the macOS jobs)
 
@@ -50,36 +52,25 @@ to leave the tree uncommitted so that one seat owns the history. It waits until
 every piece of the request is in and verified, so a request is shipped once, not
 once per sub-task.
 
-## The three agents (`./scripts/agents/start-agents.sh`)
+## Agents
 
-| Pane | Who | Role |
-|---|---|---|
-| `orchestrator` | Claude Code | Splits the work, assigns it, verifies it, commits and ships it, reports to the user |
-| `implementer` | Claude Code | Carries the implementation tasks it gets from the orchestrator through to done |
-| `reviewer` | Claude Code | Read-only design and change review, second opinions |
+One seat, `claude --agent devflow:orchestrator`, started from the command
+palette entry the `devflow` plugin installs. It does no editing itself: it
+splits the work and runs `devflow:implementer`, `devflow:reviewer`,
+`devflow:tester` and `devflow:advisor` through the `Agent` tool, picking the
+model per call rather than from the environment.
 
-The seats talk to each other with Claude Code cross-session messaging
-(`ListAgents`, then `SendMessage` to `orchestrator` / `implementer` /
-`reviewer`), and every seat reaches Codex through the `codex` MCP server
-(`ask` for a question, `review` for a diff). Role prompts live in
-`scripts/agents/*.md`; a model or prompt change needs
-`./scripts/agents/start-agents.sh --restart` to take effect.
+Codex is reachable from every seat as `mcp__plugin_devflow_codex__ask` for a
+question and `mcp__plugin_devflow_codex__review` for a diff.
 
-In VS Code the session is also reachable from the command palette as **Agents:
-Start / Restart / Attach**. Those entries come from the small local extension in
-`scripts/agents/vscode/`, which exists only because VS Code will not put a task
-in the palette by itself (microsoft/vscode#101761); each command runs the
-`.vscode/tasks.json` task of the same name. `start-agents.sh` installs it in the
-background on every launch, since there is no devcontainer here to do it on
-attach. After changing `extension.js`, bump `version` in its `package.json` — the
-installer skips a version it already has — and run **Developer: Reload Window**
-once, because VS Code only reads the extensions directory when a window opens.
+The plugins themselves are enabled in `.claude/settings.json`, which is
+committed, so the Mac and the container get the same set.
 
 ## For Codex (you, reading this file)
 
-You arrive through the `codex` MCP server, with access to this repository but no
-context from the conversation that called you, so the prompt has to name what
-matters and this file is your standing brief.
+You arrive through the `codex` MCP server the `devflow` plugin provides, with
+access to this repository but no context from the conversation that called you,
+so the prompt has to name what matters and this file is your standing brief.
 
 - Your job is mostly to **answer design questions and review requests**. Write
   code only when implementation is what was asked for.
