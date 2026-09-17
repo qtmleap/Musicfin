@@ -5,6 +5,13 @@ struct ArtworkView: View {
     let item: MediaItem?
     var size: CGFloat
     var cornerRadius: CGFloat = 8
+    /// 画像が無いときの記号の大きさ（一辺に対する指定サイズの比）。既定は一覧や行の小さな枠向けで、
+    /// プレイヤーの大きな枠だけ参照に合わせて別の比を渡す（仕様 6.2.1 章）。
+    var iconScale: CGFloat = 0.32
+    /// 画像が無いときの枠の地。既定の `.quaternary` は**白を重ねて地から浮かせる**面で、一覧や行では
+    /// これが正しい。参照のプレイヤーの空状態だけは逆に**地を暗くする**面なので、そこだけ差し替える
+    /// （仕様 6.2.1 章）。`iconScale` と同じく、共有の見た目を既定のまま残すための入口。
+    var placeholderFill: AnyShapeStyle = AnyShapeStyle(.quaternary)
 
     @Environment(AuthStore.self) private var auth
     @State private var image: UIImage?
@@ -33,9 +40,9 @@ struct ArtworkView: View {
 
     private var placeholder: some View {
         ZStack {
-            Rectangle().fill(.quaternary)
+            Rectangle().fill(placeholderFill)
             Image(systemName: iconName)
-                .font(.system(size: size * 0.32, weight: .light))
+                .font(.system(size: size * iconScale, weight: .light))
                 .foregroundStyle(.tertiary)
         }
     }

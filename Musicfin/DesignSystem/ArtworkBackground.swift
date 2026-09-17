@@ -11,56 +11,82 @@ nonisolated struct ArtworkPalette: Equatable, Sendable {
     enum Band: Sendable {
         case detail
         case player
+        /// フルプレイヤーの**曲が無いとき**だけの帯。参照は再生中と地の色も漸変の形も別で、
+        /// 再生中の値を流用すると上半分が 10 % 明るくなる（仕様 6.2.1 章）。
+        /// `emptyArtworkSide` と同じく「空状態専用の実測値」として分ける。
+        case emptyPlayer
 
         /// 彩度の上限。取り出した色がこれより鮮やかでも、帯の側へ寄せる。
+        /// フルプレイヤーは参照の左余白を上から下まで測ると 23.5%→28.8% と動いており、
+        /// 単色で塗るこの模型では**その平均の 27%** が一番近い（仕様 1.2 章）。
+        /// 以前の 22% は測った範囲の下端だけを見ていた値で、画面の大半で参照より鈍く見えていた。
         var maximumSaturation: Double {
             switch self {
             case .detail: 0.32
-            case .player: 0.22
+            case .player, .emptyPlayer: 0.27
+            }
+        }
+
+        /// アートワークが取れないときの色相と彩度。**既定は無彩色**だが、フルプレイヤーの空状態は
+        /// 参照が淡い寒色で、左余白を上から下まで測ると H **240°**・S **4.4〜6.5 %**（代表 6 %。
+        /// 地は RGB 86/86/92）になる。純灰で塗ると色味が 6 足りない（仕様 6.2.1 章）。
+        var neutralColor: (hue: Double, saturation: Double) {
+            switch self {
+            case .detail, .player: (0, 0)
+            case .emptyPlayer: (240, 0.06)
             }
         }
 
         /// 帯の明度。詳細は実測 2 点（彩度 32%→明度 65%、彩度 11%→明度 74%）を通る直線、
         /// フルプレイヤーは固定（仕様 1.2 章）。**点が 2 つしか無いので、3 例目が外れたら式を直す。**
+        /// 空状態は参照の平らな区間が 36.1 % なのでそこを基準にする（仕様 6.2.1 章）。
         func value(forSaturation saturation: Double) -> Double {
             switch self {
             case .detail: 0.78 - 0.4 * saturation
-            case .player: 0.36
+            case .player: 0.41
+            case .emptyPlayer: 0.361
             }
         }
 
-        /// 上端の倍率。基準色（倍率 1.0 の点）に対する比（仕様 1.2 章 手順 5）。
+        /// 上端の倍率。基準色（倍率 1.0 の点）に対する比（仕様 1.2 章 手順 6）。
+        /// 空状態が 1.0 なのは、参照が上端から画面の半分まで**明度を落とさない**ため（仕様 6.2.1 章）。
         var topScale: Double {
             switch self {
             case .detail: 0.94
             case .player: 0.99
+            case .emptyPlayer: 1.0
             }
         }
 
-        /// 下端の倍率。フルプレイヤーは詳細の 0.89 では足りず、Apple の実測は 0.475 まで落ちる。
+        /// 下端の倍率。フルプレイヤーは詳細の 0.89 では足りず、参照全体との比較では 0.53 まで落ちる。
         var bottomScale: Double {
             switch self {
             case .detail: 0.89
-            case .player: 0.475
+            case .player: 0.53
+            case .emptyPlayer: 0.58
             }
         }
 
         /// 両端の間に置く点。位置と、基準色に対する倍率の組。**数も位置も帯で違う。**
         /// `.detail` は最大付近が平坦で一点に決められないので、その範囲の中の 30% を 1 点だけ置く。
         /// `.player` は最大が 10% にあり、そこから下端まで直線では下りない。
-        /// 0.10→1.0 と 1.0→0.475 を直線で結ぶと 30% が 0.883・60% が 0.708 になり、
+        /// 0.10→1.0 と 1.0→0.53 を直線で結ぶと 30% が 0.896・60% が 0.739 になり、
         /// 実測の 0.93 / 0.845 から離れるので、途中の 2 点を省かない（仕様 1.2 章）。
+        /// 空状態は **0.5 に折れ点が 1 つだけ**。参照は y 0..512 pt が 36.1 % で完全に平らで、
+        /// そこから下端まで直線で 21 % へ落ちる。再生中の 3 点を流用すると上半分が明るくなる
+        /// （仕様 6.2.1 章）。
         var innerStops: [(location: Double, scale: Double)] {
             switch self {
             case .detail: [(0.3, 1.0)]
             case .player: [(0.1, 1.0), (0.3, 0.93), (0.6, 0.845)]
+            case .emptyPlayer: [(0.5, 1.0)]
             }
         }
     }
 
-    /// 縦グラデーションの両端と基準色。途中の点は帯ごとに数が違うので、基準色から作る（仕様 1.2 章 手順 5）。
+    /// 縦グラデーションの両端と基準色。途中の点は帯ごとに数が違うので、基準色から作る（仕様 1.2 章 手順 6）。
     var stops: Stops
-    /// 前景を暗くするか。基準色の輝度だけで決まり、場所ごとには変えない（仕様 1.2 章 手順 6）。
+    /// 前景を暗くするか。基準色の輝度だけで決まり、場所ごとには変えない（仕様 1.2 章 手順 7）。
     var prefersDarkForeground: Bool
 
     /// 文字と記号の色。明るいアートワークでは黒へ反転する。**白で固定しない。**
@@ -90,11 +116,13 @@ nonisolated struct ArtworkPalette: Equatable, Sendable {
     /// 「Musicfin はダウンロードを持たないので無効を形で示す」というこちら側の決定（仕様 7 章）。
     var disabledForeground: Color { foreground.opacity(0.4) }
 
-    /// アートワークが取れないときの無彩色。定数を別に置かず、彩度 0 を帯の式へ入れて作る。
-    /// 詳細は明度 78%（灰 199・前景は黒）、フルプレイヤーは 36%（灰 92・前景は白）になる。
+    /// アートワークが取れないときの色。定数を別に置かず、帯が持つ色相・彩度を帯の式へ入れて作る。
+    /// 詳細は明度 78%（灰 199・前景は黒）、フルプレイヤーは 41%（灰 105・前景は白）になる。
     /// 78% 自体に根拠があるわけではなく、**帯の式の端がそこだから**であって、
-    /// 帯を直せば既定色も一緒に動く。数値を別に書くと片方だけ古くなる（仕様 1.2 章 手順 3）。
-    static func neutral(band: Band) -> Self { make(hue: 0, saturation: 0, band: band) }
+    /// 帯を直せば既定色も一緒に動く。数値を別に書くと片方だけ古くなる（仕様 1.2 章 手順 5）。
+    static func neutral(band: Band) -> Self {
+        make(hue: band.neutralColor.hue, saturation: band.neutralColor.saturation, band: band)
+    }
 }
 
 // MARK: - グラデーションの 3 点
@@ -179,7 +207,7 @@ nonisolated extension ArtworkPalette {
         var magnitudeSquared: Double { red * red + green * green + blue * blue }
     }
 
-    /// 上端・基準・下端の 3 点。前景の判定に使うのは `middle` の 1 つだけ（仕様 1.2 章 手順 6）。
+    /// 上端・基準・下端の 3 点。前景の判定に使うのは `middle` の 1 つだけ（仕様 1.2 章 手順 7）。
     /// 曲送りの補間はこの 3 点で行い、途中の点は描くときに `middle` から作る。
     /// 途中の点を持たせると帯ごとに要素数が変わり、`VectorArithmetic` の足し引きが組めない。
     struct Stops: Equatable, Sendable, VectorArithmetic {
@@ -216,8 +244,14 @@ nonisolated extension ArtworkPalette {
     private static let sampleSide = 32
     /// 捨てる明度の上下。アルバムの最頻色が白になったのは上を捨てなかったため（仕様 1.2 章 手順 2）。
     private static let valueRange = 0.12...0.92
-    /// 色相の桶の数。30° ごと（仕様 1.2 章 手順 3）。
+    /// 桶の数。30° ごと（仕様 1.2 章 手順 3）。**彩度を取る塊を選ぶために使い、
+    /// 色相が円平均で決まらないときの控えにも使う。**
     private static let hueBucketCount = 12
+    /// 円平均の合成長の下限。これを下回ったら色相を最頻桶から取り直す（仕様 1.2 章 手順 4）。
+    /// 合成長は「向きがどれだけ 1 方向に集まっているか」で、補色が同量あると 0 に近づく。
+    /// 実測では健全なジャケットが 0.43〜0.49、暖色と寒色がほぼ同量の
+    /// 「Shangri-La Shower」が **0.016** で、間が広いので 0.10 に置く。
+    private static let minimumResultantLength = 0.10
 
     /// アートワークから配色を作る。**呼び出し元の actor では走らせない。**
     /// `nonisolated` だけだと `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor` の下で MainActor に残り、
@@ -225,12 +259,16 @@ nonisolated extension ArtworkPalette {
     @concurrent nonisolated static func extract(from image: CGImage, band: Band) async -> Self {
         guard let pixels = downsample(image) else { return neutral(band: band) }
 
-        // 桶ごとに `彩度 × 明度` の合計と、色相・彩度の素の平均を貯める。
-        // 選ぶのは重みの最大の桶だが、そこから取る H と S は仕様どおり桶の平均にする。
+        // 彩度は桶ごとに `彩度 × 明度` の合計を取り、重みの最大の桶の平均を使う。
+        // 色相だけは桶を使わない。**桶の境目が 0°/360° に来るため、赤〜ローズのように
+        // 継ぎ目をまたぐ塊が桶 0 と桶 330 に割れ、わずかな差で勝者が反転して答えが 30° 跳ぶ。**
+        // 代わりに画像全体を単位ベクトルの和として畳み、`atan2` で円平均を取る（継ぎ目が無い）。
         var weights = [Double](repeating: 0, count: hueBucketCount)
-        var hues = [Double](repeating: 0, count: hueBucketCount)
         var saturations = [Double](repeating: 0, count: hueBucketCount)
+        var hues = [Double](repeating: 0, count: hueBucketCount)
         var counts = [Int](repeating: 0, count: hueBucketCount)
+        var hueX = 0.0
+        var hueY = 0.0
 
         for offset in stride(from: 0, to: pixels.count, by: 4) {
             let alpha = Double(pixels[offset + 3]) / 255
@@ -244,10 +282,17 @@ nonisolated extension ArtworkPalette {
             guard valueRange.contains(hsv.value) else { continue }
 
             let bucket = min(Int(hsv.hue / 360 * Double(hueBucketCount)), hueBucketCount - 1)
-            weights[bucket] += hsv.saturation * hsv.value
-            hues[bucket] += hsv.hue
+            let chroma = hsv.saturation * hsv.value
+            weights[bucket] += chroma
             saturations[bucket] += hsv.saturation
+            hues[bucket] += hsv.hue
             counts[bucket] += 1
+
+            // 重みは彩度と明度の積。灰色の画素は長さ 0 のベクトルになり、色相を持たない画素が
+            // 向きを引っ張らない。
+            let radians = hsv.hue * .pi / 180
+            hueX += cos(radians) * chroma
+            hueY += sin(radians) * chroma
         }
 
         guard let best = weights.indices.max(by: { weights[$0] < weights[$1] }), counts[best] > 0 else {
@@ -256,7 +301,20 @@ nonisolated extension ArtworkPalette {
         }
 
         let count = Double(counts[best])
-        return make(hue: hues[best] / count, saturation: saturations[best] / count, band: band)
+        // 色が付いた画素が無ければ向きも決まらない。灰色だけのジャケットは無彩色の既定色で塗る。
+        let totalChroma = weights.reduce(0, +)
+        guard totalChroma > 0 else { return neutral(band: band) }
+
+        // 円平均は向きが打ち消し合うと答えを失う。**補色が同量あるジャケットでは合成長が 0 に近づき、
+        // 残った誤差の向きが色相を決めてしまう**（水色と肌色が同量の一例は 0.016 で、
+        // 緑を返して地と合わなかった）。集まっていないと分かったときは、彩度を取るのに選んだ
+        // 最頻桶の平均へ戻す。桶なら継ぎ目で割れる代わりに、少なくとも実在する塊の色になる。
+        let resultantLength = (hueX * hueX + hueY * hueY).squareRoot() / totalChroma
+        let hue =
+            resultantLength < minimumResultantLength
+            ? hues[best] / count
+            : (atan2(hueY, hueX) * 180 / .pi + 360).truncatingRemainder(dividingBy: 360)
+        return make(hue: hue, saturation: saturations[best] / count, band: band)
     }
 
     /// 白い文字を載せる地の相対輝度の上限。Apple のアルバム詳細の実測 0.238 に合わせた（仕様 1.2 章）。
@@ -270,12 +328,12 @@ nonisolated extension ArtworkPalette {
         switch band {
         case .detail where !prefersDarkForeground:
             base.capped(toRelativeLuminance: maximumRelativeLuminance)
-        case .detail, .player:
+        case .detail, .player, .emptyPlayer:
             base
         }
     }
 
-    /// 取り出した色相・彩度を帯へ正規化し、グラデーションと前景を決める（仕様 1.2 章 手順 4〜6）。
+    /// 取り出した色相・彩度を帯へ正規化し、グラデーションと前景を決める（仕様 1.2 章 手順 5〜7）。
     private static func make(hue: Double, saturation: Double, band: Band) -> Self {
         let saturation = min(saturation, band.maximumSaturation)
         let value = band.value(forSaturation: saturation)
