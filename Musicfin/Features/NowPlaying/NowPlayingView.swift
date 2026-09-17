@@ -14,6 +14,9 @@ struct NowPlayingView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ScaledMetric(relativeTo: .title2) private var minimumTitleHeight = 76.0
     @ScaledMetric(relativeTo: .caption) private var minimumSeekHeight = 64.0
+    /// iPad の音量記号（仕様 6.2 章）。参照の字面はこちらの `.caption`（12 pt）より大きく、
+    /// 比から 14 pt に当たる。固定値にすると文字サイズ設定に付いてこないので `@ScaledMetric` で持つ。
+    @ScaledMetric(relativeTo: .caption) private var padVolumeGlyphSize = 14.0
 
     /// シークが成立している間だけシステムの対話的な終了を止める（仕様 4.1 章）。
     /// 抑止を掛けるのは sheet を出している `RootView` 側なので、この状態だけ外に持たせて共有する。
@@ -80,38 +83,242 @@ struct NowPlayingView: View {
     /// 前景はこの 3 画面では常に白なので反転の判定は要らないが、下部の選択中のボタンだけは
     /// 円の地と記号の両方を配色から引くので、背景以外にも配色そのものを下へ渡す。
     /// **地は不透明のまま**にする。半透明にすると sheet の下のアルバム詳細が本文に重なって読めなくなる。
+    /// iPad は幅 519 pt の固定カラムへ収める別の組みになる（仕様 6.2 章）。寸法を決める前に
+    /// 経路を分けるので、帯の比率配分も `PlayerTopLayout` の見出し化も iPad では通らない。
+    private var isPad: Bool { UIDevice.current.userInterfaceIdiom == .pad }
+
     var body: some View {
         GeometryReader { geometry in
-            // 背景と前景が同じ操作帯の距離を使えるよう、配分は背景を敷く手前で一度だけ決める。
-            let artworkSide = geometry.size.width - 48
-            let layout = PlayerLayout(
-                height: geometry.size.height,
-                artworkMedia: Self.mediaHeight(forArtworkSide: artworkSide),
-                titleMinimum: minimumTitleHeight,
-                seekMinimum: minimumSeekHeight
-            )
-            let controlsInset = layout.controlsHeight + geometry.safeAreaInsets.bottom
-            ArtworkBackdrop(item: player.currentItem, band: .player, artworkSize: Self.paletteArtworkSize) { palette in
-                ControlsTransition(
-                    // モード自体の 0.35 秒ではなく、この状態を変えた 0.4 秒の transaction だけで帯を動かす。
-                    progress: lyricsControlsHidden ? 0 : 1,
-                    controlsInset: controlsInset,
-                    safeAreaInset: geometry.safeAreaInsets.bottom
-                ) { progress, detailExtra, controlsOffset in
-                    content(
-                        palette: palette,
-                        artworkSide: artworkSide,
-                        layout: layout,
+            if isPad {
+                padPlayer(geometry: geometry)
+            } else {
+                // 背景と前景が同じ操作帯の距離を使えるよう、配分は背景を敷く手前で一度だけ決める。
+                let artworkSide = geometry.size.width - 48
+                let layout = PlayerLayout(
+                    height: geometry.size.height,
+                    artworkMedia: Self.mediaHeight(forArtworkSide: artworkSide),
+                    titleMinimum: minimumTitleHeight,
+                    seekMinimum: minimumSeekHeight
+                )
+                let controlsInset = layout.controlsHeight + geometry.safeAreaInsets.bottom
+                ArtworkBackdrop(item: player.currentItem, band: .player, artworkSize: Self.paletteArtworkSize) {
+                    palette in
+                    ControlsTransition(
+                        // モード自体の 0.35 秒ではなく、この状態を変えた 0.4 秒の transaction だけで帯を動かす。
+                        progress: lyricsControlsHidden ? 0 : 1,
                         controlsInset: controlsInset,
-                        controlsProgress: progress,
-                        detailExtra: detailExtra,
-                        controlsOffset: controlsOffset
-                    )
+                        safeAreaInset: geometry.safeAreaInsets.bottom
+                    ) { progress, detailExtra, controlsOffset in
+                        content(
+                            palette: palette,
+                            artworkSide: artworkSide,
+                            layout: layout,
+                            controlsInset: controlsInset,
+                            controlsProgress: progress,
+                            detailExtra: detailExtra,
+                            controlsOffset: controlsOffset
+                        )
+                    }
                 }
             }
         }
         // iPad の fitted sheet が理想寸法を読めるよう、寸法指定はルートの読み取り器より外へ置く（6 章）。
         .frame(idealWidth: 560, maxWidth: .infinity, idealHeight: 800)
+    }
+
+    // MARK: - iPad のフルプレイヤー
+
+    /// iPad は 4 画面すべてを**幅 519 pt の固定カラム**で組む（仕様 6.2 章）。iPhone 側の
+    /// `PlayerLayout` は高さの比率で帯を配るが、参照の iPad は高さが変わっても帯を伸ばさず、
+    /// 実測の絶対位置にそのまま置いてある。比率で近づけようとしても縦の刻みが合わないので、
+    /// ここは座標を直に置く別経路にする。
+    ///
+    /// 座標の原点は **window の左上**。実測値が safe area の内側ではなく window から測った値なので、
+    /// 枠を window 全体まで広げてから位置を決める。
+    private func padPlayer(geometry: GeometryProxy) -> some View {
+        // 曲が無いときは参照の地の色も漸変の形も再生中と別なので、帯ごと切り替える（仕様 6.2.1 章）。
+        // iPhone 側（`band: .player`）には参照が無いので触らない。
+        let band: ArtworkPalette.Band = player.currentItem == nil ? .emptyPlayer : .player
+        return ArtworkBackdrop(item: player.currentItem, band: band, artworkSize: Self.paletteArtworkSize) { palette in
+            GeometryReader { window in
+                padContent(palette: palette, size: window.size)
+            }
+            .ignoresSafeArea()
+        }
+    }
+
+    private func padContent(palette: ArtworkPalette, size: CGSize) -> some View {
+        // 本文（歌詞・キュー）を出すとカラムは左へ寄り、アートワークが 379 pt へ縮む。
+        // `mode` は `switchMode(to:)` の `withAnimation` の中で変わるので、ここで作る座標も
+        // そのまま補間される——iPhone 側の `PlayerTopLayout` のような自前の補間は要らない。
+        let showsPanel = mode != .artwork
+        let columnLeft = showsPanel ? PadPlayer.columnLeft : (size.width - PadPlayer.columnWidth) / 2
+        return ZStack(alignment: .topLeading) {
+            if showsPanel {
+                padPanel
+                    .frame(
+                        width: max(1, size.width - PadPlayer.panelLeft - PadPlayer.panelTrailing),
+                        height: size.height,
+                        alignment: .top
+                    )
+                    .offset(x: PadPlayer.panelLeft)
+                    .transition(.opacity)
+            }
+            padColumn(showsPanel: showsPanel)
+                .frame(width: PadPlayer.columnWidth, height: size.height, alignment: .topLeading)
+                .offset(x: columnLeft)
+            // 下段の 3 記号だけは window 全幅の別の行で、カラムが左へ寄っても動かない（仕様 6.2 章）。
+            padBottomControls(palette: palette)
+                .frame(width: size.width, height: PadPlayer.rowHeight, alignment: .topLeading)
+                .offset(y: PadPlayer.bottomRowTop)
+        }
+        .frame(width: size.width, height: size.height, alignment: .topLeading)
+        .foregroundStyle(.white)
+        // 地は常に暗いので、明るい外観でも文字と記号は白のままにする（仕様 1.2 章）。
+        .environment(\.colorScheme, .dark)
+        .tint(.pink)
+        // iPad の参照はグラバーが y 38.0..43.0 に出る（窓中央 683.0 / 60×5 pt の実測。
+        // 仕様 6.2 章）。iPhone の 5 とは別の値で、同じにすると 33 pt 高く付く。
+        .overlay(alignment: .top) { grabber(top: 38) }
+        .accessibilityAction(.escape) { close() }
+        .modifier(
+            PlaybackObservers(
+                pendingSeekTime: $pendingSeekTime,
+                isScrubbing: $isScrubbing,
+                favoriteTrack: $favoriteTrack
+            )
+        )
+    }
+
+    /// カラムの中身。y は仕様 6.2 章の表の実測値をそのまま置く。
+    private func padColumn(showsPanel: Bool) -> some View {
+        ZStack(alignment: .topLeading) {
+            padArtwork(showsPanel: showsPanel)
+                .offset(y: PadPlayer.mediaTop)
+            // 曲名とアーティストはカラムの左端に揃え、右端にはお気に入りとメニューを置く。
+            // 参照でも曲名帯の右端に 32 pt の丸が 2 個あり、中心はカラム右端から 16 / 64 pt 内側。
+            // どちらがどの操作かは画像からは読めないので、iPhone と同じ順で置いている。
+            songTitle
+                .frame(width: PadPlayer.textWidth, alignment: .leading)
+                .offset(y: PadPlayer.titleTop)
+            songArtist
+                .frame(width: PadPlayer.textWidth, alignment: .leading)
+                .offset(y: PadPlayer.artistTop)
+            HStack(spacing: PadPlayer.trailingActionSpacing - PadPlayer.rowHeight) {
+                favoriteButton
+                trackMenuButton
+            }
+            .frame(width: PadPlayer.trailingActionsFrameWidth, alignment: .trailing)
+            .offset(y: PadPlayer.titleTop)
+
+            seekControls
+                .frame(width: PadPlayer.columnWidth)
+                .offset(y: PadPlayer.seekTop)
+            padTransport
+                .offset(y: PadPlayer.transportTop)
+            volumeRow
+                .frame(width: PadPlayer.columnWidth, height: PadPlayer.rowHeight)
+                .offset(y: PadPlayer.volumeCenter - PadPlayer.rowHeight / 2)
+        }
+    }
+
+    /// アートワーク。本文を出すと 519 → 379 pt へ縮み、519 pt の帯の中で上下左右 70 pt 均等になる。
+    /// 曲が無いときは参照が 377.5 pt 角なので、そこだけ三つめの寸法を使う（仕様 6.2 章）。
+    private func padArtwork(showsPanel: Bool) -> some View {
+        let isEmpty = player.currentItem == nil
+        let side: CGFloat =
+            if showsPanel {
+                PadPlayer.compactArtworkSide
+            } else if isEmpty {
+                PadPlayer.emptyArtworkSide
+            } else {
+                PadPlayer.columnWidth
+            }
+        return Button {
+            switchMode(to: .artwork)
+        } label: {
+            ArtworkView(
+                item: player.currentItem,
+                size: side,
+                cornerRadius: Self.artworkCornerRadius(forSide: side, bigSide: PadPlayer.columnWidth),
+                // 大きな枠では既定の 0.32 だと記号が参照より小さい。曲が無いときだけ参照の比を渡す。
+                iconScale: isEmpty ? PadPlayer.emptyIconScale : 0.32,
+                // 参照の四角は地を暗くする面。既定の `.quaternary` は白の加算なので空状態だけ差し替える。
+                placeholderFill: isEmpty
+                    ? AnyShapeStyle(.black.opacity(PadPlayer.emptyPlaceholderDarkening))
+                    : AnyShapeStyle(.quaternary)
+            )
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("アートワークへ戻る")
+        .accessibilityHidden(mode == .artwork)
+        .frame(width: PadPlayer.columnWidth, height: PadPlayer.mediaHeight)
+        // 曲が無いときは上の 377.5 pt が参照の実測そのものなので、90 % 縮小（§4）を重ねない。
+        // 曲があって一時停止しているときは参照が無く判定できないため、iPhone と同じ扱いを続ける。
+        .scaleEffect(reduceMotion || player.isPlaying || showsPanel || isEmpty ? 1 : 0.9)
+        .animation(reduceMotion ? nil : .spring(duration: 0.4, bounce: 0.2), value: player.isPlaying)
+    }
+
+    /// 参照の iPad はトランスポートが **5 記号**で、両端に shuffle と repeat が付く（仕様 6.2 章）。
+    /// 中心間は等間隔ではなく、前・再生・次が 96.75 pt、shuffle と repeat はそこから約 148.9 pt
+    /// 外側にある。中央の再生を基準に実測の中心をそのまま置く。
+    /// 曲が無いときは参照が**前・再生・次の 3 記号だけ**で、両端の 2 記号は淡くなるのではなく
+    /// 描かれない。前後送りは淡色、再生だけ白のままなので、行ごとではなく前後送りだけを止める。
+    private var padTransport: some View {
+        let isEmpty = player.currentItem == nil
+        return ZStack {
+            if !isEmpty {
+                shuffleButton.offset(x: -PadPlayer.transportOuterOffset)
+            }
+            previousButton.offset(x: -PadPlayer.transportInnerSpacing).disabled(isEmpty)
+            // 掛ける曲が無ければ `PlaybackEngine.play()` 側が何もしないので、見た目だけ白に保つ。
+            playPauseButton
+            nextButton.offset(x: PadPlayer.transportInnerSpacing).disabled(isEmpty)
+            if !isEmpty {
+                repeatButton.offset(x: PadPlayer.transportOuterOffset)
+            }
+        }
+        // 両端の枠がカラムの外へ 8 pt ずつ出るので、行はカラムより広い 535 pt で持つ。
+        .frame(width: PadPlayer.transportWidth, height: PadPlayer.transportHeight)
+        .offset(x: -(PadPlayer.transportWidth - PadPlayer.columnWidth) / 2)
+    }
+
+    /// 下段の 3 記号。参照は **AirPlay が左**で、歌詞とキューが右端へ寄る（仕様 6.2 章）。
+    /// iPhone の「歌詞 / AirPlay / キュー」の並びとは別物なので `bottomControls` は使わない。
+    private func padBottomControls(palette: ArtworkPalette) -> some View {
+        ZStack(alignment: .topLeading) {
+            AudioRouteView()
+                .frame(width: PadPlayer.rowHeight, height: PadPlayer.rowHeight)
+                .accessibilityLabel("出力先")
+                .offset(x: PadPlayer.routeGlyphCenter - PadPlayer.rowHeight / 2)
+            modeButton(.lyrics, symbol: "quote.bubble", label: "歌詞", palette: palette)
+                .offset(x: PadPlayer.lyricsGlyphCenter - PadPlayer.rowHeight / 2)
+            modeButton(.queue, symbol: "list.bullet", label: "次に再生", palette: palette)
+                .offset(x: PadPlayer.queueGlyphCenter - PadPlayer.rowHeight / 2)
+        }
+    }
+
+    /// 右の面。iPad はカラムが横に並ぶので、歌詞を読んでいる間も操作を退避させない
+    /// （`onControlsVisibilityChange` を捨てているのはそのため）。
+    @ViewBuilder
+    private var padPanel: some View {
+        switch mode {
+        case .artwork:
+            EmptyView()
+        case .lyrics:
+            if let track = player.currentItem {
+                LyricsView(
+                    track: track,
+                    isSettled: !isTopTransitioning,
+                    bottomExtension: 0,
+                    onControlsVisibilityChange: { _ in }
+                )
+                .id(track.id)
+            }
+        case .queue:
+            // 現在の曲は左のカラムが出しているので、面の側には見出しを重ねない。
+            QueueView()
+        }
     }
 
     private func content(
@@ -133,48 +340,55 @@ struct NowPlayingView: View {
         // 二値で遅らせると、短い反転では待ちが完了せず、消えた帯の全高が空白として残る。
         // 同じ補間値から本文の延長量と帯の見た目を作れば、向きを変えても途中の位置から連続する。
         return ScrollView {
-            topArea(artworkSide: artworkSide, layout: layout, detailExtra: detailExtra)
-                // 重ねた操作帯を通常時の全高へ含め、文字拡大時の外側スクロール範囲は変えない。
-                // 歌詞本文だけが `detailExtra` ではみ出すため、上部の高さと位置はこの枠でも動かない。
-                .frame(height: layout.media + layout.title + layout.controlsHeight, alignment: .top)
-                .overlay(alignment: .bottom) {
-                    // シーク以降の 4 帯は **1 つの塊にまとめ、3 状態で同じものを保つ**（仕様 5.1 章 第 4 版）。
-                    // 上部との `VStack` に置くと、見た目を 0 まで畳んでも元の高さが兄弟領域として残り、
-                    // はみ出して伸ばした歌詞本文がその場所を実際の表示領域として使えない。
-                    // 通常時と同じ位置へ重ねれば identity と高さを保ったまま、本文へ場所を譲れる。
-                    VStack(spacing: 0) {
-                        seekControls.frame(height: layout.seek)
-                        transport.frame(height: layout.transport)
-                        // 音量は帯の下端へ、下部の記号は帯の上端へ寄せる。この 2 つを中央に置いたままだと
-                        // 音量記号から選択円までが (volume + bottom) / 2 で決まってしまい、
-                        // 最小値だけで目標を 15 pt 超えるので比率をいくら下げても届かない（仕様 4 章）。
-                        // 寄せるのは 44 pt の操作行ごとで、記号だけを動かすのではない。
-                        volumeRow.frame(height: layout.volume, alignment: .bottom)
-                        bottomControls(palette: palette).frame(height: layout.bottom, alignment: .top)
-                    }
-                    // 退避と復帰は**縦だけ 0 と 1 の間で伸縮させる**。隠れている間の見た目の高さは 0 で、
-                    // 戻るときは下端を置いたまま上へ育って通常の高さになる。横は縮めない——
-                    // 幅まで縮むと帯が中央へ吸い込まれる別の動きに見え、4 帯が横に並ぶ組みが崩れて見える。
-                    // 下端を基準にするのは参照録画の実測（伸びている間、帯の下端はほぼ動かない）。
-                    .scaleEffect(x: 1, y: controlsProgress, anchor: .bottom)
-                    // 伸び縮みと**同じ速さで濃さも動かす**。参照録画では高さが 5 割の時点で
-                    // まだ半透明で、縦の伸びだけだと畳まれた帯の輪郭が最初から出てしまう。
-                    .opacity(controlsProgress)
-                    // 下端基準の縮小だけで帯本体の退避量は作れるので、ここで重ねるのは安全域だけにする。
-                    // 本文と同じ全量をずらすと帯本体の高さを二重に数え、両者の間へ空白が残る。
-                    .offset(y: controlsOffset)
-                    // 見えない操作を押せたり読み上げられたりしないようにする。位置だけずらしても残るため。
-                    .allowsHitTesting(!controlsHidden)
-                    .accessibilityHidden(controlsHidden)
+            topArea(
+                artworkSide: artworkSide,
+                layout: layout,
+                detailExtra: detailExtra,
+                controlsInset: controlsInset
+            )
+            // 重ねた操作帯を通常時の全高へ含め、文字拡大時の外側スクロール範囲は変えない。
+            // 歌詞本文だけが `detailExtra` ではみ出すため、上部の高さと位置はこの枠でも動かない。
+            .frame(height: layout.media + layout.title + layout.controlsHeight, alignment: .top)
+            .overlay(alignment: .bottom) {
+                // シーク以降の 4 帯は **1 つの塊にまとめ、3 状態で同じものを保つ**（仕様 5.1 章 第 4 版）。
+                // 上部との `VStack` に置くと、見た目を 0 まで畳んでも元の高さが兄弟領域として残り、
+                // はみ出して伸ばした歌詞本文がその場所を実際の表示領域として使えない。
+                // 通常時と同じ位置へ重ねれば identity と高さを保ったまま、本文へ場所を譲れる。
+                VStack(spacing: 0) {
+                    seekControls.frame(height: layout.seek)
+                    transport.frame(height: layout.transport)
+                    // 音量は帯の下端へ、下部の記号は帯の上端へ寄せる。この 2 つを中央に置いたままだと
+                    // 音量記号から選択円までが (volume + bottom) / 2 で決まってしまい、
+                    // 最小値だけで目標を 15 pt 超えるので比率をいくら下げても届かない（仕様 4 章）。
+                    // 寄せるのは 44 pt の操作行ごとで、記号だけを動かすのではない。
+                    volumeRow.frame(height: layout.volume, alignment: .bottom)
+                    bottomControls(palette: palette).frame(height: layout.bottom, alignment: .top)
                 }
-                .padding(.horizontal, 24)
+                // 退避と復帰は**縦だけ 0 と 1 の間で伸縮させる**。隠れている間の見た目の高さは 0 で、
+                // 戻るときは下端を置いたまま上へ育って通常の高さになる。横は縮めない——
+                // 幅まで縮むと帯が中央へ吸い込まれる別の動きに見え、4 帯が横に並ぶ組みが崩れて見える。
+                // 下端を基準にするのは参照録画の実測（伸びている間、帯の下端はほぼ動かない）。
+                .scaleEffect(x: 1, y: controlsProgress, anchor: .bottom)
+                // 伸び縮みと**同じ速さで濃さも動かす**。参照録画では高さが 5 割の時点で
+                // まだ半透明で、縦の伸びだけだと畳まれた帯の輪郭が最初から出てしまう。
+                .opacity(controlsProgress)
+                // 下端基準の縮小だけで帯本体の退避量は作れるので、ここで重ねるのは安全域だけにする。
+                // 本文と同じ全量をずらすと帯本体の高さを二重に数え、両者の間へ空白が残る。
+                .offset(y: controlsOffset)
+                // 見えない操作を押せたり読み上げられたりしないようにする。位置だけずらしても残るため。
+                .allowsHitTesting(!controlsHidden)
+                .accessibilityHidden(controlsHidden)
+            }
+            .padding(.horizontal, 24)
         }
         // 中身は通常ちょうど画面の高さなので、ここは余分に動かない。文字を大きくして
         // 入り切らなくなったときだけ操作部へ届く退避先になる（仕様 5.1 章）。
         // **`.scrollDisabled(true)` は付けない。**内側の歌詞・キューの本文まで無効化が伝わる。
         .scrollBounceBehavior(.basedOnSize)
         .scrollIndicators(.hidden)
-        .overlay(alignment: .top) { grabber }
+        // 10 pt だと上端が 72 pt に出て、仕様 4 章が記録する 67 pt より 5 pt 下がったので引いた。
+        // なぜ 5 pt ずれるのかは確かめていない。この値は撮り直して測るまで確定ではない。
+        .overlay(alignment: .top) { grabber(top: 5) }
         // 地が常に暗い帯になったので、明るい外観の端末でも文字と記号は白のままにする（仕様 1.2 章）。
         // 個々の `.primary` / `.secondary` を白に置き換えて回らないのは、選択中の記号が地の色へ
         // 反転する `modeButton` のように、白の指定だけでは足りない組みがあるため。
@@ -184,27 +398,51 @@ struct NowPlayingView: View {
         // 閉じるボタンは置かない方針（仕様 4 章）なので、下スワイプの届かない VoiceOver へ
         // エスケープ操作だけは自前で用意する（仕様 4.1 章）。
         .accessibilityAction(.escape) { close() }
-        // 再生位置が目標へ追いついたら、表示の優先を再生側へ返す。
-        .onChange(of: player.currentTime) { _, time in
-            guard let pending = pendingSeekTime, abs(time - pending) <= Self.seekSettleTolerance else { return }
-            pendingSeekTime = nil
-        }
-        // 着地しなかったときの保険。これが無いと、追いつきを待ち続けて表示が止まったままになる。
-        .task(id: pendingSeekTime) {
-            guard pendingSeekTime != nil else { return }
-            try? await Task.sleep(for: Self.seekSettleTimeout)
-            guard !Task.isCancelled else { return }
-            pendingSeekTime = nil
-        }
-        .task(id: player.currentItem?.id) {
-            isScrubbing = false
-            // 曲が替わると目標は意味を失う。持ち越すと新しい曲の先頭で古い位置を表示してしまう。
-            pendingSeekTime = nil
-            favoriteTrack = player.currentItem
-            guard let id = player.currentItem?.id, let client = auth.client else { return }
-            if let item = try? await client.fetchItem(id: id), !Task.isCancelled {
-                favoriteTrack = item
-            }
+        .modifier(
+            PlaybackObservers(
+                pendingSeekTime: $pendingSeekTime,
+                isScrubbing: $isScrubbing,
+                favoriteTrack: $favoriteTrack
+            )
+        )
+    }
+
+    /// シークの着地とお気に入りの取り直し。**iPhone / iPad の両経路へ同じものを付ける**ために型にする。
+    /// 以前 iPad のキューだけが別の組みで、この監視が付いていなかったため、
+    /// あちらではお気に入りの星がサーバーの値を映さず、シークの表示も古い位置へ戻っていた。
+    private struct PlaybackObservers: ViewModifier {
+        @Environment(AuthStore.self) private var auth
+        @Environment(PlaybackEngine.self) private var player
+        @Binding var pendingSeekTime: TimeInterval?
+        @Binding var isScrubbing: Bool
+        @Binding var favoriteTrack: MediaItem?
+
+        func body(content: Content) -> some View {
+            content
+                // 再生位置が目標へ追いついたら、表示の優先を再生側へ返す。
+                .onChange(of: player.currentTime) { _, time in
+                    guard let pending = pendingSeekTime,
+                        abs(time - pending) <= NowPlayingView.seekSettleTolerance
+                    else { return }
+                    pendingSeekTime = nil
+                }
+                // 着地しなかったときの保険。これが無いと、追いつきを待ち続けて表示が止まったままになる。
+                .task(id: pendingSeekTime) {
+                    guard pendingSeekTime != nil else { return }
+                    try? await Task.sleep(for: NowPlayingView.seekSettleTimeout)
+                    guard !Task.isCancelled else { return }
+                    pendingSeekTime = nil
+                }
+                .task(id: player.currentItem?.id) {
+                    isScrubbing = false
+                    // 曲が替わると目標は意味を失う。持ち越すと新しい曲の先頭で古い位置を表示してしまう。
+                    pendingSeekTime = nil
+                    favoriteTrack = player.currentItem
+                    guard let id = player.currentItem?.id, let client = auth.client else { return }
+                    if let item = try? await client.fetchItem(id: id), !Task.isCancelled {
+                        favoriteTrack = item
+                    }
+                }
         }
     }
 
@@ -218,13 +456,12 @@ struct NowPlayingView: View {
     /// 白を 0.42 で重ねると 4〜5 階調以内で合う。仕様 4 章の選択中ボタンと同じ「成分への一律加算」でも
     /// 同じくらい合うが、あちらは palette の中央 stop を前提にした規則で、グラバーが載るのは
     /// 帯の上端なので、同じ規則だと決めつけずに重ねる側で書く。
-    private var grabber: some View {
+    /// - Parameter top: 上端までの余白。**iPhone と iPad で参照の y が別**（下の呼び出し側）。
+    private func grabber(top: CGFloat) -> some View {
         Capsule()
             .fill(.white.opacity(0.42))
             .frame(width: 60, height: 5)
-            // 10 pt だと上端が 72 pt に出て、仕様 4 章が記録する 67 pt より 5 pt 下がったので引いた。
-            // なぜ 5 pt ずれるのかは確かめていない。この値は撮り直して測るまで確定ではない。
-            .padding(.top, 5)
+            .padding(.top, top)
             // 触れない・読み上げない。閉じる経路は `accessibilityAction(.escape)` が持つ。
             .allowsHitTesting(false)
             .accessibilityHidden(true)
@@ -241,7 +478,12 @@ struct NowPlayingView: View {
     /// `PlayerTopLayout` に渡す `progress` だけなので、画像も曲名も状態ごとに別の View へ
     /// 差し替わらず、遷移の途中で 2 つ写ることがない（仕様 5.1 章）。
     /// 明示的なフェードを足すのは歌詞・キューの本文だけ。
-    private func topArea(artworkSide: CGFloat, layout: PlayerLayout, detailExtra: CGFloat) -> some View {
+    private func topArea(
+        artworkSide: CGFloat,
+        layout: PlayerLayout,
+        detailExtra: CGFloat,
+        controlsInset: CGFloat
+    ) -> some View {
         // 基準は幅いっぱいで、帯の高さが足りないときだけ縮める（仕様 4 章）。
         // 帯のほうは `PlayerLayout` が一辺を先に確保しに行くので、通常は `artworkSide` で決まる。
         let bigSide = max(1, min(artworkSide, layout.media - Self.artworkTopInset - Self.artworkBottomInset))
@@ -259,11 +501,12 @@ struct NowPlayingView: View {
         ) {
             // 並び順は `PlayerTopLayout` の添字と対応する。本文を最初に置くのは、
             // 縮んでいく画像が本文の領域を通る間、画像が上に来て文字と重なって見えないようにするため。
-            detailSlot(extra: detailExtra)
+            detailSlot(viewportExtra: controlsInset)
             artworkSlot(bigSide: bigSide)
             songTitle
             songArtist
             favoriteButton
+            trackMenuButton
         }
         .frame(height: layout.media + layout.title)
         // 切り抜きは**下だけ `detailExtra` ぶん広げる**（仕様 5.1 章 第 4 版）。`.clipped()` のままだと
@@ -323,10 +566,10 @@ struct NowPlayingView: View {
 
     /// 本文の置き場。中身が無いアートワーク状態でも**子の数と順序を変えない**ために、
     /// 透明な枠で場所だけ確保する（仕様 5.1 章）。
-    private func detailSlot(extra: CGFloat) -> some View {
+    private func detailSlot(viewportExtra: CGFloat) -> some View {
         Color.clear
             .overlay {
-                detail(extra: extra).transition(.opacity)
+                detail(viewportExtra: viewportExtra).transition(.opacity)
             }
             // アートワーク状態ではこの枠に大画像が重なるので、透明な枠に操作を吸わせない。
             .allowsHitTesting(mode != .artwork)
@@ -334,26 +577,25 @@ struct NowPlayingView: View {
 
     /// 歌詞・キューの本体。アートワーク状態では出さない。
     @ViewBuilder
-    private func detail(extra: CGFloat) -> some View {
+    private func detail(viewportExtra: CGFloat) -> some View {
         switch mode {
         case .artwork:
             EmptyView()
         case .lyrics:
             if let track = player.currentItem {
-                // 置かれた枠から**下へだけ** `extra` ぶんはみ出させる（仕様 5.1 章 第 4 版）。
-                // `GeometryReader` 自身の大きさは提案どおりなので、はみ出しは `PlayerTopLayout` へ
-                // 逆流しない。`PlayerTopLayout` は本文の y を `mediaHeight` から決めておらず、
-                // `sizeThatFits` も子の高さを見ないので、伸ばしても上部は 1 px も動かない。
+                // 内側 ScrollView は最初から最大高へ固定する。毎フレーム実 frame を変えると、
+                // UIScrollView が bounds と offset を補正して drag / deceleration の速度を失う。
+                // 見せる下端だけは外側の BottomExtendedRect が帯と同じ補間値で動かす。
                 GeometryReader { proxy in
                     // 上部が動いている間は歌詞に位置合わせをさせない（仕様 5.1 章）。
                     LyricsView(
                         track: track,
                         isSettled: !isTopTransitioning,
-                        bottomExtension: extra,
+                        bottomExtension: viewportExtra,
                         onControlsVisibilityChange: { setLyricsControlsHidden($0) }
                     )
                     .id(track.id)
-                    .frame(height: proxy.size.height + extra, alignment: .top)
+                    .frame(height: proxy.size.height + viewportExtra, alignment: .top)
                 }
             }
         case .queue:
@@ -386,7 +628,10 @@ struct NowPlayingView: View {
     private var songTitle: some View {
         // 状態で切り替えるのはフォントだけ。`Text` そのものは作り直さない。
         Text(player.currentItem?.displayName ?? String(localized: "再生していません"))
-            .font(mode == .artwork ? .title2.bold() : .headline)
+            // iPad はカラムが縮まないので、本文を出しても字の大きさを落とさない（仕様 6.2 章）。
+            .font(mode == .artwork || isPad ? .title2.bold() : .headline)
+            .accessibilityIdentifier("nowplaying.title")
+            .accessibilityValue(player.currentItem?.id ?? "")
             .lineLimit(1)
             .truncationMode(.tail)
             .contentTransition(reduceMotion ? .identity : .interpolate)
@@ -394,11 +639,11 @@ struct NowPlayingView: View {
     }
 
     /// アーティスト名はアクセント色にしない（仕様 4 章）。曲名に近い大きさの secondary。
-    /// 曲がないときは空文字にして、**子の数を 5 で固定する**。子が増減すると
+    /// 曲がないときは空文字にして、**子の数を固定する**。子が増減すると
     /// `PlayerTopLayout` の添字がずれる。行として数えるかは `hasArtist` で明示的に渡す。
     private var songArtist: some View {
         Text(player.currentItem?.displayArtist ?? "")
-            .font(mode == .artwork ? .title3 : .subheadline)
+            .font(mode == .artwork || isPad ? .title3 : .subheadline)
             .foregroundStyle(.secondary)
             .lineLimit(1)
             .truncationMode(.tail)
@@ -406,12 +651,36 @@ struct NowPlayingView: View {
             .geometryGroup()
     }
 
+    private var trackMenuButton: some View {
+        Menu {
+            if let track = player.currentItem {
+                Button {
+                    player.playNext([track])
+                } label: {
+                    Label("次に再生", systemImage: "text.line.first.and.arrowtriangle.forward")
+                }
+                Button {
+                    player.appendToQueue([track])
+                } label: {
+                    Label("最後に追加", systemImage: "text.line.last.and.arrowtriangle.forward")
+                }
+            }
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(.title3)
+                .frame(width: 32, height: 32)
+                .background(.quaternary, in: .circle)
+                .frame(width: 44, height: 44)
+                .contentShape(.rect)
+        }
+        .accessibilityLabel("曲の操作")
+    }
+
     private var favoriteButton: some View {
         Button {
             Task { await toggleFavorite() }
         } label: {
-            // ブラウズ画面と同じくお気に入りはハートで表す。
-            Image(systemName: favoriteTrack?.isFavorite == true ? "heart.fill" : "heart")
+            Image(systemName: favoriteTrack?.isFavorite == true ? "star.fill" : "star")
                 .font(.title3)
                 .foregroundStyle(favoriteTrack?.isFavorite == true ? AnyShapeStyle(.pink) : AnyShapeStyle(.primary))
                 // 見える円は直径 32 pt、操作領域は 44 pt（仕様 4 章）。地と当たり判定を別の枠で持つ。
@@ -473,17 +742,31 @@ struct NowPlayingView: View {
                 adjust: { offset in commitSeek(to: displayedTime + offset) }
             )
             HStack {
-                Text(displayedTime.timeLabel)
+                Text(elapsedLabel)
                 Spacer()
-                Text(max(0, player.duration - displayedTime).remainingLabel)
+                Text(remainingLabel)
             }
             .font(.caption)
             .monospacedDigit()
             .foregroundStyle(.secondary)
         }
         .padding(.bottom, 8)
-        // シークバーも曲名と同じ左右 32 pt に揃える（仕様 4 章）。
-        .padding(.horizontal, 8)
+        // シークバーも曲名と同じ左右 32 pt に揃える（仕様 4 章）。iPad はカラムの幅が
+        // そのままバーの幅（519 pt）なので足さない（仕様 6.2 章）。
+        .padding(.horizontal, isPad ? 0 : 8)
+    }
+
+    /// 曲が無いときの経過・残り。0 秒として `0:00` / `-0:00` を出すと止まっている位置を
+    /// 持っているように見えるので、参照と同じく両側を `--:--` にする（仕様 6.2 章）。
+    private var elapsedLabel: String {
+        player.currentItem == nil ? TimeInterval.nan.timeLabel : displayedTime.timeLabel
+    }
+
+    /// 残り側も参照はマイナスを付けず `--:--` なので、`remainingLabel` は通さない。
+    private var remainingLabel: String {
+        player.currentItem == nil
+            ? TimeInterval.nan.timeLabel
+            : max(0, player.duration - displayedTime).remainingLabel
     }
 
     // MARK: - 再生操作
@@ -492,48 +775,99 @@ struct NowPlayingView: View {
         // 記号の輪郭の中心どうしが Apple 実機で 106.8 pt。字形に依らない量として測れたのでそれに合わせる。
         // 以前の 61 は端末幅 430 pt を仮定した概算で、実測ではこの間隔が 9.7 pt 広かった。
         HStack(spacing: 51) {
-            Button {
-                player.playPrevious()
-            } label: {
-                Image(systemName: "backward.fill")
-                    .font(.system(size: 30, weight: .semibold))
-                    // 塗りのない記号なので、当たり判定の 44 pt を形で明示する。
-                    .frame(width: 44, height: 44)
-                    .contentShape(.rect)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("前の曲")
-
-            Button {
-                player.toggle()
-            } label: {
-                Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
-                    .font(.system(size: 48, weight: .semibold))
-                    .frame(width: 64, height: 64)
-                    .overlay(alignment: .bottom) {
-                        if player.isBuffering {
-                            ProgressView().controlSize(.mini).tint(.primary).padding(.bottom, 8)
-                        }
-                    }
-                    .contentShape(.rect)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(player.isPlaying ? String(localized: "一時停止") : String(localized: "再生"))
-
-            Button {
-                player.playNext()
-            } label: {
-                Image(systemName: "forward.fill")
-                    .font(.system(size: 30, weight: .semibold))
-                    .frame(width: 44, height: 44)
-                    .contentShape(.rect)
-            }
-            .buttonStyle(.plain)
-            .disabled(!player.hasNext)
-            .accessibilityLabel("次の曲")
+            previousButton
+            playPauseButton
+            nextButton
         }
         .disabled(player.currentItem == nil)
         .frame(maxWidth: .infinity)
+    }
+
+    private var previousButton: some View {
+        Button {
+            player.playPrevious()
+        } label: {
+            Image(systemName: "backward.fill")
+                .font(.system(size: isPad ? PadPlayer.skipGlyphSize : 30, weight: .semibold))
+                // 塗りのない記号なので、当たり判定の 44 pt を形で明示する。
+                .frame(width: 44, height: 44)
+                .contentShape(.rect)
+        }
+        .buttonStyle(TransportButtonStyle())
+        .accessibilityLabel("前の曲")
+    }
+
+    private var playPauseButton: some View {
+        Button {
+            player.toggle()
+        } label: {
+            Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
+                .font(.system(size: isPad ? PadPlayer.playGlyphSize : 48, weight: .semibold))
+                .frame(width: 64, height: 64)
+                .overlay(alignment: .bottom) {
+                    if player.isBuffering {
+                        ProgressView().controlSize(.mini).tint(.primary).padding(.bottom, 8)
+                    }
+                }
+                .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(player.isPlaying ? String(localized: "一時停止") : String(localized: "再生"))
+    }
+
+    private var nextButton: some View {
+        Button {
+            player.playNext()
+        } label: {
+            Image(systemName: "forward.fill")
+                .font(.system(size: isPad ? PadPlayer.skipGlyphSize : 30, weight: .semibold))
+                .frame(width: 44, height: 44)
+                .contentShape(.rect)
+        }
+        .buttonStyle(TransportButtonStyle())
+        .disabled(!player.hasNext)
+        .accessibilityLabel("次の曲")
+    }
+
+    /// iPad の両端の 2 記号（仕様 6.2 章）。iPhone には出ない記号なので、指定は iPad の実測だけ。
+    private var shuffleButton: some View {
+        Button {
+            player.toggleShuffle()
+        } label: {
+            Image(systemName: "shuffle")
+                .font(.system(size: PadPlayer.sideGlyphSize, weight: .semibold))
+                .foregroundStyle(player.isShuffled ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary))
+                .frame(width: 44, height: 44)
+                .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("シャッフル")
+        .accessibilityValue(player.isShuffled ? String(localized: "オン") : String(localized: "オフ"))
+        .accessibilityAddTraits(player.isShuffled ? .isSelected : [])
+    }
+
+    private var repeatButton: some View {
+        Button {
+            player.cycleRepeatMode()
+        } label: {
+            Image(systemName: player.repeatMode.systemImage)
+                .font(.system(size: PadPlayer.sideGlyphSize, weight: .semibold))
+                .foregroundStyle(player.repeatMode == .off ? AnyShapeStyle(.primary) : AnyShapeStyle(.tint))
+                .frame(width: 44, height: 44)
+                .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("リピート")
+        .accessibilityValue(repeatDescription)
+        .accessibilityAddTraits(player.repeatMode == .off ? [] : .isSelected)
+    }
+
+    private var repeatDescription: String {
+        switch player.repeatMode {
+        case .off: String(localized: "オフ")
+        case .all: String(localized: "すべての曲")
+        case .one: String(localized: "1 曲")
+        }
     }
 
     // MARK: - 音量
@@ -547,10 +881,11 @@ struct NowPlayingView: View {
                 .accessibilityLabel("音量")
             Image(systemName: "speaker.wave.3.fill")
         }
-        .font(.caption)
+        .font(isPad ? .system(size: padVolumeGlyphSize) : .caption)
         .foregroundStyle(.secondary)
         // 曲名やシークと同じ左右 32 pt へ揃える（仕様 5 章）。外側の 24 pt との差を足す。
-        .padding(.horizontal, 8)
+        // iPad はカラムの幅がそのまま行の幅になるので足さない（仕様 6.2 章）。
+        .padding(.horizontal, isPad ? 0 : 8)
     }
 
     // MARK: - 下部（歌詞 / 出力先 / キュー）
@@ -806,9 +1141,9 @@ final class SeekGestureRecognizer: UIGestureRecognizer {
     }
 }
 
-/// 操作帯の見た目と、歌詞が受け取る高さを同じ補間値から作る（仕様 5.1 章 第 6 版）。
-/// 通常の `@State` だけではレイアウトへ最終値しか渡らないため、この View 自身を補間対象にして
-/// 毎フレーム本文の frame・clip・当たり判定へ同じ `detailExtra` を提案し直す。
+/// 操作帯の見た目と、歌詞を見せる下端を同じ補間値から作る（仕様 5.1 章 第 6 版）。
+/// 通常の `@State` だけでは最終値しか渡らないため、この View 自身を補間対象にする。ただし
+/// 内側 ScrollView の frame は最大高へ固定し、毎フレーム変えるのは外側の clip と当たり判定だけにする。
 private struct ControlsTransition<Content: View>: View, Animatable {
     var progress: CGFloat
     let controlsInset: CGFloat
@@ -829,6 +1164,89 @@ private struct ControlsTransition<Content: View>: View, Animatable {
             safeAreaInset * hiddenProgress
         )
     }
+}
+
+/// 前後送りの無効時の色を、様式の既定の減光ではなく指定で出すための器。既定の様式は無効なボタンを
+/// 約 53 % で描くので白が RGB 163 になるが、参照の無効時は **129**（仕様 6.2.1 章）。
+/// `makeBody` で色を決めれば減光は掛からず、`.disabled` 自体は残るので当たり判定と
+/// 読み上げの「使用不可」は変わらない。
+private struct TransportButtonStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var isEnabled
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .foregroundStyle(isEnabled ? Color.white : Color(white: 129.0 / 255.0))
+            // `.plain` の押下時の反応だけは残す。
+            .opacity(configuration.isPressed ? 0.6 : 1)
+    }
+}
+
+/// iPad のフルプレイヤーの寸法（仕様 6.2 章）。**原点は window の左上**で、y は 1366 × 1024 pt の
+/// 画面で測った値。参照画像から測った絶対値をそのまま置く。iPhone 側の `PlayerLayout` のように高さの比率で帯を
+/// 配らないのは、参照が高さに応じて帯を伸ばさず、カラムを固定したまま同じ位置に置いているため。
+private enum PadPlayer {
+    /// カラムの幅。window 幅からの式とは 1 機種の画像では区別できないので定数として扱う。
+    static let columnWidth: CGFloat = 519
+    static var mediaHeight: CGFloat { columnWidth }
+    /// 本文を出すときのカラムの左端。67 + 519 + 67 = 653 で本文の面が始まる。
+    static let columnLeft: CGFloat = 67
+    static let panelLeft: CGFloat = 653
+    /// 本文の面の右余白（1366 − 1314）。
+    static let panelTrailing: CGFloat = 52
+    /// メディア帯の上端。カラムの上下中央寄せと読むと 1.75 pt 残るので実測値を直に使う。
+    static let mediaTop: CGFloat = 119
+    /// 本文を出すときのアートワーク。519 pt の帯の中で上下左右 70 pt 均等になる。
+    static let compactArtworkSide: CGFloat = 379
+    /// 曲が無いとき（Not Playing）のアートワーク。参照の実測は 377.5 pt 角で、519 pt でも
+    /// その 90 %（467 pt）でもない別の寸法（仕様 6.2 章）。帯の中心は 519 pt のときと同じ。
+    static let emptyArtworkSide: CGFloat = 377.5
+    /// 曲が無いときの記号の比。参照のインク高は 179.5 pt（四角の 0.475）で、`music.note` の
+    /// インク高は指定サイズの 0.965 倍なので 179.5 ÷ 0.965 ÷ 377.5 ＝ 0.493（仕様 6.2.1 章）。
+    static let emptyIconScale: CGFloat = 0.493
+    /// 曲が無いときの四角の地に重ねる黒の不透明度。参照は四角の内と外を同じ y で比べると
+    /// 比が 0.899〜0.900 一定＝**黒を約 10 % 重ねた面**で、`.quaternary` のような白の加算ではない
+    /// （仕様 6.2.1 章）。黒の 10 % を敷くと地はちょうど 0.90 倍になる。
+    static let emptyPlaceholderDarkening: CGFloat = 0.10
+    /// 曲名・アーティストの枠の上端。実測は cap 上端 683 / 字面上端 707 で、ここはそこから
+    /// 書体の ascender と cap height の差（.title2 で約 5.1 pt、.title3 で約 4.7 pt）だけ戻した値。
+    /// **通常の文字サイズでの換算**なので、拡大時に参照と一致することは確かめていない。
+    static let titleTop: CGFloat = 677.9
+    static let artistTop: CGFloat = 702.3
+    /// 曲名・アーティストに渡す幅。左端はカラムの端に揃える（実測の字面 68.5 とカラム 67.0 の差
+    /// 1.5 pt は字形の side bearing なので内側の余白は 0）。右端は操作 2 つのぶんだけ空ける。
+    static var textWidth: CGFloat { columnWidth - 80 }
+    /// 曲名帯の右端の操作 2 つ。実測は 32 pt の丸が 2 個で、中心がカラム右端から 16 / 64 pt 内側
+    /// （中心間 48）。44 pt のタップ枠でその中心に合わせると、枠は右へ 6 pt はみ出す。
+    static let trailingActionSpacing: CGFloat = 48
+    static var trailingActionsFrameWidth: CGFloat { columnWidth + rowHeight / 2 - 16 }
+    /// シークバーの枠の上端。参照の帯は 746..753（高さ 7）で、こちらは 44 pt の枠の中央に
+    /// 7 pt の帯を置くので、帯の上端に合わせるには枠を 18.5 pt 上げる。
+    static let seekTop: CGFloat = 727.5
+    /// トランスポートの枠の上端。参照の再生記号の字面の中心 y が 828.0、こちらは 64 pt 枠の中央に
+    /// 字面の中心が来るので 796.0 で合う（撮り直して実測 825.5 だった 793.3 から 2.5 pt 下げた）。
+    static let transportTop: CGFloat = 796.0
+    static let transportHeight: CGFloat = 64
+    /// 記号の中心間は**等間隔ではない**（仕様 6.2 章）。96.75 pt は前・再生・次の 3 つの間だけで、
+    /// shuffle と repeat はそこから約 148.9 pt 外側にある。両端の 44 pt 枠はカラムの外へ 8 pt
+    /// ずつ出て、行の全幅は 519 + 8 × 2 = 535 pt になる。
+    static let transportInnerSpacing: CGFloat = 96.75
+    static let transportOuterOffset: CGFloat = 245.75
+    static var transportWidth: CGFloat { columnWidth + 16 }
+    /// トランスポートの記号の指定サイズ。参照の字面（shuffle / repeat 18.5 × 15.0、前後送り
+    /// 39.5 × 23.0、再生 30.0 × 40.0 pt）を、同じ記号をこちらで描いたときの字面と比べた比で
+    /// iPhone の指定値を割り直した値。iPhone の 22 / 30 / 48 より一段小さい。
+    static let sideGlyphSize: CGFloat = 15.4
+    static let skipGlyphSize: CGFloat = 28.3
+    static let playGlyphSize: CGFloat = 46.7
+    static let volumeCenter: CGFloat = 894.5
+    /// 下段の 44 pt 枠の上端。記号の中心 y は 4 画面すべて 987 pt で、下端 1009 と画面下端 1024 の
+    /// 差が下余白 15 pt になる。
+    static let bottomRowTop: CGFloat = 965
+    static let rowHeight: CGFloat = 44
+    /// 下段の記号の中心 x（仕様 6.2 章）。カラムが 423.5 → 67 pt へ寄っても 4 画面で動かない。
+    static let lyricsGlyphCenter: CGFloat = 1216.8
+    static let queueGlyphCenter: CGFloat = 1294.8
+    static let routeGlyphCenter: CGFloat = 78.8
 }
 
 /// 4 章の帯の高さ。**アートワークの一辺を先に確保し**、比率はその残りの配り方として使う。
@@ -899,10 +1317,8 @@ private struct PlayerLayout {
 private struct BottomExtendedRect: Shape {
     var extra: CGFloat
 
-    /// 途中の値で切り抜けるようにする。帯の出し入れでは本文も切り抜きも即時に変わるので
-    /// ここは使われないが、**歌詞から離れる切り替えだけは `withAnimation` の中で
-    /// `detailExtra` が 0 へ戻る**（`switchMode(to:)`）。補間できないと、そのとき本文の高さだけが
-    /// 動いて切り抜きが先に最終形へ飛び、縮み終わりで下端がちらつく。
+    /// 帯の出し入れと高速反転の途中値で下端を切り抜く。補間できないと内側 ScrollView は
+    /// 最大高のままなのに切り抜きだけが最終形へ飛び、文字が帯へ重なるか下端に空白が生じる。
     nonisolated var animatableData: CGFloat {
         get { extra }
         set { extra = newValue }
@@ -947,8 +1363,9 @@ private struct PlayerTopLayout: Layout {
     private static let spacing: CGFloat = 12
     /// 外側の 24 pt より一段内側の 32 pt にするための差（仕様 4 章）。
     private static let sideInset: CGFloat = 8
-    /// お気に入りの操作領域（仕様 4 章）。
-    private static let favoriteSide: CGFloat = 44
+    /// お気に入りとメニューの操作領域（仕様 4 章）。
+    private static let actionSide: CGFloat = 44
+    private static let actionSpacing: CGFloat = 4
 
     /// `progress` を補間対象にする。子の identity は変わらないので、動くのは配置だけになる。
     var animatableData: CGFloat {
@@ -965,8 +1382,8 @@ private struct PlayerTopLayout: Layout {
 
     /// 添字は `topArea` の並び順（本文・画像・曲名・アーティスト・お気に入り）。
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout Void) {
-        guard subviews.count == 5 else {
-            assertionFailure("`topArea` の子は 5 つ（本文・画像・曲名・アーティスト・お気に入り）で固定")
+        guard subviews.count == 6 else {
+            assertionFailure("`topArea` の子は 6 つ（本文・画像・曲名・アーティスト・お気に入り・メニュー）で固定")
             return
         }
         let width = bounds.width
@@ -974,8 +1391,9 @@ private struct PlayerTopLayout: Layout {
         // 曲情報とお気に入りは同じ行に載るので、行の中心を共有する。
         // 歌詞・キュー状態のお気に入りは行の右端に残す指定（仕様 5.1 章）なので、右の内側余白は足さない。
         let infoLeading = lerp(Self.sideInset, Self.sideInset + Self.compactArtworkSide + Self.spacing)
-        let favoriteTrailing = lerp(Self.sideInset, 0)
-        let infoWidth = max(0, width - infoLeading - favoriteTrailing - Self.favoriteSide - Self.spacing)
+        let actionsTrailing = lerp(Self.sideInset, 0)
+        let actionsWidth = Self.actionSide * 2 + Self.actionSpacing
+        let infoWidth = max(0, width - infoLeading - actionsTrailing - actionsWidth - Self.spacing)
         let infoProposal = ProposedViewSize(width: infoWidth, height: nil)
 
         // 2 行の縦位置は、**行間だけが違う同じ組み方**を両状態ぶん作って補間する。
@@ -994,7 +1412,7 @@ private struct PlayerTopLayout: Layout {
         let compactHeader = max(
             Self.compactArtworkSide,
             titleSize.height + compactGap + artistHeight,
-            Self.favoriteSide
+            Self.actionSide
         )
 
         // 本文は歌詞・キュー状態の見出しの下に固定する。ここを `progress` で動かすと、
@@ -1035,10 +1453,17 @@ private struct PlayerTopLayout: Layout {
             anchor: .leading,
             proposal: infoProposal
         )
+        let menuCenterX = bounds.maxX - actionsTrailing - Self.actionSide / 2
+        let favoriteCenterX = menuCenterX - Self.actionSide - Self.actionSpacing
         subviews[4].place(
-            at: CGPoint(x: bounds.maxX - favoriteTrailing - Self.favoriteSide / 2, y: bounds.minY + rowCenter),
+            at: CGPoint(x: favoriteCenterX, y: bounds.minY + rowCenter),
             anchor: .center,
-            proposal: ProposedViewSize(width: Self.favoriteSide, height: Self.favoriteSide)
+            proposal: ProposedViewSize(width: Self.actionSide, height: Self.actionSide)
+        )
+        subviews[5].place(
+            at: CGPoint(x: menuCenterX, y: bounds.minY + rowCenter),
+            anchor: .center,
+            proposal: ProposedViewSize(width: Self.actionSide, height: Self.actionSide)
         )
     }
 
