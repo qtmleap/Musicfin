@@ -247,27 +247,19 @@ else
 fi
 rm -rf -- "$bridge"
 
-python3 scripts/generate-screenshot-catalog.py
-
-# 画素比較の report と manifest は current と対になっていないと、置き換えた世代の隣に前回の
-# 差分画像が残る。撮り直した直後にここで作り直す。差分が閾値を超えても撮影自体は成功なので、
-# 表示だけして終了コードは持ち込まない。
+# 差し替えた世代を mock-diff のワークスペースに焼き直す。差分の計算と閾値の判断は
+# ビューアの仕事なので、ここは参照と実装を並べ直すだけで終了コードには持ち込まない。
 if [ "$shot_root" = "$default_shot_root" ]; then
-    if command -v ffmpeg >/dev/null 2>&1; then
-        if [ "$ipad" -eq 1 ]; then
-            compare_device=iPad
-        else
-            compare_device=iPhone
-        fi
-        printf '\n==> visual report: %s\n' "$compare_device"
-        python3 scripts/compare-ipad-screens.py \
-            --device "$compare_device" --current "$shot_root" ||
-            echo "-- 画素比較が閾値を超えた。report は最新化済み" >&2
+    if [ "$ipad" -eq 1 ]; then
+        mock_diff_device=iPad
     else
-        echo "-- ffmpeg が無いので画素比較を飛ばした" >&2
+        mock_diff_device=iPhone
     fi
+    printf '\n==> mock-diff: %s\n' "$mock_diff_device"
+    python3 scripts/build-mock-diff-workspace.py --device "$mock_diff_device" ||
+        echo "-- ワークスペースを組み直せなかった" >&2
 else
-    echo "-- 既定以外の出力先なので画素比較を飛ばした: $shot_root" >&2
+    echo "-- 既定以外の出力先なので mock-diff の更新を飛ばした: $shot_root" >&2
 fi
 
 printf '\n==> generated\n'
