@@ -1,0 +1,43 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      # SPM build artifacts, for packages inside the project that are built from
+      # the command line. Xcode's own output goes to DerivedData on the Mac and
+      # never reaches this container.
+      - build:/home/vscode/app/.build
+      - ../:/home/vscode/app:cached
+      # Kotatsu.xcodeproj は ../KotatsuCore をローカル SPM 参照する。ワークスペース
+      # の外に同じ相対位置で並べることで、Mac 側 Xcode で開いているものと同じ実体を
+      # エージェントが読み書きする。ホストに clone されていないと空ディレクトリが
+      # 出来るだけなので、postCreateCommand.sh がそれを検出して知らせる。
+      - ../../KotatsuCore:/home/vscode/KotatsuCore:cached
+    environment:
+      # Swift resolves the SDK from these; noble base sets them but be explicit.
+      SWIFT_INSTALL_DIR: /usr/share/swift
+    tty: true
+    stdin_open: true
+
+  # 設計 (Apple Music の実機撮影) と実装の突き合わせビューア。ポートは公開せず、
+  # コンテナ間の名前解決だけで届かせる (devcontainer.json の MOCK_DIFF_URL)。
+  # ワークスペースは scripts/build-mock-diff-workspace.py が組み立てたものを読むだけ。
+  mock-diff:
+    image: ghcr.io/qtmleap/mock-diff-viewer:latest
+    # 配布は amd64 だけなので Apple Silicon では明示しないと manifest が見つからない。
+    platform: linux/amd64
+    volumes:
+      - ../docs/mock-diff:/workspace
+      - mock_diff_data:/data
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      MOCK_DIFF_WORKSPACE: /workspace
+      MOCK_DIFF_CONFIG: /workspace/mock-diff.yaml
+      MOCK_DIFF_DATA_DIR: /data
+    init: true
+
+volumes:
+  build:
+  mock_diff_data:
