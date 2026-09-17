@@ -74,7 +74,9 @@ struct AccountView: View {
             HStack(spacing: 8) {
                 AccountAvatar(name: userName, size: 56)
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(userName).font(.title3.bold())
+                    // 名前は節の見出しではないので太らせない（Apple 実機の実測も 17 pt・regular で、
+                    // 一覧の行の文字と同じ太さ）。太らせると「音質」などの見出しと同じ重さに見えてしまう。
+                    Text(userName).font(.body)
                     Text(auth.serverName ?? "Jellyfin")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
