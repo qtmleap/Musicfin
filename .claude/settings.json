@@ -1,0 +1,14 @@
+{
+	"$schema": "https://json.schemastore.org/claude-code-settings.json",
+	"extraKnownMarketplaces": {
+		"qtmleap-plugins": {
+			"source": { "source": "github", "repo": "qtmleap/claude-plugins" }
+		}
+	},
+	"enabledPlugins": {
+		"devflow@qtmleap-plugins": true,
+		"ios-app@qtmleap-plugins": true,
+		"mock-diff@qtmleap-plugins": true,
+		"github@qtmleap-plugins": true
+	}
+}
