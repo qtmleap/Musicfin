@@ -1,0 +1,24 @@
+# 候補が 1 つしかないので、選定は生成時に確定させる。ビューアで選び直すと
+# ビューアがこのファイルを書き戻す。
+adopted:
+  home: apple-music
+  apple-account-sheet: apple-music
+  music-account-sheet: apple-music
+  library: apple-music
+  library-playlists: apple-music
+  library-artists: apple-music
+  library-artists-selected-togenashi: apple-music
+  library-albums: apple-music
+  library-songs: apple-music
+  library-downloaded: apple-music
+  album-detail-cosmic-princess-kaguya: apple-music
+  album-detail-ill-live-with-my-heart-on-my-sleeve-search-context: apple-music
+  artist-detail-togenashi-top-search-context: apple-music
+  artist-detail-togenashi-bottom-search-context: apple-music
+  artist-detail-togenashi-top-library-context: apple-music
+  now-playing-not-playing: apple-music
+  now-playing-controls: apple-music
+  now-playing-queue: apple-music
+  now-playing-output-picker: apple-music
+  now-playing-lyrics-loading: apple-music
+  now-playing-lyrics: apple-music

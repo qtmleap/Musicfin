@@ -1,0 +1,481 @@
+# docs/app/catalog.json から scripts/build-mock-diff-workspace.py が生成する。
+# 直接編集しても次の撮影で上書きされる。
+#
+# 候補は Apple Music の実機撮影 1 つだけなので、選定フェーズは実質的に済んでいて、
+# 使うのは「選ばれた設計と実装を突き合わせる」3 番目のフェーズだけ。
+# ステータスバーは両側とも生成時に黒で塗り潰してある。
+screens:
+  - id: home
+    name: "Home"
+    category: "Home"
+    devices:
+      - id: iPad
+        name: iPad
+        viewport:
+          width: 1024
+          height: 1366
+          deviceScaleFactor: 2
+        orientations: [landscape]
+        versions:
+          apple-music:
+            type: png
+            path: designs/iPad/home.png
+        actual:
+          type: png
+          path: actual/iPad/home.png
+      - id: iPhone
+        name: iPhone
+        viewport:
+          width: 393
+          height: 852
+          deviceScaleFactor: 3
+        versions:
+          apple-music:
+            type: png
+            path: designs/iPhone/home.png
+        actual:
+          type: png
+          path: actual/iPhone/home.png
+
+  - id: apple-account-sheet
+    name: "Apple Account"
+    category: "Account"
+    devices:
+      - id: iPhone
+        name: iPhone
+        viewport:
+          width: 393
+          height: 852
+          deviceScaleFactor: 3
+        versions:
+          apple-music:
+            type: png
+            path: designs/iPhone/apple-account-sheet.png
+
+  - id: music-account-sheet
+    name: "Music Account"
+    category: "Account"
+    devices:
+      - id: iPad
+        name: iPad
+        viewport:
+          width: 1024
+          height: 1366
+          deviceScaleFactor: 2
+        orientations: [landscape]
+        versions:
+          apple-music:
+            type: png
+            path: designs/iPad/music-account-sheet.png
+        actual:
+          type: png
+          path: actual/iPad/music-account-sheet.png
+
+  - id: library
+    name: "Library"
+    category: "Library"
+    devices:
+      - id: iPhone
+        name: iPhone
+        viewport:
+          width: 393
+          height: 852
+          deviceScaleFactor: 3
+        versions:
+          apple-music:
+            type: png
+            path: designs/iPhone/library.png
+        actual:
+          type: png
+          path: actual/iPhone/library.png
+
+  - id: library-playlists
+    name: "Playlists"
+    category: "Library"
+    devices:
+      - id: iPhone
+        name: iPhone
+        viewport:
+          width: 393
+          height: 852
+          deviceScaleFactor: 3
+        versions:
+          apple-music:
+            type: png
+            path: designs/iPhone/library-playlists.png
+        actual:
+          type: png
+          path: actual/iPhone/library-playlists.png
+
+  - id: library-artists
+    name: "Artists"
+    category: "Library"
+    devices:
+      - id: iPhone
+        name: iPhone
+        viewport:
+          width: 393
+          height: 852
+          deviceScaleFactor: 3
+        versions:
+          apple-music:
+            type: png
+            path: designs/iPhone/library-artists.png
+        actual:
+          type: png
+          path: actual/iPhone/library-artists.png
+
+  - id: library-artists-selected-togenashi
+    name: "Artists — Selected"
+    category: "Library"
+    devices:
+      - id: iPad
+        name: iPad
+        viewport:
+          width: 1024
+          height: 1366
+          deviceScaleFactor: 2
+        orientations: [landscape]
+        versions:
+          apple-music:
+            type: png
+            path: designs/iPad/library-artists-selected-togenashi.png
+        actual:
+          type: png
+          path: actual/iPad/library-artists-selected-togenashi.png
+
+  - id: library-albums
+    name: "Albums"
+    category: "Library"
+    devices:
+      - id: iPad
+        name: iPad
+        viewport:
+          width: 1024
+          height: 1366
+          deviceScaleFactor: 2
+        orientations: [landscape]
+        versions:
+          apple-music:
+            type: png
+            path: designs/iPad/library-albums.png
+        actual:
+          type: png
+          path: actual/iPad/library-albums.png
+      - id: iPhone
+        name: iPhone
+        viewport:
+          width: 393
+          height: 852
+          deviceScaleFactor: 3
+        versions:
+          apple-music:
+            type: png
+            path: designs/iPhone/library-albums.png
+        actual:
+          type: png
+          path: actual/iPhone/library-albums.png
+
+  - id: library-songs
+    name: "Songs"
+    category: "Library"
+    devices:
+      - id: iPad
+        name: iPad
+        viewport:
+          width: 1024
+          height: 1366
+          deviceScaleFactor: 2
+        orientations: [landscape]
+        versions:
+          apple-music:
+            type: png
+            path: designs/iPad/library-songs.png
+        actual:
+          type: png
+          path: actual/iPad/library-songs.png
+
+  - id: library-downloaded
+    name: "Downloaded"
+    category: "Library"
+    devices:
+      - id: iPhone
+        name: iPhone
+        viewport:
+          width: 393
+          height: 852
+          deviceScaleFactor: 3
+        versions:
+          apple-music:
+            type: png
+            path: designs/iPhone/library-downloaded.png
+
+  - id: album-detail-cosmic-princess-kaguya
+    name: "Cosmic Princess Kaguya"
+    category: "Album"
+    devices:
+      - id: iPad
+        name: iPad
+        viewport:
+          width: 1024
+          height: 1366
+          deviceScaleFactor: 2
+        orientations: [landscape]
+        versions:
+          apple-music:
+            type: png
+            path: designs/iPad/album-detail-cosmic-princess-kaguya.png
+        actual:
+          type: png
+          path: actual/iPad/album-detail-cosmic-princess-kaguya.png
+      - id: iPhone
+        name: iPhone
+        viewport:
+          width: 393
+          height: 852
+          deviceScaleFactor: 3
+        versions:
+          apple-music:
+            type: png
+            path: designs/iPhone/album-detail-cosmic-princess-kaguya.png
+        actual:
+          type: png
+          path: actual/iPhone/album-detail-cosmic-princess-kaguya.png
+
+  - id: album-detail-ill-live-with-my-heart-on-my-sleeve-search-context
+    name: "I'll live with my heart on my sleeve"
+    category: "Album"
+    devices:
+      - id: iPad
+        name: iPad
+        viewport:
+          width: 1024
+          height: 1366
+          deviceScaleFactor: 2
+        orientations: [landscape]
+        versions:
+          apple-music:
+            type: png
+            path: designs/iPad/album-detail-ill-live-with-my-heart-on-my-sleeve-search-context.png
+        actual:
+          type: png
+          path: actual/iPad/album-detail-ill-live-with-my-heart-on-my-sleeve-search-context.png
+
+  - id: artist-detail-togenashi-top-search-context
+    name: "TOGENASHI TOGEARI — Search Top"
+    category: "Artist"
+    devices:
+      - id: iPad
+        name: iPad
+        viewport:
+          width: 1024
+          height: 1366
+          deviceScaleFactor: 2
+        orientations: [landscape]
+        versions:
+          apple-music:
+            type: png
+            path: designs/iPad/artist-detail-togenashi-top-search-context.png
+        actual:
+          type: png
+          path: actual/iPad/artist-detail-togenashi-top-search-context.png
+
+  - id: artist-detail-togenashi-bottom-search-context
+    name: "TOGENASHI TOGEARI — Search Bottom"
+    category: "Artist"
+    devices:
+      - id: iPad
+        name: iPad
+        viewport:
+          width: 1024
+          height: 1366
+          deviceScaleFactor: 2
+        orientations: [landscape]
+        versions:
+          apple-music:
+            type: png
+            path: designs/iPad/artist-detail-togenashi-bottom-search-context.png
+        actual:
+          type: png
+          path: actual/iPad/artist-detail-togenashi-bottom-search-context.png
+
+  - id: artist-detail-togenashi-top-library-context
+    name: "TOGENASHI TOGEARI — Library"
+    category: "Artist"
+    devices:
+      - id: iPad
+        name: iPad
+        viewport:
+          width: 1024
+          height: 1366
+          deviceScaleFactor: 2
+        orientations: [landscape]
+        versions:
+          apple-music:
+            type: png
+            path: designs/iPad/artist-detail-togenashi-top-library-context.png
+        actual:
+          type: png
+          path: actual/iPad/artist-detail-togenashi-top-library-context.png
+
+  - id: now-playing-not-playing
+    name: "Not Playing"
+    category: "Now Playing"
+    devices:
+      - id: iPad
+        name: iPad
+        viewport:
+          width: 1024
+          height: 1366
+          deviceScaleFactor: 2
+        orientations: [landscape]
+        versions:
+          apple-music:
+            type: png
+            path: designs/iPad/now-playing-not-playing.png
+        actual:
+          type: png
+          path: actual/iPad/now-playing-not-playing.png
+
+  - id: now-playing-controls
+    name: "Controls"
+    category: "Now Playing"
+    devices:
+      - id: iPad
+        name: iPad
+        viewport:
+          width: 1024
+          height: 1366
+          deviceScaleFactor: 2
+        orientations: [landscape]
+        versions:
+          apple-music:
+            type: png
+            path: designs/iPad/now-playing-controls.png
+        actual:
+          type: png
+          path: actual/iPad/now-playing-controls.png
+      - id: iPhone
+        name: iPhone
+        viewport:
+          width: 393
+          height: 852
+          deviceScaleFactor: 3
+        versions:
+          apple-music:
+            type: png
+            path: designs/iPhone/now-playing-controls.png
+        actual:
+          type: png
+          path: actual/iPhone/now-playing-controls.png
+
+  - id: now-playing-queue
+    name: "Queue"
+    category: "Now Playing"
+    devices:
+      - id: iPad
+        name: iPad
+        viewport:
+          width: 1024
+          height: 1366
+          deviceScaleFactor: 2
+        orientations: [landscape]
+        versions:
+          apple-music:
+            type: png
+            path: designs/iPad/now-playing-queue.png
+        actual:
+          type: png
+          path: actual/iPad/now-playing-queue.png
+      - id: iPhone
+        name: iPhone
+        viewport:
+          width: 393
+          height: 852
+          deviceScaleFactor: 3
+        versions:
+          apple-music:
+            type: png
+            path: designs/iPhone/now-playing-queue.png
+        actual:
+          type: png
+          path: actual/iPhone/now-playing-queue.png
+
+  - id: now-playing-output-picker
+    name: "Output Picker"
+    category: "Now Playing"
+    devices:
+      - id: iPhone
+        name: iPhone
+        viewport:
+          width: 393
+          height: 852
+          deviceScaleFactor: 3
+        versions:
+          apple-music:
+            type: png
+            path: designs/iPhone/now-playing-output-picker.png
+
+  - id: now-playing-lyrics-loading
+    name: "Lyrics — Loading"
+    category: "Now Playing"
+    devices:
+      - id: iPad
+        name: iPad
+        viewport:
+          width: 1024
+          height: 1366
+          deviceScaleFactor: 2
+        orientations: [landscape]
+        versions:
+          apple-music:
+            type: png
+            path: designs/iPad/now-playing-lyrics-loading.png
+        actual:
+          type: png
+          path: actual/iPad/now-playing-lyrics-loading.png
+      - id: iPhone
+        name: iPhone
+        viewport:
+          width: 393
+          height: 852
+          deviceScaleFactor: 3
+        versions:
+          apple-music:
+            type: png
+            path: designs/iPhone/now-playing-lyrics-loading.png
+        actual:
+          type: png
+          path: actual/iPhone/now-playing-lyrics-loading.png
+
+  - id: now-playing-lyrics
+    name: "Lyrics"
+    category: "Now Playing"
+    devices:
+      - id: iPad
+        name: iPad
+        viewport:
+          width: 1024
+          height: 1366
+          deviceScaleFactor: 2
+        orientations: [landscape]
+        versions:
+          apple-music:
+            type: png
+            path: designs/iPad/now-playing-lyrics.png
+        actual:
+          type: png
+          path: actual/iPad/now-playing-lyrics.png
+      - id: iPhone
+        name: iPhone
+        viewport:
+          width: 393
+          height: 852
+          deviceScaleFactor: 3
+        versions:
+          apple-music:
+            type: png
+            path: designs/iPhone/now-playing-lyrics.png
+        actual:
+          type: png
+          path: actual/iPhone/now-playing-lyrics.png
