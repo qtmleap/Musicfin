@@ -25,8 +25,6 @@ services:
   # ワークスペースは scripts/build-mock-diff-workspace.py が組み立てたものを読むだけ。
   mock-diff:
     image: ghcr.io/qtmleap/mock-diff-viewer:latest
-    # 配布は amd64 だけなので Apple Silicon では明示しないと manifest が見つからない。
-    platform: linux/amd64
     volumes:
       - ../docs/mock-diff:/workspace
       - mock_diff_data:/data

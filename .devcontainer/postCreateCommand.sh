@@ -30,3 +30,12 @@ if [ ! -d ../KotatsuCore/.git ]; then
 fi
 
 git config --global --add safe.directory /home/vscode/KotatsuCore
+
+# Playwright MCP は実物の Chromium を動かすが、ブラウザ本体もその system 依存も
+# イメージには入っていないので、ここで入れておかないと最初の `browser_navigate` が
+# `Browser "chromium" is not installed` で落ちる。MCP は自前の Playwright を抱えて
+# いて devDependency の `playwright` とは別の revision を期待するため、
+# `playwright install` ではなく MCP の CLI から入れる。
+if [ -f playwright-mcp.config.json ]; then
+  bunx @playwright/mcp install-browser --with-deps chromium
+fi

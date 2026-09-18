@@ -111,7 +111,7 @@ else
     capture_width=1179
     capture_height=2556
 fi
-python3 scripts/native-screenshot-worker.py \
+scripts/native-screenshot-worker.sh \
     --bridge "$bridge" --output "$shot_dir" --udid "$udid" \
     --width "$capture_width" --height "$capture_height" &
 worker_pid=$!

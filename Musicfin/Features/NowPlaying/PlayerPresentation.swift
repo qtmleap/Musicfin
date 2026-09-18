@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import os
 
 // MARK: - 提示の方式
 
@@ -192,6 +193,9 @@ private final class PlayerPresentationCoordinator: NSObject {
     private var interaction: UIPercentDrivenInteractiveTransition?
     /// 終了 pan を始めた時点の本文の高さ。進行の分母に使う。
     private var dismissHeight: CGFloat = 1
+    // 一時診断: DISMISS_DEBUG。原因特定後に削除する。`PlayerDismissPan` からも同じ実体を
+    // 参照したいので、同一ファイル内に限り見える `fileprivate static` に広げてある。
+    fileprivate static let dismissDebugLogger = Logger(subsystem: "jp.qleap.musicfin", category: "dismiss-debug")
     override init() {
         super.init()
         transitioning.onPresentEnded = { [weak self] completed in
@@ -327,6 +331,8 @@ private final class PlayerPresentationCoordinator: NSObject {
     }
 
     private func dismissEnded(completed: Bool) {
+        // 一時診断: DISMISS_DEBUG。原因特定後に削除する
+        Self.dismissDebugLogger.debug("DISMISS_DEBUG dismissEnded: 呼ばれた completed=\(completed, privacy: .public)")
         interaction = nil
         transitioning.interaction = nil
         if completed {
@@ -342,6 +348,10 @@ private final class PlayerPresentationCoordinator: NSObject {
         }
         // 取り消しの最中に来ていた「閉じる」要求は、ここで初めて処理できる。
         applyDesiredStage()
+        // 一時診断: DISMISS_DEBUG。原因特定後に削除する
+        Self.dismissDebugLogger.debug(
+            "DISMISS_DEBUG dismissEnded: 処理後 stage=\(String(describing: self.stage), privacy: .public) wantsPresented=\(self.wantsPresented, privacy: .public)"
+        )
     }
 
     /// 橋渡しが捨てられたときに、所有している提示だけを畳む。SwiftUI 側へ書き戻す相手はもう居ないので、
@@ -372,6 +382,10 @@ private final class PlayerPresentationCoordinator: NSObject {
         let progress = min(max(pan.translation(in: view).y / dismissHeight, 0), 1)
         switch pan.state {
         case .began:
+            // 一時診断: DISMISS_DEBUG。原因特定後に削除する
+            Self.dismissDebugLogger.debug(
+                "DISMISS_DEBUG handleDismissPan .began: dismissHeight=\(self.dismissHeight, privacy: .public)"
+            )
             beginInteractiveDismiss()
         case .changed:
             interaction?.update(progress)
@@ -380,15 +394,27 @@ private final class PlayerPresentationCoordinator: NSObject {
             let velocity = pan.velocity(in: view).y
             let isFlicked = velocity > Self.dismissVelocity
             if progress > Self.dismissProgress || isFlicked {
+                // 一時診断: DISMISS_DEBUG。原因特定後に削除する
+                Self.dismissDebugLogger.debug(
+                    "DISMISS_DEBUG handleDismissPan .ended: progress=\(progress, privacy: .public) velocity=\(velocity, privacy: .public) isFlicked=\(isFlicked, privacy: .public) → finish()"
+                )
                 interaction?.finish()
             } else {
                 // 戻りだけは離した瞬間の速さを引き継いだばねに差し替える。既定の完了曲線は
                 // 残り時間が引いた割合に比例するので、浅く引いて離すとほぼ瞬間で戻ってしまう。
+                // 一時診断: DISMISS_DEBUG。原因特定後に削除する
+                Self.dismissDebugLogger.debug(
+                    "DISMISS_DEBUG handleDismissPan .ended: progress=\(progress, privacy: .public) velocity=\(velocity, privacy: .public) isFlicked=\(isFlicked, privacy: .public) → cancel()"
+                )
                 transitioning.prepareCancel(velocity: velocity, distance: progress * dismissHeight)
                 interaction?.cancel()
             }
             interaction = nil
         case .cancelled, .failed:
+            // 一時診断: DISMISS_DEBUG。原因特定後に削除する
+            Self.dismissDebugLogger.debug(
+                "DISMISS_DEBUG handleDismissPan: state=\(pan.state.rawValue, privacy: .public)"
+            )
             interaction?.cancel()
             interaction = nil
         default:
@@ -398,7 +424,15 @@ private final class PlayerPresentationCoordinator: NSObject {
 
     private func beginInteractiveDismiss() {
         // 復帰アニメーションの最中はまだ `.dismissing` なので、ここで再入が止まる。
-        guard stage == .presented, let hosting, interaction == nil else { return }
+        guard stage == .presented, let hosting, interaction == nil else {
+            // 一時診断: DISMISS_DEBUG。原因特定後に削除する
+            Self.dismissDebugLogger.debug(
+                "DISMISS_DEBUG beginInteractiveDismiss: guard で弾かれた stage=\(String(describing: self.stage), privacy: .public) hosting=\(self.hosting != nil, privacy: .public) interaction=\(self.interaction != nil, privacy: .public)"
+            )
+            return
+        }
+        // 一時診断: DISMISS_DEBUG。原因特定後に削除する
+        Self.dismissDebugLogger.debug("DISMISS_DEBUG beginInteractiveDismiss: 到達した")
         stage = .dismissing
         let interaction = UIPercentDrivenInteractiveTransition()
         // 追従中は `update(_:)` が進行を決め、指を離したあとの残りだけシステムの曲線に任せる。
@@ -448,16 +482,41 @@ extension PlayerPresentationCoordinator: UIAdaptivePresentationControllerDelegat
 /// 終了 pan の調停。同時認識は既定の「しない」に任せ、ここでは失敗の依存だけを決める。
 extension PlayerPresentationCoordinator: UIGestureRecognizerDelegate {
     func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
-        guard let pan = gestureRecognizer as? PlayerDismissPan, let view = pan.view else { return false }
+        guard let pan = gestureRecognizer as? PlayerDismissPan, let view = pan.view else {
+            // 一時診断: DISMISS_DEBUG。原因特定後に削除する
+            Self.dismissDebugLogger.debug("DISMISS_DEBUG shouldBegin: pan/view が取れず false")
+            return false
+        }
+        var translation = CGPoint.zero
+        var hasScrollView = false
+        var result = false
         // 出入りの最中は終了を始めさせない。始めさせると進行中の遷移へ 2 つ目の終了が重なる。
-        guard stage == .presented else { return false }
-        pan.recordTouchStartIfNeeded(in: view)
-        let translation = pan.translation(in: view)
-        // 下向きで縦が優勢な動きだけを終了に使う。横と上向きはシークと本文へ渡す。
-        guard translation.y > 0, translation.y > abs(translation.x) else { return false }
-        // 本文の中なら、接触を始めた時点で先頭にいた場合だけ終了にする。
-        // 途中から始めたスクロールは先頭へ届いても終了へ取り替えない（仕様 4.1.1 章）。
-        return pan.trackedScrollView == nil || pan.startedAtTop
+        if stage != .presented {
+            // 一時診断: DISMISS_DEBUG。原因特定後に削除する
+            Self.dismissDebugLogger.debug("DISMISS_DEBUG shouldBegin: stage が .presented でないため終了を始めない")
+        } else {
+            pan.recordTouchStartIfNeeded(in: view)
+            // UIKit 自身が管理する `translation(in:)` は `touchesMoved` が独自に間引いている変位と
+            // 一致する保証がなく、実測で `(-4.0, 0.0)` のような横方向優勢の値が来て誤って拒否していた。
+            // 同じ独自計測 (`directionDisplacement`) を使うことで、間引き判定と方向判定を揃える。
+            translation = pan.directionDisplacement
+            // 下向きで縦が優勢な動きだけを終了に使う。横と上向きはシークと本文へ渡す。
+            if !(translation.y > 0 && translation.y > abs(translation.x)) {
+                // 一時診断: DISMISS_DEBUG。原因特定後に削除する
+                Self.dismissDebugLogger.debug("DISMISS_DEBUG shouldBegin: translation の向きが下向き優勢でない")
+            } else {
+                // 本文の中なら、接触を始めた時点で先頭にいた場合だけ終了にする。
+                // 途中から始めたスクロールは先頭へ届いても終了へ取り替えない（仕様 4.1.1 章）。
+                let scrollView = pan.trackedScrollView
+                hasScrollView = scrollView != nil
+                result = scrollView == nil || pan.startedAtTop
+            }
+        }
+        // 一時診断: DISMISS_DEBUG。原因特定後に削除する
+        Self.dismissDebugLogger.debug(
+            "DISMISS_DEBUG shouldBegin: stage=\(String(describing: self.stage), privacy: .public) translation=\(String(describing: translation), privacy: .public) hasScrollView=\(hasScrollView, privacy: .public) startedAtTop=\(pan.startedAtTop, privacy: .public) result=\(result, privacy: .public)"
+        )
+        return result
     }
 
     func gestureRecognizer(
@@ -488,25 +547,91 @@ extension PlayerPresentationCoordinator: UIGestureRecognizerDelegate {
 private final class PlayerDismissPan: UIPanGestureRecognizer {
     /// 先頭判定の許容。`adjustedContentInset` は小数になり、弾みの戻りも残るので厳密な等号では取り落とす。
     private static let topEpsilon: CGFloat = 0.5
+    /// UIKit は `shouldBegin` を接触ごとに 1 回しか問い合わせず、その 1 回は内部の閾値に達した
+    /// 直後の、まだ動きの向きが定まっていないサンプルで来ることがある（実測で `(±4..6, 0.0)`）。
+    /// この移動量に届くまで `touchesMoved` を UIKit 自身の認識機構へ渡さないことで、
+    /// 意味のある変位が出るまで最初の問い合わせそのものを遅らせる。
+    private static let directionSlop: CGFloat = 10
 
     private var hasRecorded = false
     private(set) var trackedScrollView: UIScrollView?
     private(set) var startedAtTop = true
+    /// 変位を測る基準点。`touchesBegan` の時点の座標を覚える。
+    private var initialTouchLocation: CGPoint?
+    /// `touchesMoved` が間引き判定に使う独自の変位。`shouldBegin` の方向判定もここから読み、
+    /// UIKit 自身の `translation(in:)` との不一致を避ける。
+    private(set) var directionDisplacement: CGPoint = .zero
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+        // 一時診断: DISMISS_DEBUG。原因特定後に削除する
+        PlayerPresentationCoordinator.dismissDebugLogger.debug(
+            "DISMISS_DEBUG touchesBegan: view有無=\(self.view != nil, privacy: .public) touches数=\(touches.count, privacy: .public)"
+        )
         super.touchesBegan(touches, with: event)
         recordTouchStartIfNeeded(in: view)
+        if let touch = touches.first, let view {
+            initialTouchLocation = touch.location(in: view)
+            // 一時診断: DISMISS_DEBUG。原因特定後に削除する
+            PlayerPresentationCoordinator.dismissDebugLogger.debug(
+                "DISMISS_DEBUG touchesBegan: 座標=(\(touch.location(in: view).x, privacy: .public),\(touch.location(in: view).y, privacy: .public))"
+            )
+        }
+    }
+
+    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent) {
+        if state == .possible {
+            guard let view, let initialTouchLocation, let touch = touches.first else {
+                // 基準点や座標が取れないと間引きも方向判定もできないので、素直に失敗させる。
+                // 一時診断: DISMISS_DEBUG。原因特定後に削除する
+                PlayerPresentationCoordinator.dismissDebugLogger.debug(
+                    "DISMISS_DEBUG touchesMoved: 基準点が取れず state=.failed"
+                )
+                state = .failed
+                return
+            }
+            let location = touch.location(in: view)
+            // 間引き判定と `shouldBegin` の方向判定を同じ値で揃えるため、distance ガードより前に保存する。
+            directionDisplacement = CGPoint(
+                x: location.x - initialTouchLocation.x,
+                y: location.y - initialTouchLocation.y
+            )
+            let distance = hypot(directionDisplacement.x, directionDisplacement.y)
+            // 一時診断: DISMISS_DEBUG。原因特定後に削除する。間引きの判定そのものを毎回追うため間引かない。
+            PlayerPresentationCoordinator.dismissDebugLogger.debug(
+                "DISMISS_DEBUG touchesMoved: state=possible displacement=(\(self.directionDisplacement.x, privacy: .public),\(self.directionDisplacement.y, privacy: .public)) distance=\(distance, privacy: .public) slop超え=\(distance >= Self.directionSlop, privacy: .public)"
+            )
+            guard distance >= Self.directionSlop else { return }
+            // 一時診断: DISMISS_DEBUG。原因特定後に削除する
+            PlayerPresentationCoordinator.dismissDebugLogger.debug("DISMISS_DEBUG touchesMoved: super へ委譲開始")
+        } else {
+            // 一時診断: DISMISS_DEBUG。原因特定後に削除する。`.possible` を素通りするケースも同じ super 呼び出しへ合流するので、こちらの経路も記録する。
+            PlayerPresentationCoordinator.dismissDebugLogger.debug(
+                "DISMISS_DEBUG touchesMoved: state=\(self.state.rawValue, privacy: .public) のため possible 判定をスキップして super へ委譲"
+            )
+        }
+        super.touchesMoved(touches, with: event)
     }
 
     /// 最初の 1 回だけ覚える。UIKit が失敗の依存を問い合わせる順は `touchesBegan` より前になり得るので
     /// 両方から呼べるようにし、2 本目の指で先頭状態を上書きしない。
     func recordTouchStartIfNeeded(in view: UIView?) {
-        guard !hasRecorded, let view, numberOfTouches > 0 else { return }
+        guard !hasRecorded, let view, numberOfTouches > 0 else {
+            // 一時診断: DISMISS_DEBUG。原因特定後に削除する。`hasRecorded` が既に立っている
+            // 通常の2本目以降の呼び出しでログが埋もれないよう、早期returnの理由だけ簡潔に出す。
+            PlayerPresentationCoordinator.dismissDebugLogger.debug(
+                "DISMISS_DEBUG recordTouchStartIfNeeded: 早期return hasRecorded=\(self.hasRecorded, privacy: .public) view有無=\(view != nil, privacy: .public) numberOfTouches=\(self.numberOfTouches, privacy: .public)"
+            )
+            return
+        }
         hasRecorded = true
         let scrollView = Self.enclosingScrollView(at: location(in: view), in: view)
         trackedScrollView = scrollView
         startedAtTop =
             scrollView.map { $0.contentOffset.y <= -$0.adjustedContentInset.top + Self.topEpsilon } ?? true
+        // 一時診断: DISMISS_DEBUG。原因特定後に削除する
+        PlayerPresentationCoordinator.dismissDebugLogger.debug(
+            "DISMISS_DEBUG recordTouchStartIfNeeded: trackedScrollView有無=\(self.trackedScrollView != nil, privacy: .public) startedAtTop=\(self.startedAtTop, privacy: .public)"
+        )
     }
 
     override func reset() {
@@ -514,6 +639,8 @@ private final class PlayerDismissPan: UIPanGestureRecognizer {
         hasRecorded = false
         trackedScrollView = nil
         startedAtTop = true
+        initialTouchLocation = nil
+        directionDisplacement = .zero
     }
 
     /// 触れた点の下にある最も内側の `UIScrollView`。歌詞・キューの本文とアートワーク状態の外側がこれに当たる。

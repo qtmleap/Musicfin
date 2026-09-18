@@ -21,15 +21,26 @@ while [ $# -gt 0 ]; do
 done
 
 python3 - "$current" <<'PY'
-import json, pathlib, sys
+import hashlib, json, pathlib, struct, sys
 root = pathlib.Path(sys.argv[1])
 manifest = json.loads((root / "manifest.json").read_text())
 for key, expected in (("language", "en"), ("locale", "en_US"), ("appearance", "dark")):
     if manifest.get(key) != expected:
         raise SystemExit(f"current manifest: {key} must be {expected}")
-missing = [s["screen"] for s in manifest.get("shots", []) if not (root / s["path"]).is_file()]
-if missing:
-    raise SystemExit("missing current shots: " + ", ".join(missing))
+shots = manifest.get("shots", [])
+if len(shots) != 25:
+    raise SystemExit(f"current manifest: expected 25 shots, found {len(shots)}")
+expected_size = tuple(manifest.get("pixelSize", ()))
+for shot in shots:
+    path = root / shot["path"]
+    if not path.is_file():
+        raise SystemExit(f"missing current shot: {shot['screen']}")
+    data = path.read_bytes()
+    size = struct.unpack(">II", data[16:24]) if data[:8] == b"\x89PNG\r\n\x1a\n" else None
+    if size != expected_size or shot.get("pixelSize") != list(expected_size):
+        raise SystemExit(f"current shot has invalid dimensions: {shot['screen']}")
+    if hashlib.sha256(data).hexdigest() != shot.get("sha256"):
+        raise SystemExit(f"current shot has invalid hash: {shot['screen']}")
 PY
 
 staging="$(mktemp -d "$shot_root/.previous.XXXXXX")"
