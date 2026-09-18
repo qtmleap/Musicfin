@@ -391,6 +391,10 @@ struct NowPlayingView: View {
             .truncationMode(.tail)
             .contentTransition(reduceMotion ? .identity : .interpolate)
             .geometryGroup()
+            // 固定 ID と再生中トラックの value を付けておくと、UI テストは同名要素を
+            // 総当たりせずこの要素だけを見て曲名を判定できる。
+            .accessibilityIdentifier("nowplaying.title")
+            .accessibilityValue(player.currentItem?.id ?? "")
     }
 
     /// アーティスト名はアクセント色にしない（仕様 4 章）。曲名に近い大きさの secondary。

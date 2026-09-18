@@ -247,6 +247,26 @@ struct LyricsView: View {
                     .padding(.bottom, 24)
                     // 同じ画面の小アートワークや曲名と同じ左右 32 pt に載せる（仕様 5 章）。外側の 24 pt との差。
                     .padding(.horizontal, 8)
+                    // 前奏（仕様 5.2 章: 時刻付きでも再生位置が最初の行より前なら現在行は無い）は
+                    // どの行も選択しないのが仕様どおりの見た目で、ここは変えない。ただし「歌詞は
+                    // 読み込み済み・まだ先頭行の手前」という安定状態は通信中の loading と見分けが
+                    // 付かないため、`LazyVStack` の子として積まず overlay で載せて間隔に影響させない
+                    // 見た目に影響しない最小サイズの印だけを、スクリーンショット・テスト向けに残す。
+                    .overlay(alignment: .topLeading) {
+                        if isSynced, active == nil {
+                            // テストは `app.staticTexts["lyrics.intro-placeholder"]` で型を StaticText に
+                            // 限定して探すので、Color.clear + accessibilityElement() では要素の型が
+                            // `.other` になり見つからない（ArtistDetailView の loaded マーカーはここを
+                            // `.any` で探しているので同じ書き方でも通っていた）。かといって Text("") は
+                            // 空文字だと要素そのものが生成されないため、中身だけ半角スペース 1 文字にして
+                            // 見た目には出さずに StaticText 要素を必ず作る。
+                            Text(" ")
+                                .frame(width: 1, height: 1)
+                                .accessibilityIdentifier("lyrics.intro-placeholder")
+                                .accessibilityAddTraits(.isSelected)
+                                .allowsHitTesting(false)
+                        }
+                    }
                 }
                 .scrollIndicators(.hidden)
                 // 幅 0 の短い歌詞だけは geometry の位置を使えない。器の補間とゴム戻りから独立した

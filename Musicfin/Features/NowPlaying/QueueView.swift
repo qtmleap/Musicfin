@@ -37,6 +37,7 @@ struct QueueView: View {
                         // 行の地はアートワーク由来の背景の上に黒い帯として残る。以前は地が黒一色で
                         // 見えていなかっただけで、`scrollContentBackground` では行の地まで消えない（仕様 1.2 章）。
                         .listRowBackground(Color.clear)
+                        .accessibilityIdentifier("queue.upcoming.\(track.id)")
                     }
                 }
                 .listStyle(.plain)
