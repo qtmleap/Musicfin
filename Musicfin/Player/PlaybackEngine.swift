@@ -140,17 +140,23 @@ final class PlaybackEngine {
 
     // MARK: - 再生開始
 
-    /// キューを差し替えて指定位置から再生する。
-    func play(items: [MediaItem], startingAt index: Int = 0) {
-        guard !items.isEmpty, items.indices.contains(index) else { return }
+    /// キューを差し替えて指定位置から再生する。通常の入口は毎回元順から始め、シャッフル入口だけ明示する。
+    func play(items: [MediaItem], startingAt index: Int = 0, shuffled: Bool = false) {
+        guard
+            let order = PlaybackQueueOrder.make(
+                items: items,
+                startingAt: index,
+                shuffled: shuffled,
+                shuffle: { $0.shuffled() }
+            )
+        else { return }
         audioSession.activate()
 
         reportStopIfNeeded()
-        unshuffledQueue = items
-        queue = items
-        currentIndex = index
-
-        if isShuffled { applyShuffle(keepingCurrent: true) }
+        unshuffledQueue = order.original
+        queue = order.queue
+        currentIndex = order.currentIndex
+        isShuffled = order.isShuffled
         loadCurrentTrack(autoPlay: true)
     }
 
