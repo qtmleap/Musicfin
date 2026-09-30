@@ -86,5 +86,5 @@ fastlane/metadata/review_information/email_address.txt
 ## act のローカル秘密情報
 .secrets
 
-# Local Codex configuration, credentials, and session state.
+# ローカルのCodex設定と認証情報、セッションを共有しない。
 /.codex/
