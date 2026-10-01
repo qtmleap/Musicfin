@@ -141,7 +141,7 @@ final class PlaybackEngine {
     // MARK: - 再生開始
 
     /// キューを差し替えて指定位置から再生する。
-    func play(items: [MediaItem], startingAt index: Int = 0) {
+    func play(items: [MediaItem], startingAt index: Int = 0, shuffled: Bool? = nil) {
         guard !items.isEmpty, items.indices.contains(index) else { return }
         audioSession.activate()
 
@@ -150,7 +150,8 @@ final class PlaybackEngine {
         queue = items
         currentIndex = index
 
-        if isShuffled { applyShuffle(keepingCurrent: true) }
+        if let shuffled { isShuffled = shuffled }
+        if isShuffled { applyShuffle(keepingCurrent: shuffled != true) }
         loadCurrentTrack(autoPlay: true)
     }
 

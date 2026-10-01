@@ -8,6 +8,8 @@
   "shutdownAction": "stopCompose",
   "remoteUser": "vscode",
   "remoteEnv": {
+    "CODEX_HOME": "${containerWorkspaceFolder}/.codex",
+    "CLAUDE_CODE_AUTO_MODE_SERVER": "0",
     "ANTHROPIC_BASE_URL": "${localEnv:ANTHROPIC_BASE_URL}",
     "ANTHROPIC_AUTH_TOKEN": "${localEnv:ANTHROPIC_AUTH_TOKEN}",
     "JELLYFIN_BASE_URL": "${localEnv:JELLYFIN_BASE_URL}",
@@ -17,7 +19,7 @@
   },
   "containerEnv": {
     "CLAUDE_CONFIG_DIR": "/home/vscode/.claude",
-    "CODEX_HOME": "/home/vscode/.codex",
+    "CODEX_HOME": "${containerWorkspaceFolder}/.codex",
     "CODEX_MODEL": "${localEnv:CODEX_MODEL}",
     // mock-diff ビューアは compose の sidecar なので、コンテナからは名前で届く。
     // .claude/settings.json の env に書くと macOS ホスト側にも効いてしまうため、
