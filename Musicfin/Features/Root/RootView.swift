@@ -346,7 +346,11 @@ struct RootView: View {
     /// 区分の見出し。split view の sidebar 列は見出しの下余白を既定より 1.5 pt 広く取るので、
     /// 参照どおりの行送りに戻すぶんだけ詰める。`Section("…")` の簡易形では触れない。
     private func padSidebarSectionHeader(_ title: LocalizedStringKey) -> some View {
-        Text(title).padding(.bottom, -1.5)
+        Text(title)
+            // 標準 Section の開閉領域を指で押せる高さに保ち、文字の上下も操作できるようにする。
+            .frame(maxWidth: .infinity, minHeight: PadShell.sidebarRowHeight, alignment: .leading)
+            .contentShape(Rectangle())
+            .padding(.bottom, -1.5)
     }
 
     /// `accentsIcon` は基準画像で記号だけ pink に塗られている行。文字は選ばれるまで白のままなので、
