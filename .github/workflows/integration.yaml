@@ -172,6 +172,14 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - name: Ensure pipx
+        # hosted イメージに同梱される Python 検査用ツールを自前の runner にも用意する。
+        run: |
+          if ! command -v pipx >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq pipx
+          fi
+          printf '%s\n' "$HOME/.local/bin" >> "$GITHUB_PATH"
       - uses: raven-actions/actionlint@v2
 
   fastlane-tests:
