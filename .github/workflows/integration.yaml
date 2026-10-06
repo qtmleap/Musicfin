@@ -157,3 +157,17 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: raven-actions/actionlint@v2
+
+  fastlane-tests:
+    name: Fastlane Policy and Notes
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.3'
+      - name: Test deployment policy and TestFlight helpers
+        run: |
+          for test in fastlane/test/*_test.rb; do
+            ruby "$test"
+          done
