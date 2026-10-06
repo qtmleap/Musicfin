@@ -9,7 +9,8 @@ permissions:
 jobs:
   validation:
     name: Validate marketing version
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64, ubuntu-latest, docker]
+    if: github.event.pull_request.head.repo.full_name == github.repository
     steps:
       - uses: actions/checkout@v5
       - name: Compare marketing version with latest release

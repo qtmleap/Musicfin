@@ -36,6 +36,11 @@ xcodebuild -project Musicfin.xcodeproj -scheme Musicfin -configuration Debug \
 
 ## Release only through develop or master merge CI
 
+All CI jobs use self-hosted runners. macOS jobs select
+`[self-hosted, macOS, ARM64, macos-26]`; Linux jobs select
+`[self-hosted, Linux, X64, ubuntu-latest, docker]`. The macOS runner starts a
+disposable VM per job; host credentials are not inherited.
+
 When a request is finished — built, linted, verified — commit the work and open
 a PR targeting `develop`, or `master` when requested. **Only the Deployment
 GitHub Actions workflow after that PR is merged may upload a build to TestFlight.**
