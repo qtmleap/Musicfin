@@ -8,6 +8,7 @@ module DeploymentPolicy
   class Error < StandardError; end
 
   REPOSITORY = "qtmleap/Musicfin"
+  BRANCHES = %w[develop master].freeze
   SHIPPED_RECORD = "fastlane/testflight/last_shipped.json"
   SHA_PATTERN = /\A[0-9a-f]{40}\z/
 
@@ -34,26 +35,32 @@ module DeploymentPolicy
   end
 
   def environment!(lane:, env:)
-    raise Error, "配信は develop マージ時の CI beta だけで実行できます。App Store release は無効です。" unless lane.to_s == "beta"
+    raise Error, "配信は develop または master マージ時の CI beta だけで実行できます。App Store release は無効です。" unless lane.to_s == "beta"
     unless env["GITHUB_ACTIONS"] == "true" && env["GITHUB_EVENT_NAME"] == "pull_request"
-      raise Error, "配信は develop マージ時の GitHub CI だけで実行できます。"
+      raise Error, "配信は develop または master マージ時の GitHub CI だけで実行できます。"
     end
-    unless env["GITHUB_REPOSITORY"] == REPOSITORY && env["GITHUB_REF"] == "refs/heads/develop" &&
-           env["GITHUB_WORKFLOW_REF"] == "#{REPOSITORY}/.github/workflows/deployment.yaml@refs/heads/develop"
+    unless env["RUNNER_ENVIRONMENT"] == "self-hosted"
+      raise Error, "配信は self-hosted runner の CI だけで実行できます。"
+    end
+    branch = env["GITHUB_REF"].to_s.delete_prefix("refs/heads/")
+    unless env["GITHUB_REPOSITORY"] == REPOSITORY && BRANCHES.include?(branch) &&
+           env["GITHUB_REF"] == "refs/heads/#{branch}" &&
+           env["GITHUB_WORKFLOW_REF"] == "#{REPOSITORY}/.github/workflows/deployment.yaml@refs/heads/#{branch}"
       raise Error, "配信元の CI リポジトリ・ブランチ・ワークフローが一致しません。"
     end
     raise Error, "二重配信を防ぐため CI の再実行は許可しません。" unless env["GITHUB_RUN_ATTEMPT"] == "1"
+    branch
   end
 
   def context!(lane:, env:, event:)
-    environment!(lane: lane, env: env)
+    branch = environment!(lane: lane, env: env)
     unless event.is_a?(Hash) && event["action"] == "closed" &&
            event.dig("repository", "full_name") == REPOSITORY &&
            event.dig("pull_request", "merged") == true && event.dig("pull_request", "state") == "closed" &&
-           event.dig("pull_request", "base", "ref") == "develop" &&
+           event.dig("pull_request", "base", "ref") == branch &&
            event.dig("pull_request", "base", "repo", "full_name") == REPOSITORY &&
            event.dig("pull_request", "head", "repo", "full_name") == REPOSITORY
-      raise Error, "同じリポジトリから develop へマージされた PR だけ配信できます。"
+      raise Error, "同じリポジトリから develop または master へマージされた PR だけ配信できます。"
     end
     sha = event.dig("pull_request", "merge_commit_sha")
     unless sha.is_a?(String) && sha.match?(SHA_PATTERN) && env["GITHUB_SHA"] == sha
@@ -64,16 +71,16 @@ module DeploymentPolicy
     raise Error, "CI の PR イベントが不正です。"
   end
 
-  def current!(sha:, head_sha:, develop_sha:, dirty_count:)
-    unless head_sha == sha && develop_sha == sha
-      raise Error, "配信対象は最新の develop と一致するマージ SHA である必要があります。"
+  def current!(sha:, head_sha:, branch_sha:, dirty_count:)
+    unless head_sha == sha && branch_sha == sha
+      raise Error, "配信対象は最新のマージ先ブランチと一致するマージ SHA である必要があります。"
     end
     raise Error, "未コミットの変更がある、または Git の状態を確認できないため配信しません。" unless dirty_count == 0
   end
 
-  def validate!(lane:, env:, event:, head_sha:, develop_sha:, dirty_count:, changed_paths:)
+  def validate!(lane:, env:, event:, head_sha:, branch_sha:, dirty_count:, changed_paths:)
     sha = context!(lane: lane, env: env, event: event)
-    current!(sha: sha, head_sha: head_sha, develop_sha: develop_sha, dirty_count: dirty_count)
+    current!(sha: sha, head_sha: head_sha, branch_sha: branch_sha, dirty_count: dirty_count)
     unless changed_paths.is_a?(Array) && changed_paths.all? { |path| path.is_a?(String) && !path.empty? } &&
            changed_paths.any? { |path| path != SHIPPED_RECORD }
       raise Error, "配信記録だけの変更、または変更の無いマージは配信しません。"
@@ -90,25 +97,27 @@ module DeploymentPolicy
   end
 
   # キャッシュされた追跡ブランチでは、待機中に入った新しいマージを検出できない。
-  def develop_sha(repo_root)
-    output = git_output(repo_root, "ls-remote", "--exit-code", "origin", "refs/heads/develop")
+  def branch_sha(repo_root, branch:)
+    raise Error, "配信先ブランチが許可されていません。" unless BRANCHES.include?(branch)
+    ref = "refs/heads/#{branch}"
+    output = git_output(repo_root, "ls-remote", "--exit-code", "origin", ref)
     fields = output.strip.split(/\s+/)
-    unless fields.size == 2 && fields[0].match?(SHA_PATTERN) && fields[1] == "refs/heads/develop"
-      raise Error, "最新の develop SHA を取得できません。"
+    unless fields.size == 2 && fields[0].match?(SHA_PATTERN) && fields[1] == ref
+      raise Error, "最新のマージ先ブランチの SHA を取得できません。"
     end
     fields[0]
   end
 
   def authorize!(lane:, repo_root:, env: ENV)
     # ローカルではイベントファイルや認証情報へ進む前に必ず止める。
-    environment!(lane: lane, env: env)
+    branch = environment!(lane: lane, env: env)
     event = JSON.parse(File.read(env.fetch("GITHUB_EVENT_PATH")))
     sha = context!(lane: lane, env: env, event: event)
     paths = git_output(repo_root, "diff", "--name-only", "-z", "#{sha}^1", sha, "--").split("\0")
     validate!(
       lane: lane, env: env, event: event,
       head_sha: TestflightNotes.head_sha(repo_root),
-      develop_sha: develop_sha(repo_root),
+      branch_sha: branch_sha(repo_root, branch: branch),
       dirty_count: TestflightNotes.dirty_count(repo_root),
       changed_paths: paths
     )
@@ -116,14 +125,21 @@ module DeploymentPolicy
     raise Error, "CI の PR イベントを読み取れないため配信しません。"
   end
 
-  # アーカイブ中に develop が進んだ場合も、古いビルドはアップロードしない。
-  def verify_current!(repo_root:, sha:)
+  # アーカイブ中にマージ先が進んだ場合も、別ブランチの先端で古いビルドを許可しない。
+  def verify_current!(repo_root:, sha:, env: ENV)
+    branch = environment!(lane: :beta, env: env)
+    event = JSON.parse(File.read(env.fetch("GITHUB_EVENT_PATH")))
+    unless context!(lane: :beta, env: env, event: event) == sha
+      raise Error, "アーカイブ開始時と CI のマージ SHA が一致しません。"
+    end
     current!(
       sha: sha,
       head_sha: TestflightNotes.head_sha(repo_root),
-      develop_sha: develop_sha(repo_root),
+      branch_sha: branch_sha(repo_root, branch: branch),
       dirty_count: TestflightNotes.dirty_count(repo_root)
     )
+  rescue JSON::ParserError, KeyError, SystemCallError, IOError
+    raise Error, "CI の PR イベントを読み取れないため配信しません。"
   end
 end
 

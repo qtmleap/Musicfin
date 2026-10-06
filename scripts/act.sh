@@ -8,7 +8,7 @@ Usage: scripts/act.sh [--host] [job] [act options...]
 引数なし: commitlint / shellcheck / actionlint を Ubuntu コンテナで順に実行。
 ジョブ指定: scripts/act.sh shellcheck
 macOS: scripts/act.sh --host unit-tests （format / build も指定可能）
---host は macos-26=-self-hosted マッピングで手元の macOS / Xcode を使います。
+--host は self-hosted=-self-hosted マッピングで手元の macOS / Xcode を使います。
 追加の act オプションはジョブ名の後に指定できます（例: shellcheck --dryrun）。
 HELP
 }
@@ -31,7 +31,8 @@ if [[ $# -eq 0 ]]; then
   # デプロイや自動レビューを誤って起動しないよう、Integration の検査だけに限定する。
   status=0
   for job in commitlint shellcheck actionlint; do
-    act push -W .github/workflows/integration.yaml -j "$job" || status=1
+    act workflow_dispatch -W .github/workflows/integration.yaml -j "$job" \
+      -P self-hosted=ghcr.io/catthehacker/ubuntu:act-latest || status=1
   done
   exit "$status"
 fi
@@ -52,6 +53,7 @@ case "$job" in
   *) usage >&2; exit 2 ;;
 esac
 if $use_host; then
-  exec act push -W .github/workflows/integration.yaml -j "$job" -P macos-26=-self-hosted "$@"
+  exec act workflow_dispatch -W .github/workflows/integration.yaml -j "$job" -P self-hosted=-self-hosted "$@"
 fi
-exec act push -W .github/workflows/integration.yaml -j "$job" "$@"
+exec act workflow_dispatch -W .github/workflows/integration.yaml -j "$job" \
+  -P self-hosted=ghcr.io/catthehacker/ubuntu:act-latest "$@"

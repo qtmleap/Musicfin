@@ -1,7 +1,7 @@
 name: Deployment
 on:
   pull_request:
-    branches: [develop]
+    branches: [develop, master]
     types: [closed]
     paths-ignore:
       - fastlane/testflight/last_shipped.json
@@ -18,24 +18,44 @@ jobs:
   deploy:
     if: >-
       github.event.pull_request.merged == true &&
-      github.event.pull_request.base.ref == 'develop' &&
+      contains(fromJSON('["develop","master"]'), github.event.pull_request.base.ref) &&
+      github.ref == format('refs/heads/{0}', github.event.pull_request.base.ref) &&
       github.event.pull_request.head.repo.full_name == github.repository &&
       github.run_attempt == 1
-    runs-on: macos-26
+    runs-on: [self-hosted, macOS, ARM64, macos-26]
     environment: testflight
     timeout-minutes: 45
+    env:
+      RBENV_VERSION: '3.4.10'
+      LANG: en_US.UTF-8
+      LC_ALL: en_US.UTF-8
+      BUNDLE_FROZEN: 'true'
+      GIT_TERMINAL_PROMPT: '0'
     steps:
       - uses: actions/checkout@v5
         with:
-          # develop が進んでも、イベントが指すマージ対象の内容だけをビルドする。
+          # 配信先ブランチが進んでも、イベントが指すマージ対象の内容だけをビルドする。
           ref: ${{ github.event.pull_request.merge_commit_sha }}
           fetch-depth: 0
-      - uses: ruby/setup-ruby@v1
-        with:
-          ruby-version: '3.3'
-          bundler-cache: true
+      - name: Prepare VM Ruby and Fastlane
+        # hosted 用 Ruby の固定パスに依存せず、検証済み VM の Ruby を使う。
+        run: |
+          ruby_bin="$HOME/.rbenv/versions/$RBENV_VERSION/bin"
+          if [ ! -x "$ruby_bin/ruby" ]; then
+            echo "::error::Ruby $RBENV_VERSION is missing at $ruby_bin"
+            exit 1
+          fi
+          export GEM_HOME="$RUNNER_TEMP/musicfin-gems"
+          export GEM_PATH="$GEM_HOME"
+          export BUNDLE_PATH="$RUNNER_TEMP/musicfin-bundle"
+          export PATH="$ruby_bin:$GEM_HOME/bin:$PATH"
+          printf '%s\n' "$ruby_bin" "$GEM_HOME/bin" >> "$GITHUB_PATH"
+          printf '%s\n' "GEM_HOME=$GEM_HOME" "GEM_PATH=$GEM_PATH" "BUNDLE_PATH=$BUNDLE_PATH" >> "$GITHUB_ENV"
+          ruby --version
+          gem install bundler --version 4.0.16 --no-document
+          bundle _4.0.16_ install --jobs 4 --retry 2
       - name: Validate merged deployment target
-        run: ruby fastlane/lib/deployment_policy.rb
+        run: bundle _4.0.16_ exec ruby fastlane/lib/deployment_policy.rb
       - name: Deploy
         id: deploy
         env:
@@ -45,7 +65,7 @@ jobs:
           MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
           MATCH_GIT_PRIVATE_KEY: ${{ secrets.MATCH_GIT_PRIVATE_KEY }}
           MATCH_GIT_TOKEN: ${{ secrets.MATCH_GIT_TOKEN }}
-        run: bundle exec fastlane beta
+        run: bundle _4.0.16_ exec fastlane beta
       - name: Preserve shipped build record
         if: always() && steps.deploy.outcome == 'success'
         uses: actions/upload-artifact@v4

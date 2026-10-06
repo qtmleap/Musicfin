@@ -67,6 +67,7 @@ struct ArtistDetailView: View {
             }
         }
         .task { await load() }
+        .prefetchArtwork(albums + artistPlaylists + similarArtists, size: 200)
     }
 
     private var compactBody: some View {

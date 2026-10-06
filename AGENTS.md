@@ -34,21 +34,26 @@ xcodebuild -project Musicfin.xcodeproj -scheme Musicfin -configuration Debug \
 - Unit tests: `./scripts/run-unit-tests.sh` (details in `Tests/README.md`)
 - CI locally: `./scripts/act.sh` (`--host <job>` for the macOS jobs)
 
-## Release only through develop merge CI
+## Release only through develop or master merge CI
+
+All CI jobs use self-hosted runners. macOS jobs select
+`[self-hosted, macOS, ARM64, macos-26]`; Linux jobs select
+`[self-hosted, Linux, X64, ubuntu-latest, docker]`. The macOS runner starts a
+disposable VM per job; host credentials are not inherited.
 
 When a request is finished — built, linted, verified — commit the work and open
-a PR targeting `develop`. **Only the Deployment GitHub Actions workflow after
-that PR is merged may upload a build to TestFlight.** Never deploy from a local
-checkout, a tag, a direct push, or a manual workflow dispatch. The App Store
+a PR targeting `develop`, or `master` when requested. **Only the Deployment
+GitHub Actions workflow after that PR is merged may upload a build to TestFlight.**
+Never deploy from a local checkout, a tag, a direct push, or a manual workflow dispatch. The App Store
 `release` lane is disabled. Keep the repository default branch unchanged.
 
 Store all ASC and MATCH deployment credentials only in the protected GitHub
-Environment `testflight`, with deployment branches restricted to the branch
-`develop`. Do not keep repository-level copies: historical tagged workflows
-must not inherit deployment credentials.
+Environment `testflight`, with deployment branches restricted to the branches
+`develop` and `master`. Do not keep repository-level copies: historical tagged
+workflows must not inherit deployment credentials.
 
 Use a merge commit or squash merge for release PRs. CI checks out the exact
-merge SHA and checks the live `develop` tip before building and uploading;
+merge SHA and checks the live PR base branch tip before building and uploading;
 obsolete merges and dirty checkouts fail. Rebase merges with a record-only
 final commit are conservatively rejected. CI reruns cannot upload again.
 Do not merge another PR, including a record-only PR, while Deployment CI is

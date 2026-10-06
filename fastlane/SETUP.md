@@ -13,7 +13,7 @@ bundle exec fastlane lanes
 |---|---|---|
 | `fastlane setup_profiles` | Bundle ID 登録 + アプリレコード作成 + **match リポジトリへ書き込み**。初回のみ | **高**（他アプリと同居する署名資産を触る） |
 | `fastlane verify` | 署名 + アーカイブのみ。アップロードしない | なし |
-| Deployment CI の `beta` | 同じリポジトリの PR が `develop` にマージされた初回だけビルド → TestFlight | CI 限定 |
+| Deployment CI の `beta` | 同じリポジトリの PR が `develop` または `master` にマージされた初回だけビルド → TestFlight | CI 限定 |
 | `fastlane release` | App Store 配信は無効。認証前に拒否する | 実行不可 |
 | `fastlane notify_testers` | アップロード済みビルドについてテスターへ通知を送る。ビルドしない | 中（テスターに通知が飛ぶ） |
 | `fastlane notify_testers dry_run:true` | 対象の特定とログ出力だけ。通知は送らない | なし |
@@ -249,11 +249,26 @@ ruby fastlane/test/testflight_notes_test.rb
 
 ## CI（GitHub Actions）
 
-`.github/workflows/deployment.yaml` は `develop` 宛て PR の `closed` イベントで、
+配信・検証はすべて self-hosted runner を使う。
+macOS ジョブは `[self-hosted, macOS, ARM64, macos-26]` で Mac Studio のオンデマンド VM
+（macOS 26 / Xcode 26.5）へ、Linux ジョブは `[self-hosted, Linux, X64, ubuntu-latest, docker]`
+で既存の RTX runner へ送る。配信 lane も `RUNNER_ENVIRONMENT=self-hosted` を検証する。
+VM の Ruby 3.4.10 と Bundler 4.0.16 を使い、Gem はジョブの一時ディレクトリへ置く。
+Linux の Fastlane helper テストは `ruby:3.3-bookworm` コンテナで実行する。
+
+Mac Studio runner group は、既存 private リポジトリと Musicfin を selected に登録し、
+公開リポジトリは Musicfin だけを許可する。新しい private リポジトリを利用する際も追加登録が必要。
+外部 contributor の fork PR は GitHub 側で毎回承認を必須にする。ワークフローの条件でも fork を除外するが、
+PR で条件自体を変更できるため、`.github/` や `scripts/` を変更する外部 PR の実行は承認しない。
+fork PR の検証は、変更内容を確認して同じリポジトリのブランチへ取り込んだ後に行う。
+
+`.github/workflows/deployment.yaml` は `develop` または `master` 宛て PR の `closed` イベントで、
 同じリポジトリからの PR がマージ済みの場合だけ `beta` を呼ぶ。
 マージコミットまたは squash merge を使う。`merge_commit_sha` を指定して履歴全体を取得し、
-ビルド前とアップロード直前に、実際の HEAD と最新の `origin/develop` がその SHA と一致することを確認する。
+ビルド前とアップロード直前に、実際の HEAD とマージ先ブランチの最新 SHA がその SHA と一致することを確認する。
+実行元の ref・ワークフローの ref・PR のマージ先も同じブランチである必要がある。
 作業ツリーに未コミットの変更がある場合も止める。
+`develop` から `master` への昇格 PR も、条件を満たせば新しいビルドを配信する。
 
 タグ、直接 push、手動 dispatch、ローカル実行は配信経路にならない。
 `release` による App Store バイナリ配信も無効。
@@ -281,7 +296,7 @@ run が検証したマージ SHA と、App Store Connect の実際のビルド�
 
 配信用 credential はすべて保護された GitHub Environment `testflight` の Secrets にだけ保存する。
 Deployment job はこの Environment を指定し、Environment の deployment branch rule は
-`develop` だけを許可する branch 型で登録する。タグを許可する rule は追加しない。
+`develop` と `master` だけを許可する branch 型で登録する。タグを許可する rule は追加しない。
 下表の ASC・MATCH Secret を repository Secrets に残してはいけない。
 既存の値を Environment へ移したら repository 側のコピーを削除する。
 これにより、過去のタグに残る旧ワークフローには配信用 credential が渡らない。
@@ -304,6 +319,8 @@ deploy key は Musicfin CI 専用にし、GitHub 側の書き込み権限を有�
 組織の方針で deploy key が禁止されている場合は token を選ぶ。
 
 配信ガードを通過した後だけ `setup_ci` が CI 専用の一時 keychain を用意する。
+ジョブごとに VM を破棄するため、親 Mac のログイン認証や keychain は引き継がない。
+署名リポジトリの token / key も `testflight` Environment から渡す。
 署名リポジトリの match は常に `readonly: true` のまま使用する。
 
 ## 審査に出す前に必要なもの

@@ -54,6 +54,11 @@ struct AlbumCatalogTests {
         let empty = AlbumCatalog()
         await empty.loadAll { _ in try page("{\"items\":[],\"totalRecordCount\":0}") }
         assert(empty.isComplete && empty.genres.isEmpty)
+        let duplicateCatalog = AlbumCatalog()
+        let repeated = try page("{\"items\":[{\"id\":\"same\"}],\"totalRecordCount\":10}")
+        for _ in 0..<4 { await duplicateCatalog.loadNext { _ in repeated } }
+        assert(duplicateCatalog.items.count == 1 && duplicateCatalog.revision == 4)
+        assert(duplicateCatalog.needsManualContinuation && !duplicateCatalog.isComplete)
         print("AlbumCatalog: pagination, hidden partial genres, retry, grouping, empty and completion passed")
     }
 
