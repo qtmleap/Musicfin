@@ -1,6 +1,7 @@
 # 配信を伴う依存だけを止め、実際の lane が認証より先に拒否することを検証する。
 require "json"
 require "tmpdir"
+require "rbconfig"
 
 $failures = 0
 
@@ -101,15 +102,15 @@ end
   end
 end
 
-def allowed_fixture
+def allowed_fixture(branch = "develop")
   {
     lane: :beta,
     env: {
       "GITHUB_ACTIONS" => "true",
       "GITHUB_EVENT_NAME" => "pull_request",
       "GITHUB_REPOSITORY" => "qtmleap/Musicfin",
-      "GITHUB_REF" => "refs/heads/develop",
-      "GITHUB_WORKFLOW_REF" => "qtmleap/Musicfin/.github/workflows/deployment.yaml@refs/heads/develop",
+      "GITHUB_REF" => "refs/heads/#{branch}",
+      "GITHUB_WORKFLOW_REF" => "qtmleap/Musicfin/.github/workflows/deployment.yaml@refs/heads/#{branch}",
       "GITHUB_RUN_ATTEMPT" => "1",
       "GITHUB_SHA" => MERGED_SHA
     },
@@ -120,31 +121,41 @@ def allowed_fixture
         "merged" => true,
         "state" => "closed",
         "merge_commit_sha" => MERGED_SHA,
-        "base" => { "ref" => "develop", "repo" => { "full_name" => "qtmleap/Musicfin" } },
+        "base" => { "ref" => branch, "repo" => { "full_name" => "qtmleap/Musicfin" } },
         "head" => { "repo" => { "full_name" => "qtmleap/Musicfin" } }
       }
     },
     head_sha: MERGED_SHA,
-    develop_sha: MERGED_SHA,
+    branch_sha: MERGED_SHA,
     dirty_count: 0,
     changed_paths: ["Musicfin/App/RootView.swift"]
   }
 end
 
-check "the exact current merge from this repository is accepted" do
-  assert DeploymentPolicy.validate!(**allowed_fixture) == MERGED_SHA
+["develop", "master"].each do |branch|
+  check "the exact current #{branch} merge from this repository is accepted" do
+    assert DeploymentPolicy.validate!(**allowed_fixture(branch)) == MERGED_SHA
+  end
 end
 
 cases = {
   "local execution" => ->(f) { f[:env]["GITHUB_ACTIONS"] = nil },
   "manual dispatch" => ->(f) { f[:env]["GITHUB_EVENT_NAME"] = "workflow_dispatch" },
+  "direct branch push" => ->(f) { f[:env]["GITHUB_EVENT_NAME"] = "push" },
   "tag push" => ->(f) { f[:env]["GITHUB_EVENT_NAME"] = "push"; f[:env]["GITHUB_REF"] = "refs/tags/v0.1.0" },
+  "tag ref" => ->(f) { f[:env]["GITHUB_REF"].sub!("refs/heads/", "refs/tags/") },
   "open PR" => ->(f) { f[:event]["action"] = "opened" },
   "unmerged PR" => ->(f) { f[:event]["pull_request"]["merged"] = false },
   "open PR state" => ->(f) { f[:event]["pull_request"]["state"] = "open" },
-  "wrong base" => ->(f) { f[:event]["pull_request"]["base"]["ref"] = "master" },
-  "wrong ref" => ->(f) { f[:env]["GITHUB_REF"] = "refs/heads/master" },
-  "other workflow" => ->(f) { f[:env]["GITHUB_WORKFLOW_REF"] = "qtmleap/Musicfin/.github/workflows/integration.yaml@refs/heads/develop" },
+  "mismatched base" => ->(f) { f[:event]["pull_request"]["base"]["ref"] = f[:event]["pull_request"]["base"]["ref"] == "develop" ? "master" : "develop" },
+  "mismatched ref" => ->(f) { f[:env]["GITHUB_REF"] = f[:env]["GITHUB_REF"] == "refs/heads/develop" ? "refs/heads/master" : "refs/heads/develop" },
+  "mismatched workflow branch" => ->(f) { f[:env]["GITHUB_WORKFLOW_REF"] = f[:env]["GITHUB_WORKFLOW_REF"].sub(/(develop|master)\z/) { |b| b == "develop" ? "master" : "develop" } },
+  "other workflow" => ->(f) { f[:env]["GITHUB_WORKFLOW_REF"].sub!("deployment.yaml", "integration.yaml") },
+  "unapproved branch" => ->(f) {
+    f[:event]["pull_request"]["base"]["ref"] = "feature"
+    f[:env]["GITHUB_REF"] = "refs/heads/feature"
+    f[:env]["GITHUB_WORKFLOW_REF"] = "qtmleap/Musicfin/.github/workflows/deployment.yaml@refs/heads/feature"
+  },
   "other environment repository" => ->(f) { f[:env]["GITHUB_REPOSITORY"] = "other/Musicfin" },
   "other event repository" => ->(f) { f[:event]["repository"]["full_name"] = "other/Musicfin" },
   "fork source" => ->(f) { f[:event]["pull_request"]["head"]["repo"]["full_name"] = "other/Musicfin" },
@@ -155,7 +166,7 @@ cases = {
   "wrong checkout" => ->(f) { f[:head_sha] = OTHER_SHA },
   "second run attempt" => ->(f) { f[:env]["GITHUB_RUN_ATTEMPT"] = "2" },
   "missing run attempt" => ->(f) { f[:env]["GITHUB_RUN_ATTEMPT"] = nil },
-  "obsolete develop merge" => ->(f) { f[:develop_sha] = OTHER_SHA },
+  "obsolete merge" => ->(f) { f[:branch_sha] = OTHER_SHA },
   "dirty checkout" => ->(f) { f[:dirty_count] = 1 },
   "unknown checkout status" => ->(f) { f[:dirty_count] = nil },
   "record-only merge" => ->(f) { f[:changed_paths] = ["fastlane/testflight/last_shipped.json"] },
@@ -166,17 +177,113 @@ cases = {
   "malformed PR" => ->(f) { f[:event]["pull_request"] = [] },
   "App Store lane" => ->(f) { f[:lane] = :release }
 }
-cases.each do |name, mutate|
-  check "rejects #{name}" do
-    fixture = allowed_fixture
-    mutate.call(fixture)
-    error = begin
-      DeploymentPolicy.validate!(**fixture)
-      nil
-    rescue DeploymentPolicy::Error => e
-      e
+
+def with_git_fixture(branch)
+  Dir.mktmpdir do |dir|
+    event_path = File.join(dir, "event.json")
+    refs_path = File.join(dir, "refs.json")
+    fixture = allowed_fixture(branch)
+    File.write(event_path, JSON.generate(fixture[:event]))
+    refs = { "develop" => OTHER_SHA, "master" => OTHER_SHA, branch => MERGED_SHA }
+    File.write(refs_path, JSON.generate(refs))
+    File.write(File.join(dir, "git"), <<~RUBY)
+      #!#{RbConfig.ruby}
+      require "json"
+      args = ARGV.drop(2)
+      case args
+      when ["rev-parse", "--verify", "HEAD^{commit}"]
+        puts #{MERGED_SHA.inspect}
+      when ["status", "--porcelain", "-z", "--untracked-files=all"]
+      when ["diff", "--name-only", "-z", "#{MERGED_SHA}^1", #{MERGED_SHA.inspect}, "--"]
+        print "Musicfin/App/RootView.swift\\0"
+      when ["ls-remote", "--exit-code", "origin", "refs/heads/develop"],
+           ["ls-remote", "--exit-code", "origin", "refs/heads/master"]
+        ref = args.last
+        sha = JSON.parse(File.read(#{refs_path.inspect})).fetch(ref.delete_prefix("refs/heads/"))
+        puts "\#{sha}\\t\#{ref}"
+      else
+        abort "Unexpected Git query: \#{args.inspect}"
+      end
+    RUBY
+    File.chmod(0o755, File.join(dir, "git"))
+    with_environment(fixture[:env].merge("GITHUB_EVENT_PATH" => event_path, "PATH" => "#{dir}:#{ENV.fetch('PATH')}")) do
+      yield dir, refs_path, refs
     end
-    assert error, "unsafe deployment was accepted"
+  end
+end
+
+["develop", "master"].each do |branch|
+  cases.each do |name, mutate|
+    check "#{branch} rejects #{name}" do
+      fixture = allowed_fixture(branch)
+      mutate.call(fixture)
+      error = begin
+        DeploymentPolicy.validate!(**fixture)
+        nil
+      rescue DeploymentPolicy::Error => e
+        e
+      end
+      assert error, "unsafe deployment was accepted"
+    end
+  end
+
+  check "#{branch} upload revalidation rejects a changed event or archive SHA" do
+    with_git_fixture(branch) do |dir, _, _|
+      sha = DeploymentPolicy.authorize!(lane: :beta, repo_root: dir)
+      [OTHER_SHA, sha].each do |archive_sha|
+        if archive_sha == sha
+          event = allowed_fixture(branch == "develop" ? "master" : "develop")[:event]
+          File.write(ENV.fetch("GITHUB_EVENT_PATH"), JSON.generate(event))
+        end
+        error = begin
+          DeploymentPolicy.verify_current!(repo_root: dir, sha: archive_sha)
+          nil
+        rescue DeploymentPolicy::Error => e
+          e
+        end
+        assert error, "revalidation accepted a different event or archive SHA"
+      end
+    end
+  end
+
+  ["#{MERGED_SHA}\trefs/heads/feature\n", "invalid\trefs/heads/#{branch}\n", "", "#{MERGED_SHA}\trefs/heads/#{branch}\n#{OTHER_SHA}\trefs/heads/master\n"].each do |output|
+    check "#{branch} lookup rejects an invalid remote response #{output.inspect}" do
+      policy = DeploymentPolicy.dup
+      policy.define_singleton_method(:git_output) { |*_| output }
+      error = begin
+        policy.branch_sha("fixture", branch: branch)
+        nil
+      rescue DeploymentPolicy::Error => e
+        e
+      end
+      assert error, "invalid remote response was accepted"
+    end
+  end
+end
+
+["develop", "master"].each do |branch|
+  check "#{branch} authorization and upload revalidation use its live tip" do
+    with_git_fixture(branch) do |dir, refs_path, refs|
+      sha = DeploymentPolicy.authorize!(lane: :beta, repo_root: dir)
+      assert sha == MERGED_SHA
+      DeploymentPolicy.verify_current!(repo_root: dir, sha: sha)
+      refs[branch] = OTHER_SHA
+      refs[branch == "develop" ? "master" : "develop"] = MERGED_SHA
+      File.write(refs_path, JSON.generate(refs))
+      [:authorize, :revalidate].each do |operation|
+        error = begin
+          if operation == :authorize
+            DeploymentPolicy.authorize!(lane: :beta, repo_root: dir)
+          else
+            DeploymentPolicy.verify_current!(repo_root: dir, sha: sha)
+          end
+          nil
+        rescue DeploymentPolicy::Error => e
+          e
+        end
+        assert error, "#{operation} accepted a stale #{branch} tip because the other branch matched"
+      end
+    end
   end
 end
 
@@ -200,7 +307,7 @@ check "CI release rejects before reading the event file" do
   end
 end
 
-check "develop advancing during archive stops the lane before upload and recording" do
+check "the deployment branch advancing during archive stops the lane before upload and recording" do
   Dir.mktmpdir do |dir|
     lane, = production_lane
     sandbox = lane.class
@@ -215,7 +322,7 @@ check "develop advancing during archive stops the lane before upload and recordi
     lane.define_singleton_method(:whats_new_notes) { "Test notes" }
     lane.define_singleton_method(:build_for_appstore) { |**_| calls << :build }
     lane.define_singleton_method(:verify_deployment_target) do |sha|
-      DeploymentPolicy.current!(sha: sha, head_sha: sha, develop_sha: OTHER_SHA, dirty_count: 0)
+      DeploymentPolicy.current!(sha: sha, head_sha: sha, branch_sha: OTHER_SHA, dirty_count: 0)
     end
     lane.define_singleton_method(:upload_to_testflight) { |**_| calls << :upload }
     error = begin
