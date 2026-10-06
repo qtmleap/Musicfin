@@ -232,7 +232,7 @@ rescue DeploymentPolicy::Error => error
   UI.user_error!(error.message)
 end
 
-desc "develop へマージされた PR を GitHub CI から TestFlight に配信する"
+desc "develop または master へマージされた PR を GitHub CI から TestFlight に配信する"
 lane :beta do
   shipped_sha = authorize_deployment(:beta)
   prepare_ci_signing
@@ -270,7 +270,7 @@ lane :beta do
   TestflightNotes.record_shipped(REPO_ROOT, sha: shipped_sha, build: build, version: version)
 end
 
-desc "App Store 配信は無効。TestFlight は develop マージ時の CI beta だけで実行する"
+desc "App Store 配信は無効。TestFlight は develop または master マージ時の CI beta だけで実行する"
 lane :release do
   authorize_deployment(:release)
 end

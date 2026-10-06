@@ -1,7 +1,7 @@
 name: Deployment
 on:
   pull_request:
-    branches: [develop]
+    branches: [develop, master]
     types: [closed]
     paths-ignore:
       - fastlane/testflight/last_shipped.json
@@ -18,7 +18,8 @@ jobs:
   deploy:
     if: >-
       github.event.pull_request.merged == true &&
-      github.event.pull_request.base.ref == 'develop' &&
+      contains(fromJSON('["develop","master"]'), github.event.pull_request.base.ref) &&
+      github.ref == format('refs/heads/{0}', github.event.pull_request.base.ref) &&
       github.event.pull_request.head.repo.full_name == github.repository &&
       github.run_attempt == 1
     runs-on: macos-26
@@ -27,7 +28,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          # develop が進んでも、イベントが指すマージ対象の内容だけをビルドする。
+          # 配信先ブランチが進んでも、イベントが指すマージ対象の内容だけをビルドする。
           ref: ${{ github.event.pull_request.merge_commit_sha }}
           fetch-depth: 0
       - uses: ruby/setup-ruby@v1
