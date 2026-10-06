@@ -8,6 +8,12 @@ require "fileutils"
 require "time"
 require "stringio"
 
+# 検証用リポジトリでは呼び出し元の本人確認済み identity を優先し、CI では fixture とする。
+ENV["GIT_AUTHOR_NAME"] ||= "fixture"
+ENV["GIT_AUTHOR_EMAIL"] ||= "fixture@example.invalid"
+ENV["GIT_COMMITTER_NAME"] ||= ENV["GIT_AUTHOR_NAME"]
+ENV["GIT_COMMITTER_EMAIL"] ||= ENV["GIT_AUTHOR_EMAIL"]
+
 $failures = 0
 
 def check(name)
@@ -79,12 +85,12 @@ check "タグが無い小さなリポジトリとタグ以降の履歴を取得�
   Dir.mktmpdir do |dir|
     git = ->(*args) { system("git", "-C", dir, *args, out: File::NULL, err: File::NULL) or raise "git #{args.join(' ')}" }
     git.call("init", "-q")
-    git.call("-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "--allow-empty", "-m", "feat: 最初")
-    assert TestflightNotes.git_subjects(dir) == ["feat: 最初"], "タグなし"
+    git.call("commit", "-q", "--allow-empty", "-m", "feat: initial change")
+    assert TestflightNotes.git_subjects(dir) == ["feat: initial change"], "タグなし"
     git.call("tag", "v0.1.0")
     assert TestflightNotes.git_subjects(dir) == [], "タグ直後は空"
-    git.call("-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "--allow-empty", "-m", "fix: 次")
-    assert TestflightNotes.git_subjects(dir) == ["fix: 次"], "タグ以降だけ"
+    git.call("commit", "-q", "--allow-empty", "-m", "fix: next change")
+    assert TestflightNotes.git_subjects(dir) == ["fix: next change"], "タグ以降だけ"
   end
 end
 
@@ -104,8 +110,7 @@ def repo_git(dir, *args)
 end
 
 def commit_subject(dir, subject)
-  repo_git(dir, "-c", "user.name=t", "-c", "user.email=t@example.com",
-           "commit", "-q", "--allow-empty", "-m", subject)
+  repo_git(dir, "commit", "-q", "--allow-empty", "-m", subject)
   repo_git(dir, "rev-parse", "HEAD")
 end
 
@@ -127,11 +132,11 @@ end
 
 check "基準が無ければ直近20件だけを取り、古いfeatを混ぜない" do
   with_repo do |dir|
-    commit_subject(dir, "feat: 初期の機能")
-    (2..26).each { |i| commit_subject(dir, "chore: 変更#{i}") }
+    commit_subject(dir, "feat: initial feature")
+    (2..26).each { |i| commit_subject(dir, "chore: change #{i}") }
     subjects = TestflightNotes.git_subjects(dir)
-    assert subjects == (7..26).to_a.reverse.map { |i| "chore: 変更#{i}" }, subjects.inspect
-    assert !TestflightNotes.build(subjects).include?("初期の機能")
+    assert subjects == (7..26).to_a.reverse.map { |i| "chore: change #{i}" }, subjects.inspect
+    assert !TestflightNotes.build(subjects).include?("initial feature")
   end
 end
 
@@ -144,44 +149,44 @@ end
 
 check "配信済みSHAをタグより優先し基準の説明を返す" do
   with_repo do |dir|
-    commit_subject(dir, "feat: 初期")
+    commit_subject(dir, "feat: initial change")
     repo_git(dir, "tag", "v1.0.0")
-    sha = commit_subject(dir, "ui: 配信済み")
+    sha = commit_subject(dir, "fix(ui): shipped change")
     write_shipped_fixture(dir, { sha: sha })
-    commit_subject(dir, "fix: 未配信")
+    commit_subject(dir, "fix: unshipped change")
     subjects, basis = TestflightNotes.git_history(dir)
-    assert subjects == ["fix: 未配信"], subjects.inspect
+    assert subjects == ["fix: unshipped change"], subjects.inspect
     assert basis.include?("last_shipped.json") && basis.include?(sha), basis
   end
 end
 
 check "壊れた記録や存在しないSHAはタグへ落とす" do
   with_repo do |dir|
-    commit_subject(dir, "feat: 初期")
+    commit_subject(dir, "feat: initial change")
     repo_git(dir, "tag", "v1.0.0")
-    commit_subject(dir, "ui: タグ以降")
+    commit_subject(dir, "fix(ui): change after tag")
     blob, status = Open3.capture2e("git", "-C", dir, "hash-object", "-w", "--stdin", stdin_data: "blob")
     assert status.success?
     [nil, [], {}, { sha: "0" * 40 }, { sha: blob.strip }, { sha: "HEAD" }, { sha: 123 }].each do |value|
       write_shipped_fixture(dir, value)
       subjects, basis = TestflightNotes.git_history(dir)
-      assert subjects == ["ui: タグ以降"], subjects.inspect
+      assert subjects == ["fix(ui): change after tag"], subjects.inspect
       assert basis.include?("v1.0.0"), basis
     end
     File.write(shipped_path(dir), "{broken")
     subjects, basis = TestflightNotes.git_history(dir)
-    assert subjects == ["ui: タグ以降"]
+    assert subjects == ["fix(ui): change after tag"]
     assert basis.include?("v1.0.0"), basis
     repo_git(dir, "tag", "-d", "v1.0.0")
     subjects, basis = TestflightNotes.git_history(dir)
-    assert subjects == ["ui: タグ以降", "feat: 初期"]
+    assert subjects == ["fix(ui): change after tag", "feat: initial change"]
     assert basis.include?("20"), basis
   end
 end
 
 check "HEADまで配信済みなら過去の項目を再掲しない" do
   with_repo do |dir|
-    sha = commit_subject(dir, "feat: 配信済み")
+    sha = commit_subject(dir, "feat: shipped change")
     write_shipped_fixture(dir, { sha: sha })
     assert TestflightNotes.git_subjects(dir) == []
   end
@@ -192,7 +197,7 @@ check "汚れの件数は変更・未追跡・改名を数え、改行を含む�
     File.write(File.join(dir, "before"), "a")
     File.write(File.join(dir, "modified"), "b")
     repo_git(dir, "add", ".")
-    commit_subject(dir, "chore: 初期")
+    commit_subject(dir, "chore: initial change")
     assert TestflightNotes.dirty_count(dir) == 0
     repo_git(dir, "mv", "before", "after")
     File.write(File.join(dir, "modified"), "changed")
@@ -228,18 +233,23 @@ def fastfile_sandbox(dir)
   instance.define_singleton_method(:next_build_number) { |_| 42 }
   instance.define_singleton_method(:get_version_number) { |**_| "1.2.3" }
   instance.define_singleton_method(:build_for_appstore) { |**_| }
+  # 配信の許可判定は deployment_policy_test.rb で実 lane と独立して検証する。
+  instance.define_singleton_method(:authorize_deployment) { |_| TestflightNotes.head_sha(dir) }
+  instance.define_singleton_method(:verify_deployment_target) { |_| }
+  instance.define_singleton_method(:prepare_ci_signing) { }
+  instance.define_singleton_method(:setup_ci) { }
   [instance, events]
 end
 
 check "betaは成功後だけ配信記録を書き、アップロード中にHEADが動いても開始時のSHAを残す" do
   with_repo do |dir|
-    sha = commit_subject(dir, "ui: 今回の変更")
+    sha = commit_subject(dir, "fix(ui): current change")
     File.write(File.join(dir, "private-name"), "dirty")
     lane, events = fastfile_sandbox(dir)
     lane.define_singleton_method(:upload_to_testflight) do |**options|
       assert !File.exist?(shipped_path(dir)), "成功する前に基準が進んだ"
-      assert options[:localized_build_info]["ja"][:whats_new].include?("今回の変更")
-      commit_subject(dir, "fix: 配信処理中の別コミット")
+      assert options[:localized_build_info]["ja"][:whats_new].include?("current change")
+      commit_subject(dir, "fix: concurrent change")
     end
     before = Time.now.to_i
     lane.run(:beta)
@@ -251,17 +261,17 @@ check "betaは成功後だけ配信記録を書き、アップロード中にHEA
     assert warning.include?("未コミットの変更が 1 件あります。テスト内容はコミット件名から作るので、この変更は文面に出ません。"), warning.inspect
     assert events.none? { |_, text| text.include?("private-name") }, events.inspect
     assert events.any? { |level, text| level == :message && text.include?("20") }, events.inspect
-    assert TestflightNotes.git_subjects(dir) == ["fix: 配信処理中の別コミット"]
+    assert TestflightNotes.git_subjects(dir) == ["fix: concurrent change"]
   end
 end
 
 check "betaのビルド失敗・アップロード失敗では既存の配信記録を変更しない" do
   [:build_for_appstore, :upload_to_testflight].each do |failure|
     with_repo do |dir|
-      sha = commit_subject(dir, "feat: 前回")
+      sha = commit_subject(dir, "feat: previous change")
       write_shipped_fixture(dir, { sha: sha, build: "41", version: "1.2.3", uploaded_at: "2026-09-12T00:00:00Z" })
       original = File.binread(shipped_path(dir))
-      commit_subject(dir, "ui: 未配信")
+      commit_subject(dir, "fix(ui): unshipped change")
       lane, = fastfile_sandbox(dir)
       lane.define_singleton_method(:upload_to_testflight) { |**_| }
       lane.define_singleton_method(failure) { |**_| raise "expected failure" }
@@ -278,9 +288,9 @@ end
 
 check "previewは基準を表示するだけで配信せず記録も作らない" do
   with_repo do |dir|
-    commit_subject(dir, "ui: プレビュー")
+    commit_subject(dir, "fix(ui): preview change")
     repo_git(dir, "tag", "v1.0.0")
-    commit_subject(dir, "fix: 差分")
+    commit_subject(dir, "fix: pending change")
     lane, events = fastfile_sandbox(dir)
     lane.define_singleton_method(:asc_api_key) { raise "プレビューで認証した" }
     lane.define_singleton_method(:upload_to_testflight) { |**_| raise "プレビューで配信した" }
@@ -288,7 +298,7 @@ check "previewは基準を表示するだけで配信せず記録も作らない
     begin
       $stdout = StringIO.new
       lane.run(:preview_whats_new)
-      assert $stdout.string.include?("- 修正: 差分")
+      assert $stdout.string.include?("- 修正: pending change")
     ensure
       $stdout = previous
     end

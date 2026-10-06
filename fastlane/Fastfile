@@ -11,6 +11,7 @@ require "fileutils"
 require "tmpdir"
 require_relative "lib/testflight_notes"
 require_relative "lib/tester_notification"
+require_relative "lib/deployment_policy"
 
 opt_out_usage
 
@@ -210,8 +211,33 @@ def whats_new_notes
   TestflightNotes.build(subjects)
 end
 
-desc "TestFlight へアップロードする"
+def authorize_deployment(lane)
+  DeploymentPolicy.authorize!(lane: lane, repo_root: REPO_ROOT)
+rescue DeploymentPolicy::Error => error
+  UI.user_error!(error.message)
+end
+
+def verify_deployment_target(sha)
+  DeploymentPolicy.verify_current!(repo_root: REPO_ROOT, sha: sha)
+rescue DeploymentPolicy::Error => error
+  UI.user_error!(error.message)
+end
+
+def prepare_ci_signing
+  DeploymentPolicy.signing_environment!(env: ENV)
+  # 元の token と異なる base64 も、match の詳細ログに出る前に Actions へ登録する。
+  authorization = ENV["MATCH_GIT_BASIC_AUTHORIZATION"]
+  puts "::add-mask::#{authorization}" if authorization
+rescue DeploymentPolicy::Error => error
+  UI.user_error!(error.message)
+end
+
+desc "develop へマージされた PR を GitHub CI から TestFlight に配信する"
 lane :beta do
+  shipped_sha = authorize_deployment(:beta)
+  prepare_ci_signing
+  # ホストのログイン keychain に依存せず、CI 内の署名に必要な鍵だけを import する。
+  setup_ci
   count = TestflightNotes.dirty_count(REPO_ROOT)
   if count.nil?
     UI.important("作業ツリーの変更件数を取得できませんでした。")
@@ -219,8 +245,6 @@ lane :beta do
     UI.important("未コミットの変更が #{count} 件あります。テスト内容はコミット件名から作るので、この変更は文面に出ません。")
   end
 
-  # ビルドとアップロードを待つ間に HEAD が動いても、次回の基準を先へ進めない。
-  shipped_sha = TestflightNotes.head_sha(REPO_ROOT)
   version = get_version_number(xcodeproj: XCODEPROJ, target: SCHEME)
   api_key = asc_api_key
   build = next_build_number(api_key)
@@ -230,6 +254,7 @@ lane :beta do
   UI.message("テスト内容:\n#{notes}")
 
   build_for_appstore(api_key: api_key, build_number: build)
+  verify_deployment_target(shipped_sha)
 
   # localized_build_info は ASC の処理が終わらないと書き込めないので、ここだけ待つ。
   # skip_submission は維持したままなので、外部テスターへの配信は始まらない。
@@ -245,31 +270,9 @@ lane :beta do
   TestflightNotes.record_shipped(REPO_ROOT, sha: shipped_sha, build: build, version: version)
 end
 
-desc "App Store へアップロードする。審査提出は SUBMIT=1 のときだけ"
+desc "App Store 配信は無効。TestFlight は develop マージ時の CI beta だけで実行する"
 lane :release do
-  api_key = asc_api_key
-  build = next_build_number(api_key)
-  submit = ENV["SUBMIT"] == "1"
-
-  build_for_appstore(api_key: api_key, build_number: build)
-
-  # 暗号化申告は Info.plist の ITSAppUsesNonExemptEncryption = false と揃える
-  upload_to_app_store(
-    api_key: api_key,
-    app_identifier: APP_IDENTIFIER,
-    submit_for_review: submit,
-    automatic_release: false,
-    force: true,
-    skip_screenshots: true,
-    skip_metadata: true,
-    precheck_include_in_app_purchases: false,
-    submission_information: {
-      add_id_info_uses_idfa: false,
-      export_compliance_uses_encryption: false
-    }
-  )
-
-  UI.important("審査提出はスキップした。提出するなら SUBMIT=1 fastlane release") unless submit
+  authorize_deployment(:release)
 end
 
 desc "ビルドせずに metadata (説明文・キーワード・リリースノート等) だけ App Store Connect へ送る"
