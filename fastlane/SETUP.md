@@ -249,6 +249,19 @@ ruby fastlane/test/testflight_notes_test.rb
 
 ## CI（GitHub Actions）
 
+配信・検証はすべて self-hosted runner を使う。
+macOS ジョブは `[self-hosted, macOS, ARM64, macos-26]` で Mac Studio のオンデマンド VM
+（macOS 26 / Xcode 26.5）へ、Linux ジョブは `[self-hosted, Linux, X64, ubuntu-latest, docker]`
+で既存の RTX runner へ送る。配信 lane も `RUNNER_ENVIRONMENT=self-hosted` を検証する。
+VM の Ruby 3.4.10 と Bundler 4.0.16 を使い、Gem はジョブの一時ディレクトリへ置く。
+Linux の Fastlane helper テストは `ruby:3.3-bookworm` コンテナで実行する。
+
+Mac Studio runner group は、既存 private リポジトリと Musicfin を selected に登録し、
+公開リポジトリは Musicfin だけを許可する。新しい private リポジトリを利用する際も追加登録が必要。
+外部 contributor の fork PR は GitHub 側で毎回承認を必須にする。ワークフローの条件でも fork を除外するが、
+PR で条件自体を変更できるため、`.github/` や `scripts/` を変更する外部 PR の実行は承認しない。
+fork PR の検証は、変更内容を確認して同じリポジトリのブランチへ取り込んだ後に行う。
+
 `.github/workflows/deployment.yaml` は `develop` または `master` 宛て PR の `closed` イベントで、
 同じリポジトリからの PR がマージ済みの場合だけ `beta` を呼ぶ。
 マージコミットまたは squash merge を使う。`merge_commit_sha` を指定して履歴全体を取得し、
@@ -306,6 +319,8 @@ deploy key は Musicfin CI 専用にし、GitHub 側の書き込み権限を有�
 組織の方針で deploy key が禁止されている場合は token を選ぶ。
 
 配信ガードを通過した後だけ `setup_ci` が CI 専用の一時 keychain を用意する。
+ジョブごとに VM を破棄するため、親 Mac のログイン認証や keychain は引き継がない。
+署名リポジトリの token / key も `testflight` Environment から渡す。
 署名リポジトリの match は常に `readonly: true` のまま使用する。
 
 ## 審査に出す前に必要なもの

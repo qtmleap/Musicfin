@@ -107,6 +107,7 @@ def allowed_fixture(branch = "develop")
     lane: :beta,
     env: {
       "GITHUB_ACTIONS" => "true",
+      "RUNNER_ENVIRONMENT" => "self-hosted",
       "GITHUB_EVENT_NAME" => "pull_request",
       "GITHUB_REPOSITORY" => "qtmleap/Musicfin",
       "GITHUB_REF" => "refs/heads/#{branch}",
@@ -139,6 +140,8 @@ end
 end
 
 cases = {
+  "hosted runner" => ->(f) { f[:env]["RUNNER_ENVIRONMENT"] = "github-hosted" },
+  "unknown runner" => ->(f) { f[:env]["RUNNER_ENVIRONMENT"] = nil },
   "local execution" => ->(f) { f[:env]["GITHUB_ACTIONS"] = nil },
   "manual dispatch" => ->(f) { f[:env]["GITHUB_EVENT_NAME"] = "workflow_dispatch" },
   "direct branch push" => ->(f) { f[:env]["GITHUB_EVENT_NAME"] = "push" },

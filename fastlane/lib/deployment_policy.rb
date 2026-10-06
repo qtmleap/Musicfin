@@ -39,6 +39,9 @@ module DeploymentPolicy
     unless env["GITHUB_ACTIONS"] == "true" && env["GITHUB_EVENT_NAME"] == "pull_request"
       raise Error, "配信は develop または master マージ時の GitHub CI だけで実行できます。"
     end
+    unless env["RUNNER_ENVIRONMENT"] == "self-hosted"
+      raise Error, "配信は self-hosted runner の CI だけで実行できます。"
+    end
     branch = env["GITHUB_REF"].to_s.delete_prefix("refs/heads/")
     unless env["GITHUB_REPOSITORY"] == REPOSITORY && BRANCHES.include?(branch) &&
            env["GITHUB_REF"] == "refs/heads/#{branch}" &&
