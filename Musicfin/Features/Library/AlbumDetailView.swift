@@ -91,6 +91,7 @@ struct AlbumDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { toolbarContent(palette: palette) }
         .task { await load() }
+        .prefetchArtwork(isPlaylist ? tracks : [], size: Self.playlistArtworkSize)
     }
 
     // MARK: - ヘッダー
@@ -151,6 +152,8 @@ struct AlbumDetailView: View {
                     .frame(maxWidth: .infinity, minHeight: 48)
                     .background(.white.opacity(0.14), in: .capsule)
             }
+            // 再生側と同じく識別子を持たせ、UI テストから 2 つのカプセルを対で掴めるようにする。
+            .accessibilityIdentifier("album.shuffle")
         }
         .font(.headline)
         .foregroundStyle(.tint)
