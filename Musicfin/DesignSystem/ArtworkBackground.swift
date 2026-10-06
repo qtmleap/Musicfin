@@ -371,6 +371,18 @@ struct ArtworkBackdrop<Content: View>: View {
     @Environment(AuthStore.self) private var auth
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var palette: ArtworkPalette
+    @State private var didFail = false
+    @State private var retryGeneration = 0
+    @Environment(\.scenePhase) private var scenePhase
+
+    private var request: ArtworkRequest? {
+        ArtworkRequest(item: item, client: auth.client, size: artworkSize)
+    }
+
+    private struct LoadKey: Equatable {
+        let request: ArtworkRequest?
+        let retry: Int
+    }
 
     init(
         item: MediaItem?,
@@ -390,18 +402,30 @@ struct ArtworkBackdrop<Content: View>: View {
         content(palette)
             .modifier(ArtworkBackgroundModifier(stops: palette.stops, band: band))
             // 同じ作品のまま画面の状態だけが変わったときは取り出し直さない（仕様 1.2 章）。
-            .task(id: item?.id) { await load() }
+            .task(id: LoadKey(request: request, retry: retryGeneration)) { await load() }
+            .onChange(of: scenePhase) { _, phase in
+                if phase == .active, didFail { retryGeneration += 1 }
+            }
     }
 
     private func load() async {
-        guard let item, let client = auth.client,
-            let url = client.artworkURL(for: item, maxSize: Int(artworkSize)),
-            let image = await ArtworkLoader.shared.image(for: url)?.cgImage
-        else { return }
+        didFail = false
+        guard let request else { return }
+        let result = await ArtworkLoader.shared.image(for: request)
+        guard !Task.isCancelled, self.request == request else { return }
+        let image: CGImage
+        switch result {
+        case .success(let loaded):
+            guard let decoded = loaded.cgImage else { return }
+            image = decoded
+        case .failure(let failure):
+            didFail = failure.isRetryable
+            return
+        }
 
         let extracted = await ArtworkPalette.extract(from: image, band: band)
         // await の間に別の作品へ移っていることがあるので、突き合わせてから反映する（仕様 1.2 章）。
-        guard !Task.isCancelled, item.id == self.item?.id else { return }
+        guard !Task.isCancelled, self.request == request else { return }
         // 前景が反転するときは背景も動かさず、両方まとめて差し替える。
         // 文字色だけ先に白へ返すと、まだ明るいままの背景の上に白い文字が 0.35 秒乗って読めなくなる。
         // 前景が変わらないとき（同系色の曲送りなど）だけ、背景を 0.35 秒かけて送る。

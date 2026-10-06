@@ -183,7 +183,9 @@ struct RootView: View {
                 homeNavigation
             }
             Tab("新着", systemImage: "square.grid.2x2", value: .new) {
-                NavigationStack { AlbumGridView(title: String(localized: "新着"), albums: library.recentlyAdded) }
+                NavigationStack {
+                    AlbumGridView(title: String(localized: "新着"), albums: library.recentlyAdded, isTabRoot: true)
+                }
             }
             Tab("ラジオ", systemImage: "dot.radiowaves.left.and.right", value: .radio) {
                 NavigationStack { RadioView() }
@@ -195,8 +197,6 @@ struct RootView: View {
                 searchNavigation
             }
         }
-        // 検索タブの入力欄はタブバーの位置に出し、画面名とタイルを押し下げない（仕様 1 章）。
-        .searchable(text: $searchQuery, prompt: "アーティスト、曲、歌詞など")
         .tabBarMinimizeBehavior(.onScrollDown)
         .tabViewBottomAccessory {
             if showsMiniPlayer {
@@ -347,10 +347,10 @@ struct RootView: View {
     /// 参照どおりの行送りに戻すぶんだけ詰める。`Section("…")` の簡易形では触れない。
     private func padSidebarSectionHeader(_ title: LocalizedStringKey) -> some View {
         Text(title)
-            // 標準 Section の開閉領域を指で押せる高さに保ち、文字の上下も操作できるようにする。
+            .padding(.bottom, -1.5)
+            // 余白を詰めた後に下限を設け、標準 Section の開閉領域を 44 pt 以上に保つ。
             .frame(maxWidth: .infinity, minHeight: PadShell.sidebarRowHeight, alignment: .leading)
             .contentShape(Rectangle())
-            .padding(.bottom, -1.5)
     }
 
     /// `accentsIcon` は基準画像で記号だけ pink に塗られている行。文字は選ばれるまで白のままなので、
@@ -463,6 +463,7 @@ struct RootView: View {
             )
             .contentShape(.rect)
             .tag(destination)
+            .background { PadSidebarFocusStyle() }
             .listRowInsets(
                 EdgeInsets(
                     top: 0, leading: PadShell.sidebarRowInset, bottom: 0,
@@ -518,7 +519,7 @@ struct RootView: View {
     /// 1 列のタブ shell を使うか。iPhone は従来どおり常にこちら。iPad も Split View や Slide Over で
     /// 窓が狭くなると板 + detail の 2 列は成り立たないので、幅で 1 列へ落とす（仕様 6 章の末尾）。
     /// `NavigationSplitView` の折り畳みには頼らない。折り畳んだ detail は各行が自分の
-    /// `NavigationStack` を持つうえ、ホームは bar を隠すので、戻る導線が 1 つも出ず板へ帰れなくなる。
+    /// `NavigationStack` を持つため、折り畳み時の板へ戻る導線を detail の経路と混在させない。
     private var usesTabShell: Bool { isPhonePlayer || horizontalSizeClass == .compact }
 
     @ViewBuilder
@@ -530,7 +531,7 @@ struct RootView: View {
             searchNavigation
         case .new:
             NavigationStack(path: $libraryPath) {
-                AlbumGridView(title: String(localized: "新着"), albums: library.recentlyAdded)
+                AlbumGridView(title: String(localized: "新着"), albums: library.recentlyAdded, isTabRoot: true)
             }
         case .radio:
             NavigationStack(path: $libraryPath) { RadioView() }
@@ -543,7 +544,7 @@ struct RootView: View {
             padUnavailableDetail(.pins)
         case .recentlyAdded:
             NavigationStack(path: $libraryPath) {
-                AlbumGridView(title: String(localized: "最近追加した項目"), albums: library.recentlyAdded)
+                AlbumGridView(title: String(localized: "最近追加した項目"), feed: .recentlyAdded)
             }
         case .albums:
             NavigationStack(path: $libraryPath) {
@@ -593,7 +594,11 @@ struct RootView: View {
     @ViewBuilder
     private var searchNavigation: some View {
         if usesTabShell {
-            NavigationStack(path: $searchPath) { SearchView(query: $searchQuery) }
+            NavigationStack(path: $searchPath) {
+                SearchView(query: $searchQuery)
+                    // 検索を TabView 全体に付けると、他のタブにも drawer とその空間が残る。
+                    .searchable(text: $searchQuery, prompt: "アーティスト、曲、歌詞など")
+            }
         } else {
             // iPad の automatic placement は split detail で検索欄を toolbar から完全に隠すため、
             // Search root だけ常時見える drawer に固定する。iPhone の search tab 配置は変えない。

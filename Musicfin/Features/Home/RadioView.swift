@@ -5,35 +5,40 @@ struct RadioView: View {
     @Environment(AuthStore.self) private var auth
     @Environment(LibraryStore.self) private var library
     @Environment(PlaybackEngine.self) private var player
-    @State private var mix: [MediaItem] = []
-    @State private var isLoading = true
-    @State private var errorMessage: String?
+    @State private var catalog = RadioMixCatalog()
+    private var mix: [MediaItem] { catalog.items }
 
     var body: some View {
         Group {
-            if isLoading {
+            if catalog.isLoading, mix.isEmpty {
                 ProgressView("ステーションを作成中…")
                     .accessibilityIdentifier("radio.loading")
-            } else if let errorMessage {
+            } else if let errorMessage = catalog.errorMessage, mix.isEmpty {
                 LoadErrorView(message: errorMessage) { await refresh() }
                     .accessibilityIdentifier("radio.error")
             } else if mix.isEmpty {
-                ContentUnavailableView(
-                    "再生できるステーションがありません",
-                    systemImage: "dot.radiowaves.left.and.right",
-                    description: Text("ライブラリに音楽を追加すると、ステーションを作成できます。")
-                )
-                .accessibilityIdentifier("radio.empty")
+                VStack {
+                    ContentUnavailableView(
+                        "再生できるステーションがありません",
+                        systemImage: "dot.radiowaves.left.and.right",
+                        description: Text("ライブラリに音楽を追加すると、ステーションを作成できます。")
+                    )
+                    .accessibilityIdentifier("radio.empty")
+                    if catalog.needsManualContinuation { continuation }
+                }
             } else {
-                List(Array(mix.enumerated()), id: \.element.id) { index, track in
-                    Button {
-                        player.play(items: mix, startingAt: index)
-                    } label: {
-                        TrackRow(track: track, showsArtwork: true, artworkSize: 48)
+                List {
+                    ForEach(Array(mix.enumerated()), id: \.element.id) { index, track in
+                        Button {
+                            player.play(items: mix, startingAt: index)
+                        } label: {
+                            TrackRow(track: track, showsArtwork: true, artworkSize: 48)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("radio.track.\(track.id)")
+                        .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 4, trailing: 20))
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityIdentifier("radio.track.\(track.id)")
-                    .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 4, trailing: 20))
+                    continuation
                 }
                 .listStyle(.plain)
                 .scrollContentBackground(.hidden)
@@ -41,9 +46,12 @@ struct RadioView: View {
             }
         }
         .background(AppBackdrop())
-        .navigationTitle("ラジオ")
-        .navigationBarTitleDisplayMode(.large)
-        .task { await loadHomeAndMix() }
+        .tabNavigationTitle(Text("ラジオ"))
+        .task(id: auth.client) {
+            catalog.reset()
+            await loadHomeAndMix()
+        }
+        .prefetchArtwork(mix, size: 48)
     }
 
     private func loadHomeAndMix() async {
@@ -52,35 +60,35 @@ struct RadioView: View {
     }
 
     private func refresh() async {
+        catalog.reset()
         await library.loadHome(force: true)
         await load()
     }
 
-    private func load() async {
-        isLoading = true
-        errorMessage = nil
-        defer { isLoading = false }
-
-        // 再生実績を優先し、履歴が無い場合だけ実在するライブラリ項目へフォールバックする。
-        guard
-            let seed = library.frequentlyPlayed.first ?? library.recentlyPlayedAlbums.first
-                ?? library.recentlyAdded.first
-        else {
-            mix = []
-            return
-        }
-        guard let client = auth.client else {
-            mix = []
-            return
-        }
-        do {
-            mix = try await client.fetchInstantMix(from: seed.id, limit: 30)
-                .filter { $0.type == .audio }
-        } catch {
-            mix = []
-            errorMessage = error.localizedDescription
+    @ViewBuilder
+    private var continuation: some View {
+        if let message = catalog.errorMessage {
+            LoadErrorView(message: message) { await load() }
+        } else if catalog.needsManualContinuation {
+            Button("さらに読み込む") { Task { await load() } }
+        } else if !catalog.isComplete {
+            PaginationLoader(revision: mix.count, isLoading: { catalog.isLoading }, load: { await load() })
         }
     }
+
+    private func load() async {
+        guard let client = auth.client, let userID = client.userID else { return }
+        await catalog.loadNext(
+            preferredSeed: library.frequentlyPlayed.first ?? library.recentlyPlayedAlbums.first
+                ?? library.recentlyAdded.first,
+            fetchSeeds: { offset in
+                try await client.get(
+                    "/Items", query: LibraryFeed.recentlyAdded.query(userID: userID, startIndex: offset))
+            },
+            fetchMix: { try await client.fetchInstantMix(from: $0, limit: 30) }
+        )
+    }
+
 }
 
 #Preview {

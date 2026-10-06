@@ -8,6 +8,9 @@ final class AlbumCatalog {
     private(set) var isLoading = false
     private(set) var isComplete = false
     private(set) var errorMessage: String?
+    private(set) var revision = 0
+    private(set) var needsManualContinuation = false
+    private var duplicatePages = 0
     private var nextIndex = 0
 
     var genres: [String] {
@@ -50,9 +53,14 @@ final class AlbumCatalog {
             if reset {
                 items = []
                 nextIndex = 0
+                duplicatePages = 0
             }
             var known = Set(items.map(\.id))
-            items.append(contentsOf: page.items.filter { known.insert($0.id).inserted })
+            let unique = page.items.filter { known.insert($0.id).inserted }
+            items.append(contentsOf: unique)
+            duplicatePages = unique.isEmpty && !page.items.isEmpty ? duplicatePages + 1 : 0
+            needsManualContinuation = duplicatePages >= 3
+            revision += 1
             // 重複を除いた表示件数ではなく、サーバーから受け取った件数で次の位置を決める。
             nextIndex += page.items.count
             isComplete = nextIndex >= page.totalRecordCount || page.items.isEmpty

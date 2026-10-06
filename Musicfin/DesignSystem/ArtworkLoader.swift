@@ -1,62 +1,44 @@
 import Foundation
 import UIKit
 
-/// アートワークのメモリ＋ディスクキャッシュ。同じ URL への同時リクエストは 1 本にまとめる。
+/// 表示する画像だけを復号してメモリへ置き、画面外の先読みは圧縮データのままディスクへ残す。
 actor ArtworkLoader {
     static let shared = ArtworkLoader()
 
-    private let cache: NSCache<NSURL, UIImage> = {
-        let cache = NSCache<NSURL, UIImage>()
+    private let cache: NSCache<NSString, UIImage> = {
+        let cache = NSCache<NSString, UIImage>()
         cache.countLimit = 300
         cache.totalCostLimit = 128 * 1024 * 1024
         return cache
     }()
+    private var inFlight: [String: Task<Result<UIImage, ArtworkFailure>, Never>] = [:]
 
-    /// 進行中のダウンロード。重複リクエストはこれを await して結果を共有する。
-    private var inFlight: [URL: Task<UIImage?, Never>] = [:]
-
-    private let session: URLSession = {
-        let config = URLSessionConfiguration.default
-        config.requestCachePolicy = .useProtocolCachePolicy
-        config.urlCache = URLCache(
-            memoryCapacity: 32 * 1024 * 1024,
-            diskCapacity: 512 * 1024 * 1024,
-            diskPath: "musicfin-artwork"
-        )
-        return URLSession(configuration: config)
-    }()
-
+    /// 既存の URL だけの呼び出しは匿名の範囲で保持し、表示側の認証を引き継がない。
     func image(for url: URL) async -> UIImage? {
-        if let cached = cache.object(forKey: url as NSURL) { return cached }
-        if let existing = inFlight[url] { return await existing.value }
-
-        let task = Task<UIImage?, Never> { [session] in
-            var request = URLRequest(url: url)
-            // まずディスクキャッシュを見て、無ければネットワークへ。
-            request.cachePolicy = .returnCacheDataDontLoad
-            if let cached = try? await session.data(for: request), let image = UIImage(data: cached.0) {
-                return image
-            }
-            request.cachePolicy = .useProtocolCachePolicy
-            guard let (data, _) = try? await session.data(for: request) else { return nil }
-            return UIImage(data: data)
-        }
-
-        inFlight[url] = task
-        let image = await task.value
-        inFlight[url] = nil
-        if let image {
-            cache.setObject(image, forKey: url as NSURL, cost: image.estimatedBytes)
-        }
-        return image
+        try? await image(for: ArtworkRequest(url: url)).get()
     }
-}
-nonisolated
 
-    extension UIImage
-{
-    fileprivate var estimatedBytes: Int {
-        guard let cgImage else { return 1 }
-        return cgImage.bytesPerRow * cgImage.height
+    func image(for request: ArtworkRequest) async -> Result<UIImage, ArtworkFailure> {
+        let key = request.storageKey
+        if let image = cache.object(forKey: key as NSString) { return .success(image) }
+        if let existing = inFlight[key] { return await existing.value }
+        let task = Task<Result<UIImage, ArtworkFailure>, Never> {
+            switch await ArtworkDataStore.shared.data(for: request) {
+            case .failure(let failure):
+                return .failure(failure)
+            case .success(let bytes):
+                guard let decoded = ArtworkImageDecoder.decode(bytes) else { return .failure(.invalidImage) }
+                // 表示時の遅延復号を避け、メインスレッドには描ける画像を渡す。
+                return .success(UIImage(cgImage: decoded))
+            }
+        }
+        inFlight[key] = task
+        let result = await task.value
+        inFlight[key] = nil
+        if case .success(let image) = result {
+            let cost = image.cgImage.map { $0.bytesPerRow * $0.height } ?? 1
+            cache.setObject(image, forKey: key as NSString, cost: cost)
+        }
+        return result
     }
 }

@@ -3,7 +3,7 @@ import MediaPlayer
 import SwiftUI
 import UIKit
 
-/// フルプレイヤー。`.large` 固定の sheet に `docs/ui-spec.md` 4 章の高さ配分で並べる。
+/// フルプレイヤー。狭い幅は 4 章の縦積み、広い幅は 6 章の独立した再生列と本文へ並べる。
 /// ログイン・設定と同じ背景を保ち、再生操作の主従は塗りではなくグリフの大きさで示す。
 struct NowPlayingView: View {
     private enum ContentMode { case artwork, lyrics, queue }
@@ -82,36 +82,205 @@ struct NowPlayingView: View {
     /// **地は不透明のまま**にする。半透明にすると sheet の下のアルバム詳細が本文に重なって読めなくなる。
     var body: some View {
         GeometryReader { geometry in
-            // 背景と前景が同じ操作帯の距離を使えるよう、配分は背景を敷く手前で一度だけ決める。
-            let artworkSide = geometry.size.width - 48
-            let layout = PlayerLayout(
-                height: geometry.size.height,
-                artworkMedia: Self.mediaHeight(forArtworkSide: artworkSide),
-                titleMinimum: minimumTitleHeight,
-                seekMinimum: minimumSeekHeight
-            )
-            let controlsInset = layout.controlsHeight + geometry.safeAreaInsets.bottom
             ArtworkBackdrop(item: player.currentItem, band: .player, artworkSize: Self.paletteArtworkSize) { palette in
-                ControlsTransition(
-                    // モード自体の 0.35 秒ではなく、この状態を変えた 0.4 秒の transaction だけで帯を動かす。
-                    progress: lyricsControlsHidden ? 0 : 1,
-                    controlsInset: controlsInset,
-                    safeAreaInset: geometry.safeAreaInsets.bottom
-                ) { progress, detailExtra, controlsOffset in
-                    content(
-                        palette: palette,
-                        artworkSide: artworkSide,
-                        layout: layout,
-                        controlsInset: controlsInset,
-                        controlsProgress: progress,
-                        detailExtra: detailExtra,
-                        controlsOffset: controlsOffset
+                if geometry.size.width >= 900 {
+                    wideContent(palette: palette, size: geometry.size)
+                } else {
+                    let artworkSide = geometry.size.width - 48
+                    let layout = PlayerLayout(
+                        height: geometry.size.height,
+                        artworkMedia: Self.mediaHeight(forArtworkSide: artworkSide),
+                        titleMinimum: minimumTitleHeight,
+                        seekMinimum: minimumSeekHeight
                     )
+                    let controlsInset = layout.controlsHeight + geometry.safeAreaInsets.bottom
+                    ControlsTransition(
+                        progress: lyricsControlsHidden ? 0 : 1,
+                        controlsInset: controlsInset,
+                        safeAreaInset: geometry.safeAreaInsets.bottom
+                    ) { progress, detailExtra, controlsOffset in
+                        content(
+                            palette: palette,
+                            artworkSide: artworkSide,
+                            layout: layout,
+                            controlsInset: controlsInset,
+                            controlsProgress: progress,
+                            detailExtra: detailExtra,
+                            controlsOffset: controlsOffset
+                        )
+                    }
                 }
             }
         }
-        // iPad の fitted sheet が理想寸法を読めるよう、寸法指定はルートの読み取り器より外へ置く（6 章）。
-        .frame(idealWidth: 560, maxWidth: .infinity, idealHeight: 800)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .overlay(alignment: .top) {
+            if UIDevice.current.userInterfaceIdiom == .pad { dismissalHeader }
+        }
+        // 地が常に暗い帯になったので、明るい外観の端末でも文字と記号は白のままにする（仕様 1.2 章）。
+        // 個々の `.primary` / `.secondary` を白に置き換えて回らないのは、選択中の記号が地の色へ
+        // 反転する `modeButton` のように、白の指定だけでは足りない組みがあるため。
+        .environment(\.colorScheme, .dark)
+        // sheet はタブの tint を引き継がないので、ここで改めてピンクに揃える。
+        .tint(.pink)
+        // 閉じるボタンは置かない方針（仕様 4 章）なので、下スワイプの届かない VoiceOver へ
+        // エスケープ操作だけは自前で用意する（仕様 4.1 章）。
+        .accessibilityAction(.escape) { close() }
+        // 再生位置が目標へ追いついたら、表示の優先を再生側へ返す。
+        .onChange(of: player.currentTime) { _, time in
+            guard let pending = pendingSeekTime, abs(time - pending) <= Self.seekSettleTolerance else { return }
+            pendingSeekTime = nil
+        }
+        // 着地しなかったときの保険。これが無いと、追いつきを待ち続けて表示が止まったままになる。
+        .task(id: pendingSeekTime) {
+            guard pendingSeekTime != nil else { return }
+            try? await Task.sleep(for: Self.seekSettleTimeout)
+            guard !Task.isCancelled else { return }
+            pendingSeekTime = nil
+        }
+        .task(id: player.currentItem?.id) {
+            isScrubbing = false
+            // 曲が替わると目標は意味を失う。持ち越すと新しい曲の先頭で古い位置を表示してしまう。
+            pendingSeekTime = nil
+            favoriteTrack = player.currentItem
+            guard let id = player.currentItem?.id, let client = auth.client else { return }
+            if let item = try? await client.fetchItem(id: id), !Task.isCancelled {
+                favoriteTrack = item
+            }
+        }
+    }
+
+    /// 横長では操作列を 520 pt に保ち、本文に場所を譲ってもシーク以降の縦位置は動かさない。
+    /// 子を差し替えず列全体の位置と画像の寸法だけを変えるため、切り替え中も操作と画像の identity が続く。
+    private func wideContent(palette: ArtworkPalette, size: CGSize) -> some View {
+        let margin = max(32, size.width * 0.049)
+        let columnWidth = min(536, (size.width - margin * 3) * 0.46)
+        let columnLeading = mode == .artwork ? (size.width - columnWidth) / 2 : margin - 8
+        let detailLeading = margin + columnWidth + 42
+        // 横長の帯は iPhone の再配分から独立させ、参照で測った操作列の間隔を保つ。
+        let seekHeight = max(minimumSeekHeight, 64.4)
+        let volumeHeight: CGFloat = 54.6
+        let controlsHeight = seekHeight + 80 + volumeHeight
+        // 文字拡大時は外側を送れば全操作へ届き、通常時は 1366×1024 pt の参照位置を保つ。
+        let height = max(size.height, minimumTitleHeight + controlsHeight + 420)
+        let controlsTop = height - controlsHeight - 81
+        let bigSide = min(columnWidth - 16, max(180, controlsTop - minimumTitleHeight - 80))
+        let artworkSide = mode == .artwork && player.currentItem != nil ? bigSide : min(380, bigSide)
+        let titleTop = controlsTop - minimumTitleHeight + 16
+        // 文字拡大や低い窓では曲情報が上へ広がるため、画像の下端との間に必ず 16 pt を残す。
+        // 画像の一辺はその上の空きから決めてあるので、中心を上げても画像上端は表示領域内に収まる。
+        let artworkCenterY = min(height * 0.357, titleTop - 16 - artworkSide / 2)
+
+        return ScrollView {
+            ZStack(alignment: .topLeading) {
+                Color.clear
+                    .overlay {
+                        switch mode {
+                        case .artwork:
+                            EmptyView()
+                        case .lyrics:
+                            if let track = player.currentItem {
+                                // 右列は最初から全高を使えるため、歌詞を送っても左列の操作を隠さない。
+                                LyricsView(
+                                    track: track, isSettled: !isTopTransitioning,
+                                    isSeeking: isScrubbing || pendingSeekTime != nil
+                                )
+                                .id(track.id)
+                            }
+                        case .queue:
+                            QueueView(showsPlaybackModes: false)
+                        }
+                    }
+                    .frame(width: size.width - detailLeading - margin + 8, height: height - 116)
+                    .position(x: (detailLeading + size.width - margin + 8) / 2, y: (height - 116) / 2 + 40)
+                    .allowsHitTesting(mode != .artwork)
+
+                ZStack(alignment: .topLeading) {
+                    artworkSlot(bigSide: bigSide, pausedScale: player.currentItem == nil ? 1 : min(1, 380 / bigSide))
+                        .frame(width: artworkSide, height: artworkSide)
+                        .position(x: columnWidth / 2, y: artworkCenterY)
+                    HStack(spacing: 12) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            songTitle(compact: false)
+                            songArtist(compact: false)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        favoriteButton
+                    }
+                    .padding(.horizontal, 8)
+                    .frame(width: columnWidth, height: minimumTitleHeight)
+                    .position(x: columnWidth / 2, y: controlsTop - minimumTitleHeight / 2 + 16)
+                    VStack(spacing: 0) {
+                        seekControls.frame(height: seekHeight)
+                        wideTransport.frame(height: 80)
+                        volumeRow.frame(height: volumeHeight, alignment: .bottom)
+                    }
+                    .frame(width: columnWidth, height: controlsHeight)
+                    .position(x: columnWidth / 2, y: controlsTop + controlsHeight / 2)
+                }
+                .frame(width: columnWidth, height: height)
+                .offset(x: columnLeading)
+            }
+            .frame(width: size.width, height: height)
+        }
+        .scrollBounceBehavior(.basedOnSize)
+        .scrollIndicators(.hidden)
+        .overlay(alignment: .bottom) { wideBottomControls(palette: palette) }
+    }
+
+    private var dismissalHeader: some View {
+        Color.clear
+            .frame(height: 44)
+            .contentShape(.rect)
+            .overlay(alignment: .top) { grabber }
+            // cover の上端だけに閉じる操作を持たせ、歌詞の縦送りやシークとは競合させない。
+            .gesture(
+                DragGesture(minimumDistance: 12)
+                    .onEnded { value in
+                        if value.translation.height > 60,
+                            value.translation.height > abs(value.translation.width)
+                        {
+                            close()
+                        }
+                    }
+            )
+            .accessibilityHidden(true)
+    }
+
+    private var wideTransport: some View {
+        HStack(spacing: 0) {
+            Button {
+                player.toggleShuffle()
+            } label: {
+                Image(systemName: "shuffle").frame(width: 44, height: 44)
+            }
+            .accessibilityLabel("シャッフル")
+            .accessibilityAddTraits(player.isShuffled ? .isSelected : [])
+            .foregroundStyle(player.isShuffled ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+            transport
+            Button {
+                player.cycleRepeatMode()
+            } label: {
+                Image(systemName: player.repeatMode.systemImage).frame(width: 44, height: 44)
+            }
+            .accessibilityLabel("リピート")
+            .accessibilityAddTraits(player.repeatMode != .off ? .isSelected : [])
+            .foregroundStyle(player.repeatMode != .off ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+        }
+        .buttonStyle(.plain)
+        .disabled(player.currentItem == nil)
+    }
+
+    private func wideBottomControls(palette: ArtworkPalette) -> some View {
+        HStack(spacing: 34) {
+            AudioRouteView()
+                .frame(width: 44, height: 44)
+                .accessibilityLabel("出力先")
+            Spacer()
+            modeButton(.lyrics, symbol: "quote.bubble", label: "歌詞", palette: palette)
+            modeButton(.queue, symbol: "list.bullet", label: "次に再生", palette: palette)
+        }
+        .padding(.leading, 56)
+        .padding(.trailing, 50)
     }
 
     private func content(
@@ -174,37 +343,8 @@ struct NowPlayingView: View {
         // **`.scrollDisabled(true)` は付けない。**内側の歌詞・キューの本文まで無効化が伝わる。
         .scrollBounceBehavior(.basedOnSize)
         .scrollIndicators(.hidden)
-        .overlay(alignment: .top) { grabber }
-        // 地が常に暗い帯になったので、明るい外観の端末でも文字と記号は白のままにする（仕様 1.2 章）。
-        // 個々の `.primary` / `.secondary` を白に置き換えて回らないのは、選択中の記号が地の色へ
-        // 反転する `modeButton` のように、白の指定だけでは足りない組みがあるため。
-        .environment(\.colorScheme, .dark)
-        // sheet はタブの tint を引き継がないので、ここで改めてピンクに揃える。
-        .tint(.pink)
-        // 閉じるボタンは置かない方針（仕様 4 章）なので、下スワイプの届かない VoiceOver へ
-        // エスケープ操作だけは自前で用意する（仕様 4.1 章）。
-        .accessibilityAction(.escape) { close() }
-        // 再生位置が目標へ追いついたら、表示の優先を再生側へ返す。
-        .onChange(of: player.currentTime) { _, time in
-            guard let pending = pendingSeekTime, abs(time - pending) <= Self.seekSettleTolerance else { return }
-            pendingSeekTime = nil
-        }
-        // 着地しなかったときの保険。これが無いと、追いつきを待ち続けて表示が止まったままになる。
-        .task(id: pendingSeekTime) {
-            guard pendingSeekTime != nil else { return }
-            try? await Task.sleep(for: Self.seekSettleTimeout)
-            guard !Task.isCancelled else { return }
-            pendingSeekTime = nil
-        }
-        .task(id: player.currentItem?.id) {
-            isScrubbing = false
-            // 曲が替わると目標は意味を失う。持ち越すと新しい曲の先頭で古い位置を表示してしまう。
-            pendingSeekTime = nil
-            favoriteTrack = player.currentItem
-            guard let id = player.currentItem?.id, let client = auth.client else { return }
-            if let item = try? await client.fetchItem(id: id), !Task.isCancelled {
-                favoriteTrack = item
-            }
+        .overlay(alignment: .top) {
+            if UIDevice.current.userInterfaceIdiom != .pad { grabber }
         }
     }
 
@@ -212,8 +352,8 @@ struct NowPlayingView: View {
 
     /// 上部のグラバー（仕様 4 章）。システムの指示子は 36 pt 幅で Apple 実機の 60 pt より細いので、
     /// `RootView` 側で指示子を消し、同じ 60×5 pt をここで描く。
-    /// **描くのは見た目だけ**で、当たり判定もジェスチャも持たせない。閉じる操作は引き続き
-    /// システムの対話的な終了が担うので、自前のドラッグを戻したことにはならない（仕様 4.1 章 第 3 版）。
+    /// 記号自体は触れない。iPhone は提示側の対話的な終了、iPad の cover は上部 44 pt の
+    /// `dismissalHeader` が閉じる操作を担い、本文のジェスチャとは分ける。
     /// 色は `reference/nowplaying.png` の実測（地 (99,79,76) に対しグラバー (169,149,149)）から。
     /// 白を 0.42 で重ねると 4〜5 階調以内で合う。仕様 4 章の選択中ボタンと同じ「成分への一律加算」でも
     /// 同じくらい合うが、あちらは palette の中央 stop を前提にした規則で、グラバーが載るのは
@@ -261,8 +401,8 @@ struct NowPlayingView: View {
             // 縮んでいく画像が本文の領域を通る間、画像が上に来て文字と重なって見えないようにするため。
             detailSlot(extra: detailExtra)
             artworkSlot(bigSide: bigSide)
-            songTitle
-            songArtist
+            songTitle(compact: mode != .artwork)
+            songArtist(compact: mode != .artwork)
             favoriteButton
         }
         .frame(height: layout.media + layout.title)
@@ -282,7 +422,7 @@ struct NowPlayingView: View {
     /// アートワーク。**大きさも角丸も同じ View の上で変える**ので、状態を切り替えても
     /// 画像の読み込みやプレースホルダーからのフェードは起き直らない（仕様 5.1 章）。
     /// 一辺はレイアウトが提示した枠から読む。ここで状態を見て決めると、補間の途中の値を取れない。
-    private func artworkSlot(bigSide: CGFloat) -> some View {
+    private func artworkSlot(bigSide: CGFloat, pausedScale: CGFloat = 0.9) -> some View {
         // **3 状態とも同じ `Button`** にする（仕様 5.1 章 第 4 版）。歌詞で操作帯が退避している間は
         // 下部の 3 ボタンが画面外にあるので、この見出しの画像だけがアートワーク状態へ戻る道になる。
         // 状態によって `Button` を付け外しすると identity が変わり、補間の途中で画像が作り直される。
@@ -295,7 +435,9 @@ struct NowPlayingView: View {
                 ArtworkView(
                     item: player.currentItem,
                     size: side,
-                    cornerRadius: Self.artworkCornerRadius(forSide: side, bigSide: bigSide)
+                    cornerRadius: Self.artworkCornerRadius(forSide: side, bigSide: bigSide),
+                    // 縮小中の解像度切り替えと画像差し替えを避け、同じ画像の配置だけを補間する。
+                    requestSize: bigSide
                 )
             }
         }
@@ -304,21 +446,20 @@ struct NowPlayingView: View {
         // アートワーク状態のこれは押しても何も起きない大きな画像なので、操作として読み上げない。
         // `ArtworkView` 自体は読み上げ対象を持たず、曲名・アーティストは隣の `Text` が読まれる。
         .accessibilityHidden(mode == .artwork)
-        // 停止中は 90% に縮めて「止まっている」ことを形で示す。視差効果を減らす設定なら固定。
+        // 停止中は縮めて「止まっている」ことを形で示す。横長は参照の 380 pt、狭い幅は従来の 90%。
         // 72 pt まで縮んだ状態では掛けない。小さい画像でさらに縮めても止まっていることは伝わらず、
         // 曲名との縦位置だけがずれる。
-        .scaleEffect(reduceMotion || player.isPlaying || mode != .artwork ? 1 : 0.9)
+        .scaleEffect(reduceMotion || player.isPlaying || mode != .artwork ? 1 : pausedScale)
         .animation(reduceMotion ? nil : .spring(duration: 0.4, bounce: 0.2), value: player.isPlaying)
         // 影は無彩色に替えるのではなく付けない。画像そのものを見せる（仕様 1.1 章）。
     }
 
-    /// 角丸は一辺に従わせる。72 pt で 8 pt、大画像で 20 pt（仕様 4 章・5.1 章）。
-    /// 20 pt のままで縮めると小さい画像の縁だけが不釣り合いに丸くなる。
+    /// 小画像は既存の 8 pt、大画像は参照の輪郭を測った 10 pt とし、遷移の途中だけ両端を補間する。
     private static func artworkCornerRadius(forSide side: CGFloat, bigSide: CGFloat) -> CGFloat {
         let span = bigSide - PlayerTopLayout.compactArtworkSide
-        guard span > 0 else { return 20 }
+        guard span > 0 else { return 10 }
         let ratio = min(max((side - PlayerTopLayout.compactArtworkSide) / span, 0), 1)
-        return 8 + (20 - 8) * ratio
+        return 8 + (10 - 8) * ratio
     }
 
     /// 本文の置き場。中身が無いアートワーク状態でも**子の数と順序を変えない**ために、
@@ -349,6 +490,7 @@ struct NowPlayingView: View {
                     LyricsView(
                         track: track,
                         isSettled: !isTopTransitioning,
+                        isSeeking: isScrubbing || pendingSeekTime != nil,
                         bottomExtension: extra,
                         onControlsVisibilityChange: { setLyricsControlsHidden($0) }
                     )
@@ -383,22 +525,26 @@ struct NowPlayingView: View {
     /// 祖先の位置の変化とは別に補間してしまい、レイアウトが置いた場所へ遅れて着く。
     /// 録画では画像とお気に入りが 0.43 まで進んだところで文字 2 行だけが 0.2 に居残っていた。
     /// この修飾子でジオメトリの変化をひとまとめにすると、位置はレイアウトの `progress` だけで決まる。
-    private var songTitle: some View {
+    private func songTitle(compact: Bool) -> some View {
         // 状態で切り替えるのはフォントだけ。`Text` そのものは作り直さない。
         Text(player.currentItem?.displayName ?? String(localized: "再生していません"))
-            .font(mode == .artwork ? .title2.bold() : .headline)
+            .font(compact ? .headline : .title2.bold())
             .lineLimit(1)
             .truncationMode(.tail)
             .contentTransition(reduceMotion ? .identity : .interpolate)
             .geometryGroup()
+            // 固定 ID と再生中トラックの value を付けておくと、UI テストは同名要素を
+            // 総当たりせずこの要素だけを見て曲名を判定できる。
+            .accessibilityIdentifier("nowplaying.title")
+            .accessibilityValue(player.currentItem?.id ?? "")
     }
 
     /// アーティスト名はアクセント色にしない（仕様 4 章）。曲名に近い大きさの secondary。
     /// 曲がないときは空文字にして、**子の数を 5 で固定する**。子が増減すると
     /// `PlayerTopLayout` の添字がずれる。行として数えるかは `hasArtist` で明示的に渡す。
-    private var songArtist: some View {
+    private func songArtist(compact: Bool) -> some View {
         Text(player.currentItem?.displayArtist ?? "")
-            .font(mode == .artwork ? .title3 : .subheadline)
+            .font(compact ? .subheadline : .title3)
             .foregroundStyle(.secondary)
             .lineLimit(1)
             .truncationMode(.tail)
