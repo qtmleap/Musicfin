@@ -13,9 +13,8 @@ bundle exec fastlane lanes
 |---|---|---|
 | `fastlane setup_profiles` | Bundle ID 登録 + アプリレコード作成 + **match リポジトリへ書き込み**。初回のみ | **高**（他アプリと同居する署名資産を触る） |
 | `fastlane verify` | 署名 + アーカイブのみ。アップロードしない | なし |
-| `fastlane beta` | ビルド → TestFlight | 低（ASC 側で無効化できる） |
-| `fastlane release` | ビルド → App Store。**審査には出さない** | 低 |
-| `SUBMIT=1 fastlane release` | 上に加えて審査提出 | **高** |
+| Deployment CI の `beta` | 同じリポジトリの PR が `develop` にマージされた初回だけビルド → TestFlight | CI 限定 |
+| `fastlane release` | App Store 配信は無効。認証前に拒否する | 実行不可 |
 | `fastlane notify_testers` | アップロード済みビルドについてテスターへ通知を送る。ビルドしない | 中（テスターに通知が飛ぶ） |
 | `fastlane notify_testers dry_run:true` | 対象の特定とログ出力だけ。通知は送らない | なし |
 | `fastlane set_test_info feedback_email:…` | アプリ単位のテスト情報 (ja) を書き込む。ビルドしない | 中（ASC の入力を上書き） |
@@ -110,7 +109,9 @@ plutil -p /tmp/musicfin-ipa/Payload/Musicfin.app/Info.plist | grep -iE "CFBundle
 # → CFBundleVersion が注入値（pbxproj の 1 ではない）、iphoneos が入っている
 ```
 
-問題なければ `bundle exec fastlane beta`。
+問題なければ変更をコミットし、`develop` 宛ての PR を作る。
+レビューと検証が済んだ PR をマージすると Deployment CI が TestFlight に配信する。
+ローカルの `beta` は認証前に拒否する。
 
 ## 既存ビルドのテスター通知
 
@@ -209,7 +210,8 @@ bundle exec fastlane diagnose_testflight version:0.1.0 build:1
 `upload_to_testflight` の `localized_build_info` で ja ロケールに設定する。
 外部 AI API は使わない。整形ロジックは `fastlane/lib/testflight_notes.rb`。
 
-- **範囲**: 直近の祖先タグ `vX.Y.Z` の次から `HEAD` まで。該当タグが無ければ全履歴。
+- **範囲**: `last_shipped.json` の配信済み SHA の次から `HEAD` まで。
+  記録が無ければ直近の祖先タグ `vX.Y.Z`、記録もタグも無ければ直近20件を使う。
   マージコミットは除外し、新しい順に最大 10 件。
 - **採用する type**: `feat` / `fix` / `perf` を優先。1 件も無いときだけ他の Conventional Commits
   （`ui` / `refactor` / `build` など）も拾って空欄を避ける。
@@ -247,27 +249,73 @@ ruby fastlane/test/testflight_notes_test.rb
 
 ## CI（GitHub Actions）
 
-`.github/workflows/deployment.yaml` が `bundle exec fastlane beta|release` を呼ぶ。
+`.github/workflows/deployment.yaml` は `develop` 宛て PR の `closed` イベントで、
+同じリポジトリからの PR がマージ済みの場合だけ `beta` を呼ぶ。
+マージコミットまたは squash merge を使う。`merge_commit_sha` を指定して履歴全体を取得し、
+ビルド前とアップロード直前に、実際の HEAD と最新の `origin/develop` がその SHA と一致することを確認する。
+作業ツリーに未コミットの変更がある場合も止める。
+
+タグ、直接 push、手動 dispatch、ローカル実行は配信経路にならない。
+`release` による App Store バイナリ配信も無効。
+`fastlane/lib/deployment_policy.rb` が同じ条件を検証するため、lane だけを呼んでも回避できない。
+配信ガードと既存 helper の検証は Integration CI が `fastlane/test/*_test.rb` を実行する。
+
+ビルド番号の採番とアップロードは全 PR で同じ concurrency group を使い、重ならないようにする。
+配信のビルド・アップロード中は、記録だけの PR も含めて別の PR をマージしない。
+Deployment run 全体が終了するまで待つ。
+同じ run の再実行は `GITHUB_RUN_ATTEMPT != 1` で拒否し、アップロード後の失敗による二重配信を避ける。
+失敗時は Actions のログと App Store Connect の実際のビルドを確認し、必要な修正を新しい PR としてマージする。
+アップロード済みか不明な状態で再送しない。
+
+成功した配信記録は `testflight-shipped-<merge SHA>` artifact に90日保存する。
+CI は bot の Git コミットを作らない。オーケストレーターが artifact の SHA・ビルド番号・バージョンを
+確認し、`last_shipped.json` だけの PR で記録をコミットする。
+このファイルだけの PR は `paths-ignore` と lane の差分検証で配信を止める。
+rebase merge の最終コミットが記録だけの場合も保守的に配信を止めるため、リリースには使わない。
+アップロードが成功して artifact 保存だけが失敗した場合も、run を再実行しない。
+run が検証したマージ SHA と、App Store Connect の実際のビルド番号・バージョン・アップロード日時から
+`last_shipped.json` を復元し、run 終了後に記録だけの PR を作る。
+
 `.p8` はファイルとして置けないので、`ASC_KEY_CONTENT` に base64 で渡すと
 `asc_api_key` が一時ファイルに書き出して使う（`ASC_KEY_FILEPATH` は不要）。
 
-| GitHub Secret | 値 |
+配信用 credential はすべて保護された GitHub Environment `testflight` の Secrets にだけ保存する。
+Deployment job はこの Environment を指定し、Environment の deployment branch rule は
+`develop` だけを許可する branch 型で登録する。タグを許可する rule は追加しない。
+下表の ASC・MATCH Secret を repository Secrets に残してはいけない。
+既存の値を Environment へ移したら repository 側のコピーを削除する。
+これにより、過去のタグに残る旧ワークフローには配信用 credential が渡らない。
+
+| `testflight` Environment Secret | 値 |
 |---|---|
 | `ASC_KEY_ID` | API Key の Key ID |
 | `ASC_ISSUER_ID` | API Key の Issuer ID |
 | `ASC_KEY_CONTENT` | `base64 -i AuthKey_XXXXXXXXXX.p8` の出力（改行なし） |
 | `MATCH_PASSWORD` | `qtmleap/match` の暗号化パスフレーズ |
-| `MATCH_GIT_TOKEN` | `qtmleap/match` を読める PAT。ワークフロー側で `MATCH_GIT_BASIC_AUTHORIZATION` に変換する |
+| `MATCH_GIT_TOKEN` | 推奨。`qtmleap/match` だけを対象にした、Contents 読み取り専用の fine-grained PAT。組織で必要なら承認を済ませる |
+| `MATCH_GIT_PRIVATE_KEY` | deploy key が許可される場合の代替。`qtmleap/match` に登録した、読み取り専用 deploy key の秘密鍵本文 |
+
+署名リポジトリの認証は `MATCH_GIT_TOKEN` と `MATCH_GIT_PRIVATE_KEY` の一方だけ設定する。
+両方設定済み、または両方未設定なら、認証処理へ進む前に止める。
+token なら `https://github.com/qtmleap/match.git` と basic authorization、
+deploy key なら `git@github.com:qtmleap/match.git` を使う。
+`Matchfile` は CI が設定する `MATCH_GIT_URL` を優先し、ローカルの署名検証では従来の HTTPS URL を使う。
+deploy key は Musicfin CI 専用にし、GitHub 側の書き込み権限を有効にしない。
+組織の方針で deploy key が禁止されている場合は token を選ぶ。
+
+配信ガードを通過した後だけ `setup_ci` が CI 専用の一時 keychain を用意する。
+署名リポジトリの match は常に `readonly: true` のまま使用する。
 
 ## 審査に出す前に必要なもの
 
-App Store Connect 側で以下を埋めていないと `release` lane が失敗する。
+App Store 配信は現在無効。将来 CI の配信方針を変更して審査提出を扱う場合は、
+App Store Connect 側で以下を埋める必要がある。
 
 - 輸出コンプライアンス（`ITSAppUsesNonExemptEncryption = false` を Info.plist に入れてある）
 - 年齢制限
 - プライバシーポリシー URL（`fastlane/metadata/*/privacy_url.txt` は空。決まったら埋めて `upload_metadata`）
 - サポート URL（同上 `support_url.txt`）
-- スクリーンショット（`release` は `skip_screenshots: true`。`upload_screenshots` で別送）
+- スクリーンショット（`upload_screenshots` で別送）
 
 ## 設計メモ
 
