@@ -168,6 +168,10 @@ jobs:
     if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
     steps:
       - uses: actions/checkout@v5
+      # self-hosted の最小イメージにも actionlint が使う npm を用意する。
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
       - uses: raven-actions/actionlint@v2
 
   fastlane-tests:
