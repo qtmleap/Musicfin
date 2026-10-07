@@ -1,7 +1,6 @@
 # 作業ツリーや別ブランチの配信で機能が巻き戻らないよう、CI のマージ対象だけ許可する。
 require "json"
 require "open3"
-require "base64"
 require_relative "testflight_notes"
 
 module DeploymentPolicy
@@ -62,7 +61,7 @@ module DeploymentPolicy
       env.delete("MATCH_GIT_BASIC_AUTHORIZATION")
     else
       env["MATCH_GIT_URL"] = "https://github.com/qtmleap/match.git"
-      env["MATCH_GIT_BASIC_AUTHORIZATION"] = Base64.strict_encode64("x-access-token:#{token}")
+      env["MATCH_GIT_BASIC_AUTHORIZATION"] = ["x-access-token:#{token}"].pack("m0")
       env.delete("MATCH_GIT_PRIVATE_KEY")
     end
   end
