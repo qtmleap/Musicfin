@@ -48,7 +48,7 @@ jobs:
     name: Deploy to TestFlight
     needs: verify
     # 検証ジョブを再実行しない場合も、配信ジョブ自体で二重配信を止める。
-    if: github.run_attempt == 1
+    if: success() && !cancelled() && github.run_attempt == 1
     runs-on: [self-hosted, macos-26]
     environment: testflight
     timeout-minutes: 45
