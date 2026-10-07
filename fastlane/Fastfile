@@ -15,27 +15,21 @@ require_relative "lib/deployment_policy"
 
 opt_out_usage
 
-# CI では .p8 をファイルとして置けないので、base64 で渡された中身を
-# 一時ファイルに書き出して ASC_KEY_FILEPATH の代わりに使う。
-# ローカルでは ASC_KEY_FILEPATH の実ファイルをそのまま使う。
+# ローカルの読み取り用ツールでは、既存の .p8 をそのまま使う。
 def asc_key_filepath
-  content = ENV["ASC_KEY_CONTENT"].to_s.strip
-  if content != ""
-    path = File.join(Dir.tmpdir, "musicfin-asc-#{Process.pid}.p8")
-    File.write(path, Base64.decode64(content))
-    File.chmod(0o600, path)
-    at_exit { FileUtils.rm_f(path) }
-    return path
-  end
-
   path = File.expand_path(ENV.fetch("ASC_KEY_FILEPATH"))
   UI.user_error!("API キーが見つからない: #{path}") unless File.exist?(path)
   path
 end
 
 def asc_api_key
+  content = ENV["ASC_KEY_CONTENT"].to_s.strip
   required = %w[ASC_KEY_ID ASC_ISSUER_ID]
-  required << "ASC_KEY_FILEPATH" if ENV["ASC_KEY_CONTENT"].to_s.strip == ""
+  if ENV["GITHUB_ACTIONS"] == "true"
+    required << "ASC_KEY_CONTENT"
+  elsif content.empty?
+    required << "ASC_KEY_FILEPATH"
+  end
   missing = required.reject { |k| ENV[k].to_s.strip != "" }
   unless missing.empty?
     UI.user_error!(<<~MSG)
@@ -48,13 +42,20 @@ def asc_api_key
     MSG
   end
 
-  app_store_connect_api_key(
+  options = {
     key_id: ENV.fetch("ASC_KEY_ID"),
     issuer_id: ENV.fetch("ASC_ISSUER_ID"),
-    key_filepath: asc_key_filepath,
     duration: 1200,
     in_house: false
-  )
+  }
+  # ビルド中に同じユーザーから読める秘密ファイルを残さず、認証時だけ中身を渡す。
+  if content.empty?
+    options[:key_filepath] = asc_key_filepath
+  else
+    options[:key_content] = content
+    options[:is_key_content_base64] = true
+  end
+  app_store_connect_api_key(**options)
 end
 
 # SSH 越しのヘッドレス Mac では keychain のダイアログを出せず、match の `security import` が

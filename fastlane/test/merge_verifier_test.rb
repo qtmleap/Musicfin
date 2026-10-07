@@ -96,12 +96,13 @@ def scenario(branch: "develop")
 end
 
 def build(s)
+  head = s[:pull].dig("head", "sha")
   api = FakeApi.new(
     "repos/#{REPO}/commits/#{MERGE}/pulls?per_page=100" => s[:pulls],
     "repos/#{REPO}/pulls/7" => s[:pull],
     "repos/#{REPO}/branches/#{s[:branch]}" => { "commit" => { "sha" => s[:tip] } },
-    "repos/#{REPO}/actions/runs?head_sha=#{HEAD}&per_page=100&page=1" => { "workflow_runs" => s[:runs] },
-    "repos/#{REPO}/commits/#{HEAD}/check-runs?per_page=100&filter=latest&page=1" => { "check_runs" => s[:checks] }
+    "repos/#{REPO}/actions/runs?head_sha=#{head}&per_page=100&page=1" => { "workflow_runs" => s[:runs] },
+    "repos/#{REPO}/commits/#{head}/check-runs?per_page=100&filter=latest&page=1" => { "check_runs" => s[:checks] }
   )
   git = FakeGit.new(
     ["rev-list", "--parents", "-n", "1", MERGE] => s[:parents],
@@ -128,7 +129,9 @@ end
 
 %w[develop master].each do |branch|
   check "#{branch} accepts a merge commit with empty post-merge PR arrays" do
-    result = build(scenario(branch: branch)).call
+    s = scenario(branch: branch)
+    s[:parents] = "#{MERGE} #{BEFORE} #{HEAD}\n"
+    result = build(s).call
     assert result == { pr_number: 7, sha: MERGE }, result.inspect
   end
 end
@@ -162,6 +165,11 @@ rejects("an empty change") { |s| s[:changed] = "" }
 # PR の特定
 rejects("a push that no PR produced") { |s| s[:pulls] = [] }
 rejects("an unmerged PR") { |s| s[:pull]["merged"] = false }
+rejects("a direct push that indirectly closes the source PR") do |s|
+  s[:pull]["head"]["sha"] = MERGE
+  s[:runs].each { |run| run["head_sha"] = MERGE }
+  s[:checks].each { |run| run["head_sha"] = MERGE }
+end
 rejects("a merge SHA that differs") { |s| s[:pull]["merge_commit_sha"] = OTHER }
 rejects("a PR into another base") { |s| s[:pull]["base"]["ref"] = s[:branch] == "develop" ? "master" : "develop" }
 rejects("a fork PR") { |s| s[:pull]["head"]["repo"]["full_name"] = "other/Musicfin" }

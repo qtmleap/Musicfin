@@ -297,8 +297,8 @@ rebase merge の最終コミットが記録だけの場合も保守的に配信�
 run が検証したマージ SHA と、App Store Connect の実際のビルド番号・バージョン・アップロード日時から
 `last_shipped.json` を復元し、run 終了後に記録だけの PR を作る。
 
-`.p8` はファイルとして置けないので、`ASC_KEY_CONTENT` に base64 で渡すと
-`asc_api_key` が一時ファイルに書き出して使う（`ASC_KEY_FILEPATH` は不要）。
+CI は `.p8` を `ASC_KEY_CONTENT` に base64 で渡し、`asc_api_key` がメモリ上の中身を使う。
+一時ファイルへ書き出さず、値が欠けた場合も `ASC_KEY_FILEPATH` にはフォールバックしない。
 
 配信用 credential はすべて保護された GitHub Environment `testflight` の Secrets にだけ保存する。
 Deployment job はこの Environment を指定し、Environment の deployment branch rule は

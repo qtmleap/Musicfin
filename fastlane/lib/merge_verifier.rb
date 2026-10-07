@@ -81,6 +81,8 @@ class MergeVerifier
     verify_push(sha, repo, branch)
     parents = lineage(sha)
     pull = find_pull(repo, sha, branch)
+    # PR の head 自体を直接 push して間接的に閉じた場合は、マージ結果として採用しない。
+    raise Error, "PR の head の直接 push は配信できません。" if pull.dig("head", "sha") == sha
     verify_second_parent(parents, pull)
     verify_checks(repo, pull)
     # 検証に時間がかかる間に次のマージが入っていないことを、最後にもう一度確かめる。
