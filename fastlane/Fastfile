@@ -120,23 +120,27 @@ def build_for_appstore(api_key:, build_number:)
       bundle_identifier: APP_IDENTIFIER
     )
 
-    build_app(
-      project: XCODEPROJ,
-      scheme: SCHEME,
-      configuration: "Release",
-      destination: "generic/platform=iOS",
-      export_method: "app-store",
-      xcargs: [
-        "CURRENT_PROJECT_VERSION=#{build_number}",
-        "-skipMacroValidation"
-      ].join(" "),
-      export_options: {
-        signingStyle: "manual",
-        provisioningProfiles: { APP_IDENTIFIER => profile_name }
-      },
-      output_directory: "build",
-      clean: true
-    )
+    # xcodebuild とビルドスクリプトへ ASC・署名リポジトリ・GitHub の資格情報を渡さない。
+    # 署名は match が取得したプロファイルで済んでおり、アーカイブ中は不要。
+    DeploymentPolicy.without_credentials do
+      build_app(
+        project: XCODEPROJ,
+        scheme: SCHEME,
+        configuration: "Release",
+        destination: "generic/platform=iOS",
+        export_method: "app-store",
+        xcargs: [
+          "CURRENT_PROJECT_VERSION=#{build_number}",
+          "-skipMacroValidation"
+        ].join(" "),
+        export_options: {
+          signingStyle: "manual",
+          provisioningProfiles: { APP_IDENTIFIER => profile_name }
+        },
+        output_directory: "build",
+        clean: true
+      )
+    end
   ensure
     FileUtils.cp(pbxproj_backup, pbxproj_path)
     FileUtils.rm_f(pbxproj_backup)
@@ -224,15 +228,15 @@ rescue DeploymentPolicy::Error => error
 end
 
 def prepare_ci_signing
-  DeploymentPolicy.signing_environment!(env: ENV)
+  # CI の beta は短命の App token だけを使い、SSH 鍵にはフォールバックしない。
+  DeploymentPolicy.signing_environment!(env: ENV, ssh: false)
   # 元の token と異なる base64 も、match の詳細ログに出る前に Actions へ登録する。
-  authorization = ENV["MATCH_GIT_BASIC_AUTHORIZATION"]
-  puts "::add-mask::#{authorization}" if authorization
+  DeploymentPolicy.mask_lines(ENV).each { |line| puts line }
 rescue DeploymentPolicy::Error => error
   UI.user_error!(error.message)
 end
 
-desc "develop または master へマージされた PR を GitHub CI から TestFlight に配信する"
+desc "develop または master へのマージ push を、検証ジョブを通して GitHub CI から TestFlight に配信する"
 lane :beta do
   shipped_sha = authorize_deployment(:beta)
   prepare_ci_signing

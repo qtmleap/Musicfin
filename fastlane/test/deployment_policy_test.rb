@@ -71,6 +71,7 @@ end
 require_relative "../lib/deployment_policy"
 
 MERGED_SHA = "a" * 40
+BEFORE_SHA = "c" * 40
 OTHER_SHA = "b" * 40
 
 check "a read-only HTTPS token configures match authorization" do
@@ -79,6 +80,18 @@ check "a read-only HTTPS token configures match authorization" do
   assert env["MATCH_GIT_URL"] == "https://github.com/qtmleap/match.git"
   assert env["MATCH_GIT_BASIC_AUTHORIZATION"] == "eC1hY2Nlc3MtdG9rZW46Zml4dHVyZS10b2tlbg=="
   assert !env.key?("MATCH_GIT_PRIVATE_KEY"), "empty SSH key remained selected"
+end
+
+check "CI signing rejects a deploy key and never selects SSH" do
+  env = { "MATCH_GIT_PRIVATE_KEY" => "fixture-key" }
+  error = begin
+    DeploymentPolicy.signing_environment!(env: env, ssh: false)
+    nil
+  rescue DeploymentPolicy::Error => e
+    e
+  end
+  assert error, "CI accepted an SSH deploy key"
+  assert !error.message.include?("fixture-key"), "credential was exposed"
 end
 
 check "a read-only deploy key selects SSH without HTTPS authorization" do
@@ -108,27 +121,28 @@ def allowed_fixture(branch = "develop")
     env: {
       "GITHUB_ACTIONS" => "true",
       "RUNNER_ENVIRONMENT" => "self-hosted",
-      "GITHUB_EVENT_NAME" => "pull_request",
+      "GITHUB_EVENT_NAME" => "push",
       "GITHUB_REPOSITORY" => "qtmleap/Musicfin",
       "GITHUB_REF" => "refs/heads/#{branch}",
       "GITHUB_WORKFLOW_REF" => "qtmleap/Musicfin/.github/workflows/deployment.yaml@refs/heads/#{branch}",
       "GITHUB_RUN_ATTEMPT" => "1",
-      "GITHUB_SHA" => MERGED_SHA
+      "GITHUB_SHA" => MERGED_SHA,
+      "MUSICFIN_VERIFIED_SHA" => MERGED_SHA,
+      "MUSICFIN_VERIFIED_PR" => "7"
     },
     event: {
-      "action" => "closed",
-      "repository" => { "full_name" => "qtmleap/Musicfin" },
-      "pull_request" => {
-        "merged" => true,
-        "state" => "closed",
-        "merge_commit_sha" => MERGED_SHA,
-        "base" => { "ref" => branch, "repo" => { "full_name" => "qtmleap/Musicfin" } },
-        "head" => { "repo" => { "full_name" => "qtmleap/Musicfin" } }
-      }
+      "ref" => "refs/heads/#{branch}",
+      "before" => BEFORE_SHA,
+      "after" => MERGED_SHA,
+      "created" => false,
+      "deleted" => false,
+      "forced" => false,
+      "repository" => { "full_name" => "qtmleap/Musicfin" }
     },
     head_sha: MERGED_SHA,
     branch_sha: MERGED_SHA,
     dirty_count: 0,
+    first_parent: BEFORE_SHA,
     changed_paths: ["Musicfin/App/RootView.swift"]
   }
 end
@@ -144,28 +158,34 @@ cases = {
   "unknown runner" => ->(f) { f[:env]["RUNNER_ENVIRONMENT"] = nil },
   "local execution" => ->(f) { f[:env]["GITHUB_ACTIONS"] = nil },
   "manual dispatch" => ->(f) { f[:env]["GITHUB_EVENT_NAME"] = "workflow_dispatch" },
-  "direct branch push" => ->(f) { f[:env]["GITHUB_EVENT_NAME"] = "push" },
-  "tag push" => ->(f) { f[:env]["GITHUB_EVENT_NAME"] = "push"; f[:env]["GITHUB_REF"] = "refs/tags/v0.1.0" },
+  "closed pull request event" => ->(f) { f[:env]["GITHUB_EVENT_NAME"] = "pull_request" },
+  "tag push" => ->(f) { f[:env]["GITHUB_REF"] = "refs/tags/v0.1.0"; f[:event]["ref"] = "refs/tags/v0.1.0" },
   "tag ref" => ->(f) { f[:env]["GITHUB_REF"].sub!("refs/heads/", "refs/tags/") },
-  "open PR" => ->(f) { f[:event]["action"] = "opened" },
-  "unmerged PR" => ->(f) { f[:event]["pull_request"]["merged"] = false },
-  "open PR state" => ->(f) { f[:event]["pull_request"]["state"] = "open" },
-  "mismatched base" => ->(f) { f[:event]["pull_request"]["base"]["ref"] = f[:event]["pull_request"]["base"]["ref"] == "develop" ? "master" : "develop" },
+  "mismatched event ref" => ->(f) { f[:event]["ref"] = f[:event]["ref"] == "refs/heads/develop" ? "refs/heads/master" : "refs/heads/develop" },
   "mismatched ref" => ->(f) { f[:env]["GITHUB_REF"] = f[:env]["GITHUB_REF"] == "refs/heads/develop" ? "refs/heads/master" : "refs/heads/develop" },
   "mismatched workflow branch" => ->(f) { f[:env]["GITHUB_WORKFLOW_REF"] = f[:env]["GITHUB_WORKFLOW_REF"].sub(/(develop|master)\z/) { |b| b == "develop" ? "master" : "develop" } },
   "other workflow" => ->(f) { f[:env]["GITHUB_WORKFLOW_REF"].sub!("deployment.yaml", "integration.yaml") },
   "unapproved branch" => ->(f) {
-    f[:event]["pull_request"]["base"]["ref"] = "feature"
+    f[:event]["ref"] = "refs/heads/feature"
     f[:env]["GITHUB_REF"] = "refs/heads/feature"
     f[:env]["GITHUB_WORKFLOW_REF"] = "qtmleap/Musicfin/.github/workflows/deployment.yaml@refs/heads/feature"
   },
   "other environment repository" => ->(f) { f[:env]["GITHUB_REPOSITORY"] = "other/Musicfin" },
   "other event repository" => ->(f) { f[:event]["repository"]["full_name"] = "other/Musicfin" },
-  "fork source" => ->(f) { f[:event]["pull_request"]["head"]["repo"]["full_name"] = "other/Musicfin" },
-  "other base repository" => ->(f) { f[:event]["pull_request"]["base"]["repo"]["full_name"] = "other/Musicfin" },
-  "missing merge SHA" => ->(f) { f[:event]["pull_request"]["merge_commit_sha"] = nil },
-  "revision expression" => ->(f) { f[:event]["pull_request"]["merge_commit_sha"] = "HEAD" },
+  "branch creation" => ->(f) { f[:event]["created"] = true },
+  "branch deletion" => ->(f) { f[:event]["deleted"] = true },
+  "forced push" => ->(f) { f[:event]["forced"] = true },
+  "missing forced flag" => ->(f) { f[:event].delete("forced") },
+  "zero before" => ->(f) { f[:event]["before"] = "0" * 40; f[:first_parent] = "0" * 40 },
+  "invalid before" => ->(f) { f[:event]["before"] = "HEAD" },
+  "event after differs" => ->(f) { f[:event]["after"] = OTHER_SHA },
+  "revision expression" => ->(f) { f[:env]["GITHUB_SHA"] = "HEAD" },
   "wrong event SHA" => ->(f) { f[:env]["GITHUB_SHA"] = OTHER_SHA },
+  "missing verifier SHA" => ->(f) { f[:env].delete("MUSICFIN_VERIFIED_SHA") },
+  "other verifier SHA" => ->(f) { f[:env]["MUSICFIN_VERIFIED_SHA"] = OTHER_SHA },
+  "missing verifier PR" => ->(f) { f[:env].delete("MUSICFIN_VERIFIED_PR") },
+  "invalid verifier PR" => ->(f) { f[:env]["MUSICFIN_VERIFIED_PR"] = "0" },
+  "first parent differs from before" => ->(f) { f[:first_parent] = OTHER_SHA },
   "wrong checkout" => ->(f) { f[:head_sha] = OTHER_SHA },
   "second run attempt" => ->(f) { f[:env]["GITHUB_RUN_ATTEMPT"] = "2" },
   "missing run attempt" => ->(f) { f[:env]["GITHUB_RUN_ATTEMPT"] = nil },
@@ -177,7 +197,7 @@ cases = {
   "unknown diff" => ->(f) { f[:changed_paths] = nil },
   "invalid diff paths" => ->(f) { f[:changed_paths] = [nil] },
   "malformed event repository" => ->(f) { f[:event]["repository"] = "invalid" },
-  "malformed PR" => ->(f) { f[:event]["pull_request"] = [] },
+  "malformed event" => ->(f) { f[:event] = [] },
   "App Store lane" => ->(f) { f[:lane] = :release }
 }
 
@@ -196,6 +216,8 @@ def with_git_fixture(branch)
       case args
       when ["rev-parse", "--verify", "HEAD^{commit}"]
         puts #{MERGED_SHA.inspect}
+      when ["rev-parse", "--verify", "#{MERGED_SHA}^1^{commit}"]
+        puts #{BEFORE_SHA.inspect}
       when ["status", "--porcelain", "-z", "--untracked-files=all"]
       when ["diff", "--name-only", "-z", "#{MERGED_SHA}^1", #{MERGED_SHA.inspect}, "--"]
         print "Musicfin/App/RootView.swift\\0"
@@ -307,6 +329,77 @@ check "CI release rejects before reading the event file" do
     end
     assert error && error.message.include?("App Store"), "release did not reject immediately: #{error&.message}"
     assert calls.empty?, "credentials were reached"
+  end
+end
+
+check "the authorization mask covers the derived base64 value" do
+  env = { "MATCH_GIT_TOKEN" => "fixture-token", "MATCH_GIT_PRIVATE_KEY" => "" }
+  DeploymentPolicy.signing_environment!(env: env, ssh: false)
+  lines = DeploymentPolicy.mask_lines(env)
+  assert lines == ["::add-mask::eC1hY2Nlc3MtdG9rZW46Zml4dHVyZS10b2tlbg=="], lines.inspect
+  assert DeploymentPolicy.mask_lines({}).empty?, "mask emitted without authorization"
+end
+
+check "credential scrubbing removes ASC, MATCH, GitHub and App variables and restores them exactly" do
+  names = %w[
+    ASC_KEY_ID ASC_KEY_CONTENT APP_STORE_CONNECT_API_KEY_KEY MATCH_PASSWORD MATCH_GIT_TOKEN
+    MATCH_GIT_BASIC_AUTHORIZATION MATCH_GIT_PRIVATE_KEY GITHUB_TOKEN GH_TOKEN
+    MATCH_APP_CLIENT_ID MATCH_APP_PRIVATE_KEY
+  ]
+  env = names.to_h { |name| [name, "value-#{name}"] }
+  env["MATCH_KEYCHAIN_NAME"] = "keep"
+  env["GITHUB_SHA"] = "keep"
+  inside = nil
+  DeploymentPolicy.without_credentials(env) { inside = env.dup }
+  assert names.none? { |name| inside.key?(name) }, "credential remained: #{inside.keys.inspect}"
+  assert inside["MATCH_KEYCHAIN_NAME"] == "keep" && inside["GITHUB_SHA"] == "keep", "non-secret variable removed"
+  assert names.all? { |name| env[name] == "value-#{name}" }, "values not restored"
+  error = begin
+    DeploymentPolicy.without_credentials(env) { raise "archive failed" }
+  rescue RuntimeError => e
+    e
+  end
+  assert error && names.all? { |name| env[name] == "value-#{name}" }, "values not restored after an exception"
+  absent = {}
+  DeploymentPolicy.without_credentials(absent) { absent["ASC_KEY_ID"] = "added" }
+  assert absent.empty? || absent["ASC_KEY_ID"] == "added", "unexpected state"
+end
+
+check "the archive subprocess does not receive credentials but the lane keeps them afterwards" do
+  Dir.mktmpdir do |dir|
+    lane, = production_lane
+    sandbox = lane.class
+    sandbox.send(:remove_const, :REPO_ROOT)
+    sandbox.const_set(:REPO_ROOT, dir)
+    FileUtils.mkdir_p(File.join(dir, "Musicfin.xcodeproj"))
+    File.write(File.join(dir, "Musicfin.xcodeproj/project.pbxproj"), "pbx")
+    shared = Module.new
+    shared.const_set(:MATCH_PROVISIONING_PROFILE_MAPPING, :mapping)
+    sandbox.const_set(:SharedValues, shared)
+    context = { shared::MATCH_PROVISIONING_PROFILE_MAPPING => { "jp.qleap.musicfin" => "profile" } }
+    lane.define_singleton_method(:lane_context) { context }
+    seen = nil
+    lane.define_singleton_method(:unlock_login_keychain) { }
+    lane.define_singleton_method(:match) { |**_| }
+    lane.define_singleton_method(:update_code_signing_settings) { |**_| }
+    lane.define_singleton_method(:build_app) do |**_|
+      seen = ENV.to_h.slice("ASC_KEY_ID", "MATCH_GIT_TOKEN", "GITHUB_TOKEN", "MATCH_APP_PRIVATE_KEY", "MATCH_PASSWORD")
+      raise "archive failed"
+    end
+    with_environment(
+      "ASC_KEY_ID" => "asc", "MATCH_GIT_TOKEN" => "tok", "GITHUB_TOKEN" => "gh",
+      "MATCH_APP_PRIVATE_KEY" => "pem", "MATCH_PASSWORD" => "pw"
+    ) do
+      error = begin
+        lane.send(:build_for_appstore, api_key: :key, build_number: 1)
+        nil
+      rescue RuntimeError => e
+        e
+      end
+      assert error && error.message == "archive failed", "unexpected result: #{error.inspect}"
+      assert seen == {}, "archive saw credentials: #{seen.keys.inspect}"
+      assert ENV["ASC_KEY_ID"] == "asc" && ENV["MATCH_GIT_TOKEN"] == "tok" && ENV["MATCH_PASSWORD"] == "pw", "not restored"
+    end
   end
 end
 
