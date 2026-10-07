@@ -34,32 +34,22 @@ jobs:
       - uses: actions/checkout@v5
         with:
           # first parent との差分を取るため、親コミットまで取得する。
-          fetch-depth: 2
+          fetch-depth: 0
           persist-credentials: false
       # 秘密は一切渡さない。ワークスペースを root 所有にしないよう呼び出し元の uid で走らせる。
       - name: Verify that this push is a new PR merge
         id: verify
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: |
-          docker run --rm \
-            --user "$(id -u):$(id -g)" \
-            -e HOME=/tmp \
-            -e GITHUB_TOKEN -e GITHUB_ACTIONS -e RUNNER_ENVIRONMENT -e GITHUB_EVENT_NAME -e GITHUB_REF \
-            -e GITHUB_REPOSITORY -e GITHUB_SHA -e GITHUB_RUN_ATTEMPT -e GITHUB_WORKFLOW_REF \
-            -e GITHUB_EVENT_PATH -e GITHUB_OUTPUT \
-            -v "${GITHUB_WORKSPACE}:${GITHUB_WORKSPACE}" \
-            -v "${RUNNER_TEMP}:${RUNNER_TEMP}" \
-            -w "${GITHUB_WORKSPACE}" \
-            ruby:3.4.10@sha256:ce3b7a999d9e430e59e1a12456c631fbea3dd18948c89cf8a913c3566c77b2ae \
-            ruby fastlane/lib/merge_verifier.rb
+        uses: qtmleap/actions/actions/verify-merge@00c36aeda988735333907b407d98f6a4a9478b64
+        with:
+          adapter: fastlane/lib/merge_verifier.rb
+          github-token: ${{ github.token }}
 
   deploy:
     name: Deploy to TestFlight
     needs: verify
     # 検証ジョブを再実行しない場合も、配信ジョブ自体で二重配信を止める。
     if: github.run_attempt == 1
-    runs-on: [self-hosted, macOS, ARM64, macos-26]
+    runs-on: [self-hosted, macos-26]
     environment: testflight
     timeout-minutes: 45
     env:
@@ -76,36 +66,41 @@ jobs:
           # 配信先ブランチが進んでも、イベントが指すマージ対象の内容だけをビルドする。
           ref: ${{ needs.verify.outputs.sha }}
           fetch-depth: 0
-      - name: Prepare VM Ruby and Fastlane
-        # hosted 用 Ruby の固定パスに依存せず、検証済み VM の Ruby を使う。
+          persist-credentials: false
+      - name: Inspect caller Apple profile
+        id: apple-version
+        shell: bash
         run: |
-          ruby_bin="$HOME/.rbenv/versions/$RBENV_VERSION/bin"
-          if [ ! -x "$ruby_bin/ruby" ]; then
-            echo "::error::Ruby $RBENV_VERSION is missing at $ruby_bin"
-            exit 1
-          fi
-          export GEM_HOME="$RUNNER_TEMP/musicfin-gems"
-          export GEM_PATH="$GEM_HOME"
-          export BUNDLE_PATH="$RUNNER_TEMP/musicfin-bundle"
-          export PATH="$ruby_bin:$GEM_HOME/bin:$PATH"
-          printf '%s\n' "$ruby_bin" "$GEM_HOME/bin" >> "$GITHUB_PATH"
-          printf '%s\n' "GEM_HOME=$GEM_HOME" "GEM_PATH=$GEM_PATH" "BUNDLE_PATH=$BUNDLE_PATH" >> "$GITHUB_ENV"
-          ruby --version
-          gem install bundler --version 4.0.16 --no-document
-          bundle _4.0.16_ install --jobs 4 --retry 2
+          test "$(uname -s)" = Darwin
+          test "$(uname -m)" = arm64
+          test "$(sw_vers -productVersion | cut -d. -f1)" = 26
+          version=$(DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -version | /usr/bin/sed -n 's/^Xcode //p')
+          [[ "$version" == 26.* ]]
+          DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcrun --sdk iphoneos --show-sdk-version | /usr/bin/grep -E '^26\.'
+          printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
+      - name: Require Apple toolchain
+        uses: qtmleap/actions/actions/apple-toolchain@00c36aeda988735333907b407d98f6a4a9478b64
+        with:
+          xcode-version: ${{ steps.apple-version.outputs.version }}
+          developer-dir: /Applications/Xcode.app/Contents/Developer
+      - name: Prepare VM Ruby and Fastlane
+        uses: qtmleap/actions/actions/setup-ruby@00c36aeda988735333907b407d98f6a4a9478b64
+        with:
+          ruby-version: '3.4.10'
       - name: Validate merged deployment target
-        run: bundle _4.0.16_ exec ruby fastlane/lib/deployment_policy.rb
+        uses: qtmleap/actions/actions/run-adapter@00c36aeda988735333907b407d98f6a4a9478b64
+        with:
+          adapter: fastlane/adapter.rb
+          operation: authorize
       # 検証と準備がすべて終わった直後に、署名リポジトリの読み取りだけを持つ短命 token を発行する。
       # 鍵は入力としてだけ渡し、環境変数・GITHUB_ENV・CLI には出さない。post ステップが失効させる。
       - name: Create short-lived signing token
         id: signing-token
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        uses: qtmleap/actions/actions/repository-token@00c36aeda988735333907b407d98f6a4a9478b64
         with:
           client-id: ${{ secrets.MUSICFIN_MATCH_APP_CLIENT_ID }}
           private-key: ${{ secrets.MUSICFIN_MATCH_APP_PRIVATE_KEY }}
-          owner: qtmleap
-          repositories: match
-          permission-contents: read
+          repository: match
       - name: Deploy
         id: deploy
         env:
@@ -114,12 +109,21 @@ jobs:
           ASC_KEY_CONTENT: ${{ secrets.MUSICFIN_ASC_KEY_CONTENT }}
           MATCH_PASSWORD: ${{ secrets.MUSICFIN_MATCH_PASSWORD }}
           MATCH_GIT_TOKEN: ${{ steps.signing-token.outputs.token }}
-        run: bundle _4.0.16_ exec fastlane beta
-      - name: Preserve shipped build record
-        if: always() && steps.deploy.outcome == 'success'
-        uses: actions/upload-artifact@v4
+        uses: qtmleap/actions/actions/run-adapter@00c36aeda988735333907b407d98f6a4a9478b64
         with:
+          adapter: fastlane/adapter.rb
+          operation: release-ios
+      - name: Recover temporary signing keychain
+        if: always()
+        uses: qtmleap/actions/actions/run-adapter@00c36aeda988735333907b407d98f6a4a9478b64
+        with:
+          adapter: fastlane/adapter.rb
+          operation: cleanup
+      - name: Preserve shipped build record
+        if: always()
+        uses: qtmleap/actions/actions/release-record@00c36aeda988735333907b407d98f6a4a9478b64
+        with:
+          expected-source-sha: ${{ needs.verify.outputs.sha }}
           name: testflight-shipped-${{ needs.verify.outputs.sha }}
-          path: fastlane/testflight/last_shipped.json
-          if-no-files-found: error
-          retention-days: 90
+          path: ${{ runner.temp }}/musicfin-shipped-${{ github.run_id }}/last_shipped.json
+          if-no-files-found: ignore

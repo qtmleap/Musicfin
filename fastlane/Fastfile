@@ -242,7 +242,7 @@ lane :beta do
   shipped_sha = authorize_deployment(:beta)
   prepare_ci_signing
   # ホストのログイン keychain に依存せず、CI 内の署名に必要な鍵だけを import する。
-  setup_ci
+  setup_ci(keychain_name: ENV.fetch("CI_KEYCHAIN_NAME", "musicfin-ci-#{ENV.fetch('GITHUB_RUN_ID', Process.pid)}.keychain"), set_default_keychain: false)
   count = TestflightNotes.dirty_count(REPO_ROOT)
   if count.nil?
     UI.important("作業ツリーの変更件数を取得できませんでした。")

@@ -412,7 +412,7 @@ check "the deployment branch advancing during archive stops the lane before uplo
     calls = []
     lane.define_singleton_method(:authorize_deployment) { |_| MERGED_SHA }
     lane.define_singleton_method(:prepare_ci_signing) { }
-    lane.define_singleton_method(:setup_ci) { }
+    lane.define_singleton_method(:setup_ci) { |**options| raise "Default keychain changed" unless options[:set_default_keychain] == false }
     lane.define_singleton_method(:asc_api_key) { :test_key }
     lane.define_singleton_method(:next_build_number) { |_| 49 }
     lane.define_singleton_method(:whats_new_notes) { "Test notes" }
@@ -442,7 +442,7 @@ check "the lane prepares a CI keychain after authorization and before signing" d
     calls = []
     lane.define_singleton_method(:authorize_deployment) { |_| calls << :authorize; MERGED_SHA }
     lane.define_singleton_method(:prepare_ci_signing) { calls << :signing }
-    lane.define_singleton_method(:setup_ci) { calls << :keychain }
+    lane.define_singleton_method(:setup_ci) { |**options| assert options[:set_default_keychain] == false; calls << :keychain }
     lane.define_singleton_method(:asc_api_key) { calls << :credentials; :test_key }
     lane.define_singleton_method(:next_build_number) { |_| 49 }
     lane.define_singleton_method(:whats_new_notes) { "Test notes" }

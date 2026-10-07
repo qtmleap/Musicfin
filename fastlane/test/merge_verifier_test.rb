@@ -36,6 +36,18 @@ class FakeApi
 
   def get(path)
     @requests << path
+    if path.match?(%r{/actions/runs/\d+/attempts/\d+/jobs\?}) && !@responses.key?(path)
+      id, attempt = path.scan(%r{/runs/(\d+)/attempts/(\d+)/}).first.map(&:to_i)
+      runs = @responses.values.grep(Hash).flat_map { |value| value.fetch("workflow_runs", []) }
+      run = runs.find { |entry| entry["id"] == id && entry["run_attempt"] == attempt }
+      raise MergeVerifier::Error, "missing current attempt" unless run
+      return { "jobs" => run["fixture_jobs"] } if run.key?("fixture_jobs")
+      checks = @responses.values.grep(Hash).flat_map { |value| value.fetch("check_runs", []) }
+      return { "jobs" => checks.select { |check| check.dig("check_suite", "id") == run["check_suite_id"] }.map do |check|
+        { "name" => check["name"], "status" => check["status"], "conclusion" => check["conclusion"],
+          "check_run_url" => "https://api.github.com/repos/#{REPO}/check-runs/#{check['id']}" }
+      end }
+    end
     value = @responses.fetch(path) { raise MergeVerifier::Error, "unexpected API path #{path}" }
     value.respond_to?(:call) ? value.call : value
   end
@@ -98,7 +110,7 @@ end
 def build(s)
   head = s[:pull].dig("head", "sha")
   api = FakeApi.new(
-    "repos/#{REPO}/commits/#{MERGE}/pulls?per_page=100" => s[:pulls],
+    "repos/#{REPO}/commits/#{MERGE}/pulls?per_page=100&page=1" => s[:pulls],
     "repos/#{REPO}/pulls/7" => s[:pull],
     "repos/#{REPO}/branches/#{s[:branch]}" => { "commit" => { "sha" => s[:tip] } },
     "repos/#{REPO}/actions/runs?head_sha=#{head}&per_page=100&page=1" => { "workflow_runs" => s[:runs] },
@@ -179,7 +191,7 @@ check "two matching PRs are ambiguous" do
   s = scenario
   s[:pulls] = [{ "number" => 7 }, { "number" => 8 }]
   api = FakeApi.new(
-    "repos/#{REPO}/commits/#{MERGE}/pulls?per_page=100" => s[:pulls],
+    "repos/#{REPO}/commits/#{MERGE}/pulls?per_page=100&page=1" => s[:pulls],
     "repos/#{REPO}/pulls/7" => s[:pull],
     "repos/#{REPO}/pulls/8" => s[:pull].merge("number" => 8)
   )
@@ -198,7 +210,7 @@ check "a late PR index is retried a bounded number of times" do
   calls = 0
   list = -> { (calls += 1) < 2 ? [] : s[:pulls] }
   api = FakeApi.new(
-    "repos/#{REPO}/commits/#{MERGE}/pulls?per_page=100" => list,
+    "repos/#{REPO}/commits/#{MERGE}/pulls?per_page=100&page=1" => list,
     "repos/#{REPO}/pulls/7" => s[:pull],
     "repos/#{REPO}/branches/develop" => { "commit" => { "sha" => MERGE } },
     "repos/#{REPO}/actions/runs?head_sha=#{HEAD}&per_page=100&page=1" => { "workflow_runs" => s[:runs] },
@@ -275,7 +287,7 @@ end
 check "trusted workflow runs and checks on the second API page are accepted" do
   s = scenario
   api = FakeApi.new(
-    "repos/#{REPO}/commits/#{MERGE}/pulls?per_page=100" => s[:pulls],
+    "repos/#{REPO}/commits/#{MERGE}/pulls?per_page=100&page=1" => s[:pulls],
     "repos/#{REPO}/pulls/7" => s[:pull],
     "repos/#{REPO}/branches/#{s[:branch]}" => { "commit" => { "sha" => MERGE } },
     "repos/#{REPO}/actions/runs?head_sha=#{HEAD}&per_page=100&page=1" => {
@@ -296,7 +308,7 @@ end
 check "pagination is bounded" do
   s = scenario
   api = FakeApi.new(
-    "repos/#{REPO}/commits/#{MERGE}/pulls?per_page=100" => s[:pulls],
+    "repos/#{REPO}/commits/#{MERGE}/pulls?per_page=100&page=1" => s[:pulls],
     "repos/#{REPO}/pulls/7" => s[:pull]
   )
   responses = api.instance_variable_get(:@responses)
@@ -333,6 +345,12 @@ check "the verifier requires no credentials beyond a read token" do
     e
   end
   assert error, "empty token accepted"
+end
+
+rejects("successful checks without jobs from the exact trusted attempt") { |s| s[:runs].first["fixture_jobs"] = [] }
+rejects("a foreign check_run_url on the current attempt") do |s|
+  s[:runs].first["fixture_jobs"] = [{ "name" => INTEGRATION_CHECKS.first, "status" => "completed",
+    "conclusion" => "success", "check_run_url" => "https://api.github.com/repos/other/repo/check-runs/200" }]
 end
 
 if $failures.zero?

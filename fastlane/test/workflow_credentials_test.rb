@@ -21,7 +21,7 @@ step = deploy.fetch("steps").find { |s| s["name"] == "Deploy" }
 }.each do |variable, name|
   raise "#{variable} could fall back to a shared secret" unless step.fetch("env").fetch(variable) == "${{ secrets.#{name} }}"
 end
-app = deploy.fetch("steps").find { |s| s["uses"].to_s.start_with?("actions/create-github-app-token@") }
+app = deploy.fetch("steps").find { |s| s["uses"].to_s.start_with?("qtmleap/actions/actions/repository-token@") }
 raise "shared App ID fallback" unless app.fetch("with").fetch("client-id") == "${{ secrets.MUSICFIN_MATCH_APP_CLIENT_ID }}"
 raise "shared App key fallback" unless app.fetch("with").fetch("private-key") == "${{ secrets.MUSICFIN_MATCH_APP_PRIVATE_KEY }}"
 puts "Environment-only deployment credential references passed"

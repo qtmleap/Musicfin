@@ -24,6 +24,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
+          persist-credentials: false
           # PR のコミット範囲を確認できるよう、親コミットまで取得する。
           fetch-depth: 0
       - uses: oven-sh/setup-bun@v2
@@ -60,6 +61,8 @@ jobs:
     if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
     steps:
       - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
       - name: Ensure ShellCheck
         # self-hosted のイメージ差で lint が起動できなくなることを避ける。
         run: |
@@ -80,10 +83,12 @@ jobs:
   format:
     name: swift-format
     # swift-format は Xcode のツールチェーンに同梱されているため、macOS ランナーなら追加導入が要らない。
-    runs-on: [self-hosted, macOS, ARM64, macos-26]
+    runs-on: [self-hosted, macos-26]
     if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
     steps:
       - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
       - name: Show toolchain
         run: |
           xcodebuild -version
@@ -97,10 +102,12 @@ jobs:
 
   build:
     name: Build
-    runs-on: [self-hosted, macOS, ARM64, macos-26]
+    runs-on: [self-hosted, macos-26]
     if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
     steps:
       - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
 
       - name: Show toolchain
         run: |
@@ -155,10 +162,12 @@ jobs:
 
   unit-tests:
     name: Unit Tests
-    runs-on: [self-hosted, macOS, ARM64, macos-26]
+    runs-on: [self-hosted, macos-26]
     if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
     steps:
       - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
       - name: Run unit tests
         run: ./scripts/run-unit-tests.sh
 
@@ -168,6 +177,8 @@ jobs:
     if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
     steps:
       - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
       - name: Lint workflows
         # npm を呼ぶラッパーに依存せず、ShellCheck と Python 検査を同梱した公式イメージを使う。
         run: |
@@ -181,15 +192,11 @@ jobs:
     name: Fastlane Policy and Notes
     runs-on: [self-hosted, Linux, X64, ubuntu-latest, docker]
     if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
-    container: ruby:3.3-bookworm
     steps:
       - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
       - name: Test deployment policy and TestFlight helpers
-        run: |
-          for test in fastlane/test/*_test.rb; do
-            ruby "$test"
-          done
-      - name: Restore workspace ownership
-        if: always()
-        # 次の非コンテナジョブでも同じ checkout を清掃できるよう、親ディレクトリの所有者へ戻す。
-        run: chown -R "$(stat -c '%u:%g' "$GITHUB_WORKSPACE/..")" "$GITHUB_WORKSPACE"
+        uses: qtmleap/actions/actions/ruby-check@00c36aeda988735333907b407d98f6a4a9478b64
+        with:
+          command: 'for test in fastlane/test/*_test.rb; do ruby "$test"; done'

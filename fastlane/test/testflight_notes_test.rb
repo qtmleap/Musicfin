@@ -237,7 +237,7 @@ def fastfile_sandbox(dir)
   instance.define_singleton_method(:authorize_deployment) { |_| TestflightNotes.head_sha(dir) }
   instance.define_singleton_method(:verify_deployment_target) { |_| }
   instance.define_singleton_method(:prepare_ci_signing) { }
-  instance.define_singleton_method(:setup_ci) { }
+  instance.define_singleton_method(:setup_ci) { |**_| }
   [instance, events]
 end
 
