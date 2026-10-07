@@ -1,8 +1,10 @@
 name: Deployment
+# Environment の deployment branch 規則は pull_request の merge ref を拒否するため、
+# develop / master への push で起動する。push が「新しい PR マージ 1 回分」であることは、
+# 秘密を持たない verify ジョブが確かめ、保護された testflight Environment の deploy へ SHA と PR だけを渡す。
 on:
-  pull_request:
+  push:
     branches: [develop, master]
-    types: [closed]
     paths-ignore:
       - fastlane/testflight/last_shipped.json
 
@@ -15,17 +17,44 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  verify:
+    name: Verify merge
+    if: github.run_attempt == 1
+    runs-on: [self-hosted, Linux, X64, ubuntu-latest, docker]
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pull-requests: read
+      checks: read
+      actions: read
+    outputs:
+      pr_number: ${{ steps.verify.outputs.pr_number }}
+      sha: ${{ steps.verify.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # first parent との差分を取るため、親コミットまで取得する。
+          fetch-depth: 0
+          persist-credentials: false
+      # 秘密は一切渡さない。ワークスペースを root 所有にしないよう呼び出し元の uid で走らせる。
+      - name: Verify that this push is a new PR merge
+        id: verify
+        uses: qtmleap/actions/actions/verify-merge@00c36aeda988735333907b407d98f6a4a9478b64
+        with:
+          adapter: fastlane/lib/merge_verifier.rb
+          github-token: ${{ github.token }}
+
   deploy:
-    if: >-
-      github.event.pull_request.merged == true &&
-      contains(fromJSON('["develop","master"]'), github.event.pull_request.base.ref) &&
-      github.ref == format('refs/heads/{0}', github.event.pull_request.base.ref) &&
-      github.event.pull_request.head.repo.full_name == github.repository &&
-      github.run_attempt == 1
-    runs-on: [self-hosted, macOS, ARM64, macos-26]
+    name: Deploy to TestFlight
+    needs: verify
+    # 検証ジョブを再実行しない場合も、配信ジョブ自体で二重配信を止める。
+    if: success() && !cancelled() && github.run_attempt == 1
+    runs-on: [self-hosted, macos-26]
     environment: testflight
     timeout-minutes: 45
     env:
+      MUSICFIN_VERIFIED_SHA: ${{ needs.verify.outputs.sha }}
+      MUSICFIN_VERIFIED_PR: ${{ needs.verify.outputs.pr_number }}
       RBENV_VERSION: '3.4.10'
       LANG: en_US.UTF-8
       LC_ALL: en_US.UTF-8
@@ -35,42 +64,66 @@ jobs:
       - uses: actions/checkout@v5
         with:
           # 配信先ブランチが進んでも、イベントが指すマージ対象の内容だけをビルドする。
-          ref: ${{ github.event.pull_request.merge_commit_sha }}
+          ref: ${{ needs.verify.outputs.sha }}
           fetch-depth: 0
-      - name: Prepare VM Ruby and Fastlane
-        # hosted 用 Ruby の固定パスに依存せず、検証済み VM の Ruby を使う。
+          persist-credentials: false
+      - name: Inspect caller Apple profile
+        id: apple-version
+        shell: bash
         run: |
-          ruby_bin="$HOME/.rbenv/versions/$RBENV_VERSION/bin"
-          if [ ! -x "$ruby_bin/ruby" ]; then
-            echo "::error::Ruby $RBENV_VERSION is missing at $ruby_bin"
-            exit 1
-          fi
-          export GEM_HOME="$RUNNER_TEMP/musicfin-gems"
-          export GEM_PATH="$GEM_HOME"
-          export BUNDLE_PATH="$RUNNER_TEMP/musicfin-bundle"
-          export PATH="$ruby_bin:$GEM_HOME/bin:$PATH"
-          printf '%s\n' "$ruby_bin" "$GEM_HOME/bin" >> "$GITHUB_PATH"
-          printf '%s\n' "GEM_HOME=$GEM_HOME" "GEM_PATH=$GEM_PATH" "BUNDLE_PATH=$BUNDLE_PATH" >> "$GITHUB_ENV"
-          ruby --version
-          gem install bundler --version 4.0.16 --no-document
-          bundle _4.0.16_ install --jobs 4 --retry 2
+          test "$(uname -s)" = Darwin
+          test "$(uname -m)" = arm64
+          test "$(sw_vers -productVersion | cut -d. -f1)" = 26
+          version=$(DEVELOPER_DIR=/Applications/Xcode_26.5.app/Contents/Developer xcodebuild -version | /usr/bin/sed -n 's/^Xcode //p')
+          [[ "$version" == 26.* ]]
+          DEVELOPER_DIR=/Applications/Xcode_26.5.app/Contents/Developer xcrun --sdk iphoneos --show-sdk-version | /usr/bin/grep -E '^26\.'
+          printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
+      - name: Require Apple toolchain
+        uses: qtmleap/actions/actions/apple-toolchain@00c36aeda988735333907b407d98f6a4a9478b64
+        with:
+          xcode-version: ${{ steps.apple-version.outputs.version }}
+          developer-dir: /Applications/Xcode_26.5.app/Contents/Developer
+      - name: Prepare VM Ruby and Fastlane
+        uses: qtmleap/actions/actions/setup-ruby@00c36aeda988735333907b407d98f6a4a9478b64
+        with:
+          ruby-version: '3.4.10'
       - name: Validate merged deployment target
-        run: bundle _4.0.16_ exec ruby fastlane/lib/deployment_policy.rb
+        uses: qtmleap/actions/actions/run-adapter@00c36aeda988735333907b407d98f6a4a9478b64
+        with:
+          adapter: fastlane/adapter.rb
+          operation: authorize
+      # 検証と準備がすべて終わった直後に、署名リポジトリの読み取りだけを持つ短命 token を発行する。
+      # 鍵は入力としてだけ渡し、環境変数・GITHUB_ENV・CLI には出さない。post ステップが失効させる。
+      - name: Create short-lived signing token
+        id: signing-token
+        uses: qtmleap/actions/actions/repository-token@00c36aeda988735333907b407d98f6a4a9478b64
+        with:
+          client-id: ${{ secrets.MUSICFIN_MATCH_APP_CLIENT_ID }}
+          private-key: ${{ secrets.MUSICFIN_MATCH_APP_PRIVATE_KEY }}
+          repository: match
       - name: Deploy
         id: deploy
         env:
-          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
-          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
-          ASC_KEY_CONTENT: ${{ secrets.ASC_KEY_CONTENT }}
-          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
-          MATCH_GIT_PRIVATE_KEY: ${{ secrets.MATCH_GIT_PRIVATE_KEY }}
-          MATCH_GIT_TOKEN: ${{ secrets.MATCH_GIT_TOKEN }}
-        run: bundle _4.0.16_ exec fastlane beta
-      - name: Preserve shipped build record
-        if: always() && steps.deploy.outcome == 'success'
-        uses: actions/upload-artifact@v4
+          ASC_KEY_ID: ${{ secrets.MUSICFIN_ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.MUSICFIN_ASC_ISSUER_ID }}
+          ASC_KEY_CONTENT: ${{ secrets.MUSICFIN_ASC_KEY_CONTENT }}
+          MATCH_PASSWORD: ${{ secrets.MUSICFIN_MATCH_PASSWORD }}
+          MATCH_GIT_TOKEN: ${{ steps.signing-token.outputs.token }}
+        uses: qtmleap/actions/actions/run-adapter@00c36aeda988735333907b407d98f6a4a9478b64
         with:
-          name: testflight-shipped-${{ github.event.pull_request.merge_commit_sha }}
-          path: fastlane/testflight/last_shipped.json
-          if-no-files-found: error
-          retention-days: 90
+          adapter: fastlane/adapter.rb
+          operation: release-ios
+      - name: Recover temporary signing keychain
+        if: always()
+        uses: qtmleap/actions/actions/run-adapter@00c36aeda988735333907b407d98f6a4a9478b64
+        with:
+          adapter: fastlane/adapter.rb
+          operation: cleanup
+      - name: Preserve shipped build record
+        if: always()
+        uses: qtmleap/actions/actions/release-record@00c36aeda988735333907b407d98f6a4a9478b64
+        with:
+          expected-source-sha: ${{ needs.verify.outputs.sha }}
+          name: testflight-shipped-${{ needs.verify.outputs.sha }}
+          path: ${{ runner.temp }}/musicfin-shipped-${{ github.run_id }}/last_shipped.json
+          if-no-files-found: ignore

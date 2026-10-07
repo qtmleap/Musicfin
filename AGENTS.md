@@ -37,7 +37,7 @@ xcodebuild -project Musicfin.xcodeproj -scheme Musicfin -configuration Debug \
 ## Release only through develop or master merge CI
 
 All CI jobs use self-hosted runners. macOS jobs select
-`[self-hosted, macOS, ARM64, macos-26]`; Linux jobs select
+`[self-hosted, macos-26]`; Linux jobs select
 `[self-hosted, Linux, X64, ubuntu-latest, docker]`. The macOS runner starts a
 disposable VM per job; host credentials are not inherited.
 
@@ -47,10 +47,18 @@ GitHub Actions workflow after that PR is merged may upload a build to TestFlight
 Never deploy from a local checkout, a tag, a direct push, or a manual workflow dispatch. The App Store
 `release` lane is disabled. Keep the repository default branch unchanged.
 
+Deployment runs on a push to `develop`/`master`. A secret-free Linux `verify` job
+proves the push is a new same-repo PR merge and hands the SHA and PR to the
+protected `deploy` job, which mints a short-lived read-only `match` token from
+the GitHub App secrets `MUSICFIN_MATCH_APP_CLIENT_ID` / `MUSICFIN_MATCH_APP_PRIVATE_KEY`.
+
 Store all ASC and MATCH deployment credentials only in the protected GitHub
 Environment `testflight`, with deployment branches restricted to the branches
-`develop` and `master`. Do not keep repository-level copies: historical tagged
-workflows must not inherit deployment credentials.
+`develop` and `master`. Use the `MUSICFIN_` secret names listed in `fastlane/SETUP.md`;
+do not keep repository-level or organization-level copies of these credentials.
+Historical tagged workflows must not inherit these Musicfin-specific credentials.
+Existing shared organization credentials used by other projects have separate access
+policies; do not claim that this workflow change isolates or removes those copies.
 
 Use a merge commit or squash merge for release PRs. CI checks out the exact
 merge SHA and checks the live PR base branch tip before building and uploading;
