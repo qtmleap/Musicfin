@@ -1,0 +1,4 @@
+# 実際に登録されている Docker 対応 runner のラベルだけを lint に認識させる。
+self-hosted-runner:
+  labels:
+    - docker

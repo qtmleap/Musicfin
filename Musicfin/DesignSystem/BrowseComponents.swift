@@ -599,9 +599,12 @@ extension View {
     func librarySearchable(
         text: Binding<String>,
         prompt: LocalizedStringResource,
-        horizontalMargin: CGFloat
+        horizontalMargin: CGFloat,
+        isEnabled: Bool = true
     ) -> some View {
-        if UIDevice.current.userInterfaceIdiom == .pad {
+        if !isEnabled {
+            self
+        } else if UIDevice.current.userInterfaceIdiom == .pad {
             safeAreaInset(edge: .top, spacing: 0) {
                 LibrarySearchField(text: text, prompt: String(localized: prompt))
                     .padding(.horizontal, horizontalMargin)

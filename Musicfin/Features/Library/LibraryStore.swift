@@ -14,29 +14,36 @@ final class LibraryStore {
     }
 
     private(set) var homeState: LoadState = .idle
-    private(set) var recentlyAdded: [MediaItem] = []
-    private(set) var frequentlyPlayed: [MediaItem] = []
-    private(set) var favoriteTracks: [MediaItem] = []
-    private(set) var recentlyPlayedAlbums: [MediaItem] = []
+    private let pages = Dictionary(uniqueKeysWithValues: LibraryFeed.allCases.map { ($0, MediaPageCollection()) })
+    var recentlyAdded: [MediaItem] { page(for: .recentlyAdded).items }
+    var frequentlyPlayed: [MediaItem] { page(for: .frequentlyPlayed).items }
+    var favoriteTracks: [MediaItem] { page(for: .favoriteTracks).items }
+    var recentlyPlayedAlbums: [MediaItem] { page(for: .recentlyPlayedAlbums).items }
+    var recentlyPlayedTracks: [MediaItem] { page(for: .recentlyPlayedTracks).items }
     /// ライブラリ上部のカードに出す「最後に再生したアルバム」。履歴が無ければ nil。
     private(set) var lastPlayedAlbum: MediaItem?
 
     private(set) var albumsState: LoadState = .idle
     private(set) var albums: [MediaItem] = []
-    private(set) var tracksState: LoadState = .idle
-    private(set) var tracks: [MediaItem] = []
+    var tracksState: LoadState {
+        let page = page(for: .tracks)
+        if page.isLoading { return .loading }
+        if let error = page.errorMessage { return .failed(error) }
+        return page.hasLoaded ? .loaded : .idle
+    }
+    var tracks: [MediaItem] { page(for: .tracks).items }
     private(set) var artists: [MediaItem] = []
     private(set) var playlists: [MediaItem] = []
 
     /// アルバム詳細のトラック一覧。アルバム ID をキーにキャッシュする。
     private(set) var tracksByContainer: [String: [MediaItem]] = [:]
 
+    private var homeGeneration = 0
     private var client: JellyfinClient?
     private let logger = Logger(subsystem: "jp.qleap.musicfin", category: "LibraryStore")
 
     /// 全アルバムを取得しきったかどうか。無限スクロールの終端判定に使う。
     private var albumsExhausted = false
-    private var tracksExhausted = false
     private let pageSize = 100
 
     func configure(client: JellyfinClient?) {
@@ -46,52 +53,48 @@ final class LibraryStore {
     }
 
     private func reset() {
+        homeGeneration += 1
         homeState = .idle
         albumsState = .idle
-        tracksState = .idle
-        recentlyAdded = []
-        frequentlyPlayed = []
-        favoriteTracks = []
-        recentlyPlayedAlbums = []
+        for page in pages.values { page.reset() }
         lastPlayedAlbum = nil
         albums = []
-        tracks = []
         artists = []
         playlists = []
         tracksByContainer = [:]
         albumsExhausted = false
-        tracksExhausted = false
     }
 
     // MARK: - ホーム
+
+    func page(for feed: LibraryFeed) -> MediaPageCollection { pages[feed]! }
+
+    func loadFeed(_ feed: LibraryFeed, force: Bool = false) async {
+        guard let client, let userID = client.userID else { return }
+        let page = page(for: feed)
+        let fetch: (Int) async throws -> QueryResult<MediaItem> = { offset in
+            try await client.get("/Items", query: feed.query(userID: userID, startIndex: offset))
+        }
+        if force { await page.refresh(fetch: fetch) } else { await page.loadNext(fetch: fetch) }
+    }
 
     func loadHome(force: Bool = false) async {
         guard let client else { return }
         if case .loading = homeState { return }
         if case .loaded = homeState, !force { return }
+        let generation = homeGeneration
         homeState = .loading
-
-        do {
-            // 各セクションは互いに独立なので同時に取りに行く。
-            async let recent = client.fetchRecentlyAdded(limit: 20)
-            async let frequent = client.fetchFrequentlyPlayed(limit: 20)
-            async let favorites = client.fetchFavoriteTracks(limit: 50)
-            // 再生日時の降順で 1 件。未再生でも並びの先頭に来るので、再生回数で実際の履歴か確かめる。
-            async let lastPlayed = client.fetchAlbums(
-                limit: 20, sortBy: "DatePlayed", sortOrder: "Descending")
-
-            recentlyAdded = try await recent
-            frequentlyPlayed = try await frequent
-            favoriteTracks = try await favorites
-            recentlyPlayedAlbums = try await lastPlayed.items.filter {
-                ($0.userData?.playCount ?? 0) > 0
-            }
-            lastPlayedAlbum = recentlyPlayedAlbums.first
-            homeState = .loaded
-        } catch {
-            logger.error("ホームの取得に失敗: \(error.localizedDescription, privacy: .public)")
-            homeState = .failed(error.localizedDescription)
-        }
+        async let recent: Void = loadFeed(.recentlyAdded, force: force)
+        async let frequent: Void = loadFeed(.frequentlyPlayed, force: force)
+        async let favorites: Void = loadFeed(.favoriteTracks, force: force)
+        async let albums: Void = loadFeed(.recentlyPlayedAlbums, force: force)
+        async let tracks: Void = loadFeed(.recentlyPlayedTracks, force: force)
+        _ = await (recent, frequent, favorites, albums, tracks)
+        guard self.client == client, generation == homeGeneration else { return }
+        lastPlayedAlbum = recentlyPlayedAlbums.first
+        let error = LibraryFeed.allCases.filter { $0 != .tracks }.compactMap { page(for: $0).errorMessage }.first
+        let initialized = LibraryFeed.allCases.filter { $0 != .tracks }.allSatisfy { page(for: $0).hasLoaded }
+        homeState = error.map { .failed($0) } ?? (initialized ? .loaded : .idle)
     }
 
     // MARK: - アルバム / アーティスト / プレイリスト
@@ -155,31 +158,7 @@ final class LibraryStore {
     // MARK: - トラック
 
     func loadTracks(force: Bool = false) async {
-        guard let client else { return }
-        if case .loading = tracksState { return }
-        if force {
-            tracks = []
-            tracksExhausted = false
-        } else if tracksExhausted {
-            return
-        }
-        tracksState = .loading
-
-        do {
-            let page = try await client.fetchTracks(startIndex: tracks.count, limit: pageSize)
-            tracks.append(contentsOf: page.items)
-            tracksExhausted = tracks.count >= page.totalRecordCount || page.items.isEmpty
-            tracksState = .loaded
-        } catch {
-            tracksState = .failed(error.localizedDescription)
-        }
-    }
-
-    /// 一覧末尾より少し前で次ページを読み、スクロールを止めずに続きを出す。
-    func loadMoreTracksIfNeeded(currentItem item: MediaItem) async {
-        guard !tracksExhausted, case .loaded = tracksState else { return }
-        guard let index = tracks.firstIndex(where: { $0.id == item.id }), index >= tracks.count - 10 else { return }
-        await loadTracks()
+        await loadFeed(.tracks, force: force)
     }
 
     /// アルバムまたはプレイリストの収録曲。取得済みならキャッシュを返す。
@@ -273,11 +252,8 @@ final class LibraryStore {
             data.isFavorite = value
             items[index].userData = data
         }
-        update(&recentlyAdded)
-        update(&frequentlyPlayed)
-        update(&favoriteTracks)
+        for page in pages.values { page.updateFavorite(value, itemID: itemID) }
         update(&albums)
-        update(&tracks)
         for key in tracksByContainer.keys {
             update(&tracksByContainer[key]!)
         }

@@ -13,7 +13,7 @@ bundle exec fastlane lanes
 |---|---|---|
 | `fastlane setup_profiles` | Bundle ID 登録 + アプリレコード作成 + **match リポジトリへ書き込み**。初回のみ | **高**（他アプリと同居する署名資産を触る） |
 | `fastlane verify` | 署名 + アーカイブのみ。アップロードしない | なし |
-| Deployment CI の `beta` | 同じリポジトリの PR が `develop` にマージされた初回だけビルド → TestFlight | CI 限定 |
+| Deployment CI の `beta` | 検証ジョブが確認した、同じリポジトリの PR が `develop` または `master` にマージされた初回だけビルド → TestFlight | CI 限定 |
 | `fastlane release` | App Store 配信は無効。認証前に拒否する | 実行不可 |
 | `fastlane notify_testers` | アップロード済みビルドについてテスターへ通知を送る。ビルドしない | 中（テスターに通知が飛ぶ） |
 | `fastlane notify_testers dry_run:true` | 対象の特定とログ出力だけ。通知は送らない | なし |
@@ -249,11 +249,32 @@ ruby fastlane/test/testflight_notes_test.rb
 
 ## CI（GitHub Actions）
 
-`.github/workflows/deployment.yaml` は `develop` 宛て PR の `closed` イベントで、
-同じリポジトリからの PR がマージ済みの場合だけ `beta` を呼ぶ。
-マージコミットまたは squash merge を使う。`merge_commit_sha` を指定して履歴全体を取得し、
-ビルド前とアップロード直前に、実際の HEAD と最新の `origin/develop` がその SHA と一致することを確認する。
+配信・検証はすべて self-hosted runner を使う。
+macOS ジョブは `[self-hosted, macOS, ARM64, macos-26]` で Mac Studio のオンデマンド VM
+（macOS 26 / Xcode 26.5）へ、Linux ジョブは `[self-hosted, Linux, X64, ubuntu-latest, docker]`
+で既存の RTX runner へ送る。配信 lane も `RUNNER_ENVIRONMENT=self-hosted` を検証する。
+VM の Ruby 3.4.10 と Bundler 4.0.16 を使い、Gem はジョブの一時ディレクトリへ置く。
+Linux の Fastlane helper テストは `ruby:3.3-bookworm` コンテナで実行する。`verify` ジョブは固定した Ruby 3.4.10 イメージを使う。
+
+Mac Studio runner group は、既存 private リポジトリと Musicfin を selected に登録し、
+公開リポジトリは Musicfin だけを許可する。新しい private リポジトリを利用する際も追加登録が必要。
+外部 contributor の fork PR は GitHub 側で毎回承認を必須にする。ワークフローの条件でも fork を除外するが、
+PR で条件自体を変更できるため、`.github/` や `scripts/` を変更する外部 PR の実行は承認しない。
+fork PR の検証は、変更内容を確認して同じリポジトリのブランチへ取り込んだ後に行う。
+
+`.github/workflows/deployment.yaml` は `develop` または `master` への push で起動する。
+Environment の deployment branch rule は PR の merge ref を拒否するため、`pull_request` の `closed` は使わない。
+秘密を持たない Linux の `verify` ジョブ（`fastlane/lib/merge_verifier.rb`、Ruby 3.4.10 の固定 Docker イメージ）が、
+作成・削除・強制 push・before 全ゼロを拒否し、`after == GITHUB_SHA`、first parent == `before` を確認する。
+さらに API で、同じリポジトリからマージされた PR を一意に特定し、`merge_commit_sha` が一致すること、
+マージ先ブランチの現在の先端であること、PR の head で必須チェックが成功していることを確かめる。
+マージ後は PR に紐づく配列が空になるため、チェックは実行のパス・イベント・head・元ブランチから信頼する。
+検証済みの SHA と PR 番号だけが `testflight` Environment の `deploy` ジョブへ渡り、チェックアウトと成功記録の artifact もその SHA を使う。
+マージコミットまたは squash merge を使う。
+ビルド前とアップロード直前に、実際の HEAD とマージ先ブランチの最新 SHA がその SHA と一致し、
+first parent が push の `before` と一致することを確認する。検証結果が無ければ lane は拒否する。
 作業ツリーに未コミットの変更がある場合も止める。
+`develop` から `master` への昇格 PR も、条件を満たせば新しいビルドを配信する。
 
 タグ、直接 push、手動 dispatch、ローカル実行は配信経路にならない。
 `release` による App Store バイナリ配信も無効。
@@ -276,34 +297,43 @@ rebase merge の最終コミットが記録だけの場合も保守的に配信�
 run が検証したマージ SHA と、App Store Connect の実際のビルド番号・バージョン・アップロード日時から
 `last_shipped.json` を復元し、run 終了後に記録だけの PR を作る。
 
-`.p8` はファイルとして置けないので、`ASC_KEY_CONTENT` に base64 で渡すと
-`asc_api_key` が一時ファイルに書き出して使う（`ASC_KEY_FILEPATH` は不要）。
+CI は `.p8` を `ASC_KEY_CONTENT` に base64 で渡し、`asc_api_key` がメモリ上の中身を使う。
+一時ファイルへ書き出さず、値が欠けた場合も `ASC_KEY_FILEPATH` にはフォールバックしない。
 
 配信用 credential はすべて保護された GitHub Environment `testflight` の Secrets にだけ保存する。
 Deployment job はこの Environment を指定し、Environment の deployment branch rule は
-`develop` だけを許可する branch 型で登録する。タグを許可する rule は追加しない。
+`develop` と `master` だけを許可する branch 型で登録する。タグを許可する rule は追加しない。
 下表の ASC・MATCH Secret を repository Secrets に残してはいけない。
 既存の値を Environment へ移したら repository 側のコピーを削除する。
-これにより、過去のタグに残る旧ワークフローには配信用 credential が渡らない。
+新しい workflow は `MUSICFIN_` で始まる専用名を参照し、同名の repository / organization
+Secret が無いことも確認する。これらの値は旧ワークフローの共通名からは参照できない。
+他アプリ向けの既存 organization Secret は別の共有設定を持つため、この変更だけで
+過去の workflow から利用できなくなるとは扱わない。
 
 | `testflight` Environment Secret | 値 |
 |---|---|
-| `ASC_KEY_ID` | API Key の Key ID |
-| `ASC_ISSUER_ID` | API Key の Issuer ID |
-| `ASC_KEY_CONTENT` | `base64 -i AuthKey_XXXXXXXXXX.p8` の出力（改行なし） |
-| `MATCH_PASSWORD` | `qtmleap/match` の暗号化パスフレーズ |
-| `MATCH_GIT_TOKEN` | 推奨。`qtmleap/match` だけを対象にした、Contents 読み取り専用の fine-grained PAT。組織で必要なら承認を済ませる |
-| `MATCH_GIT_PRIVATE_KEY` | deploy key が許可される場合の代替。`qtmleap/match` に登録した、読み取り専用 deploy key の秘密鍵本文 |
+| `MUSICFIN_ASC_KEY_ID` | API Key の Key ID |
+| `MUSICFIN_ASC_ISSUER_ID` | API Key の Issuer ID |
+| `MUSICFIN_ASC_KEY_CONTENT` | `base64 -i AuthKey_XXXXXXXXXX.p8` の出力（改行なし） |
+| `MUSICFIN_MATCH_PASSWORD` | `qtmleap/match` の暗号化パスフレーズ |
+| `MUSICFIN_MATCH_APP_CLIENT_ID` | 組織所有の署名用 GitHub App の Client ID |
+| `MUSICFIN_MATCH_APP_PRIVATE_KEY` | 同 App の秘密鍵（PEM 本文）。`testflight` Environment にだけ保存する |
 
-署名リポジトリの認証は `MATCH_GIT_TOKEN` と `MATCH_GIT_PRIVATE_KEY` の一方だけ設定する。
-両方設定済み、または両方未設定なら、認証処理へ進む前に止める。
-token なら `https://github.com/qtmleap/match.git` と basic authorization、
-deploy key なら `git@github.com:qtmleap/match.git` を使う。
-`Matchfile` は CI が設定する `MATCH_GIT_URL` を優先し、ローカルの署名検証では従来の HTTPS URL を使う。
-deploy key は Musicfin CI 専用にし、GitHub 側の書き込み権限を有効にしない。
-組織の方針で deploy key が禁止されている場合は token を選ぶ。
+Deploy step は ASC と MATCH の専用名を Fastlane の通常の環境変数名へ割り当てる。
+
+署名リポジトリの認証は、検証とセットアップがすべて終わった直後に
+`actions/create-github-app-token`（commit 固定）が発行する短命 token だけを使う。
+App は `qtmleap/match` への Contents 読み取りだけを許可し、鍵は action の入力としてだけ渡す
+（環境変数・`GITHUB_ENV`・CLI には出さない）。token は post ステップで失効する。
+SSH 鍵と PAT の Secret は使わない。lane は `https://github.com/qtmleap/match.git` と basic authorization を使い、
+派生した base64 もログのマスクへ登録する。ローカルの署名検証では従来どおり
+`MATCH_GIT_PRIVATE_KEY` / `MATCH_GIT_TOKEN` を使えるが、配信は CI だけで行う。
+`Matchfile` は CI が設定する `MATCH_GIT_URL` を優先し、ローカルでは従来の HTTPS URL を使う。
+アーカイブ中は ASC・署名リポジトリ・GitHub の資格情報を環境から外し、終了時（例外でも）に元へ戻す。
 
 配信ガードを通過した後だけ `setup_ci` が CI 専用の一時 keychain を用意する。
+ジョブごとに VM を破棄するため、親 Mac のログイン認証や keychain は引き継がない。
+署名リポジトリの App token も `testflight` Environment の Secret から発行する。
 署名リポジトリの match は常に `readonly: true` のまま使用する。
 
 ## 審査に出す前に必要なもの

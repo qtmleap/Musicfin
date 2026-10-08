@@ -17,17 +17,22 @@ env:
 jobs:
   commitlint:
     name: Commit Lint
-    runs-on: ubuntu-latest
-    if: github.event.action != 'closed' || github.event.pull_request.merged != true
+    runs-on: [self-hosted, Linux, X64, ubuntu-latest, docker]
+    if: >-
+      (github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository) &&
+      (github.event.action != 'closed' || github.event.pull_request.merged != true)
     steps:
       - uses: actions/checkout@v5
         with:
-          # commitlint --from HEAD~N needs prior commits in the working tree.
+          persist-credentials: false
+          # PR のコミット範囲を確認できるよう、親コミットまで取得する。
           fetch-depth: 0
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
       - name: Cache Bun install
+        # act のホスト実行で、他の作業を含む共有キャッシュを圧縮しない。
+        if: env.ACT != 'true'
         uses: actions/cache@v4
         with:
           path: ~/.bun/install/cache
@@ -47,18 +52,24 @@ jobs:
             --to ${{ github.event.pull_request.head.sha }} \
             --verbose
       - name: Validate last commit
-        if: github.event_name == 'push'
+        if: github.event_name == 'workflow_dispatch'
         run: bunx commitlint --last --verbose
 
   shellcheck:
     name: ShellCheck
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64, ubuntu-latest, docker]
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
     steps:
       - uses: actions/checkout@v5
-      - name: Install shellcheck (act only)
-        # GitHub のランナーには同梱されているが、act のコンテナには無い。
-        if: env.ACT == 'true'
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
+        with:
+          persist-credentials: false
+      - name: Ensure ShellCheck
+        # self-hosted のイメージ差で lint が起動できなくなることを避ける。
+        run: |
+          if ! command -v shellcheck >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq shellcheck
+          fi
       - name: Lint shell scripts
         run: |
           shopt -s nullglob
@@ -72,9 +83,12 @@ jobs:
   format:
     name: swift-format
     # swift-format は Xcode のツールチェーンに同梱されているため、macOS ランナーなら追加導入が要らない。
-    runs-on: macos-26
+    runs-on: [self-hosted, macos-26]
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
     steps:
       - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
       - name: Show toolchain
         run: |
           xcodebuild -version
@@ -88,9 +102,12 @@ jobs:
 
   build:
     name: Build
-    runs-on: macos-26
+    runs-on: [self-hosted, macos-26]
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
     steps:
       - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
 
       - name: Show toolchain
         run: |
@@ -145,29 +162,41 @@ jobs:
 
   unit-tests:
     name: Unit Tests
-    runs-on: macos-26
+    runs-on: [self-hosted, macos-26]
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
     steps:
       - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
       - name: Run unit tests
         run: ./scripts/run-unit-tests.sh
 
   actionlint:
     name: actionlint
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64, ubuntu-latest, docker]
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
     steps:
       - uses: actions/checkout@v5
-      - uses: raven-actions/actionlint@v2
+        with:
+          persist-credentials: false
+      - name: Lint workflows
+        # npm を呼ぶラッパーに依存せず、ShellCheck と Python 検査を同梱した公式イメージを使う。
+        run: |
+          docker run --rm \
+            --volume "$PWD:/work:ro" \
+            --workdir /work \
+            rhysd/actionlint:1.7.12@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667 \
+            -verbose
 
   fastlane-tests:
     name: Fastlane Policy and Notes
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64, ubuntu-latest, docker]
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
     steps:
       - uses: actions/checkout@v5
-      - uses: ruby/setup-ruby@v1
         with:
-          ruby-version: '3.3'
+          persist-credentials: false
       - name: Test deployment policy and TestFlight helpers
-        run: |
-          for test in fastlane/test/*_test.rb; do
-            ruby "$test"
-          done
+        uses: qtmleap/actions/actions/ruby-check@00c36aeda988735333907b407d98f6a4a9478b64
+        with:
+          command: 'for test in fastlane/test/*_test.rb; do ruby "$test"; done'

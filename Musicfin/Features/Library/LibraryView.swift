@@ -107,20 +107,6 @@ struct LibraryView: View {
     var body: some View {
         GeometryReader { geometry in
             List {
-                HStack {
-                    Text("ライブラリ").font(.largeTitle.bold())
-                    Spacer()
-                    Button {
-                        showsAccount = true
-                    } label: {
-                        AccountAvatar(name: accountName, size: 44)
-                    }
-                    .accessibilityLabel("アカウント")
-                    .accessibilityIdentifier("library.account")
-                }
-                .listRowInsets(EdgeInsets(top: 0, leading: 20, bottom: 12, trailing: 20))
-                .listRowSeparator(.hidden)
-
                 if let album = library.lastPlayedAlbum { lastPlayedCard(album) }
 
                 ForEach(menu, id: \.route) { entry in
@@ -146,7 +132,21 @@ struct LibraryView: View {
             .refreshable { await library.loadHome(force: true) }
         }
         .background(AppBackdrop())
-        .toolbarVisibility(.hidden, for: .navigationBar)
+        .prefetchArtwork(library.recentlyAdded, size: 200)
+        .tabNavigationTitle(Text("ライブラリ"))
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    showsAccount = true
+                } label: {
+                    AccountAvatar(name: accountName, size: 44)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("アカウント")
+                .accessibilityIdentifier("library.account")
+            }
+            .sharedBackgroundVisibility(.hidden)
+        }
         .sheet(isPresented: $showsAccount) { AccountView() }
         .navigationDestination(for: LibraryRoute.self) { route in
             switch route {
@@ -187,29 +187,43 @@ struct LibraryView: View {
     /// メニューの下に最近追加を並べ、ライブラリ直下からもアルバムへ入れるようにする。
     private func recentlyAdded(width: CGFloat) -> some View {
         let metrics = AlbumGridMetrics(width: width)
-        return Section {
-            LazyVGrid(columns: metrics.gridItems, alignment: .leading, spacing: AlbumGridMetrics.rowSpacing) {
-                ForEach(library.recentlyAdded) { album in
-                    Button {
-                        selectedAlbum = album
-                    } label: {
-                        AlbumCard(item: album, size: metrics.size)
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .padding(.vertical, 8)
-            .listRowInsets(EdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 20))
-            .listRowSeparator(.hidden)
-        } header: {
+        // plain List のセクション見出しは固定されるため、通常の行として本文と一緒に流す。
+        return Group {
             Text("最近追加した項目")
                 .font(.title2.bold())
-                // 見出しの地は secondary なので、階層スタイルではなくラベル色を直に指す。
+                .accessibilityAddTraits(.isHeader)
                 .foregroundStyle(Color.primary)
                 .textCase(nil)
-                // 上は 16 pt も空けると最後のカテゴリの罫線から見出しまでが Apple 実機より 13 pt 広がる。
-                // 見出しの文字自体が持つ行間の余白があるので、行側は最小限にとどめる。
+                // 見出し自体の行間があるため、最後のカテゴリとの余白を行側で広げない。
                 .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 5, trailing: 20))
+                .listRowSeparator(.hidden)
+            // List が巨大な一行の高さを推測すると末尾が先に現れるため、段ごとに行を分ける。
+            ForEach(Array(stride(from: 0, to: library.recentlyAdded.count, by: metrics.columns)), id: \.self) { start in
+                LazyVGrid(columns: metrics.gridItems, alignment: .leading, spacing: 0) {
+                    ForEach(
+                        Array(library.recentlyAdded[start..<min(start + metrics.columns, library.recentlyAdded.count)])
+                    ) { album in
+                        Button {
+                            selectedAlbum = album
+                        } label: {
+                            AlbumCard(item: album, size: metrics.size)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("library.recent.\(album.id)")
+                    }
+                }
+                .listRowInsets(
+                    EdgeInsets(
+                        top: start == 0 ? 8 : AlbumGridMetrics.rowSpacing,
+                        leading: 20,
+                        bottom: start + metrics.columns >= library.recentlyAdded.count ? 8 : 0,
+                        trailing: 20
+                    )
+                )
+                .listRowSeparator(.hidden)
+            }
+            LibraryFeedLoader(feed: .recentlyAdded)
+                .listRowSeparator(.hidden)
         }
     }
 }
@@ -220,18 +234,29 @@ struct LibraryView: View {
 struct AlbumGridView: View {
     let title: String
     var albums: [MediaItem]?
+    var feed: LibraryFeed?
+    /// タブの入口だけ画面名を出し、ライブラリから開く一覧の配置は保つ。
+    var isTabRoot = false
 
     @Environment(AuthStore.self) private var auth
     @Environment(AlbumCatalog.self) private var catalog
     @Environment(LibraryStore.self) private var library
     @Environment(PlaybackEngine.self) private var player
     @State private var query = ""
-    @State private var order = LibrarySort.title
+    @State private var order: LibrarySort?
     /// 収録曲を集めている間は二重に押させない。アルバム数だけ問い合わせが走るので時間がかかる。
     @State private var isPreparing = false
 
-    private var source: [MediaItem] { albums ?? catalog.items }
-    private var items: [MediaItem] { order.sort(source.matching(query)) }
+    private var activeFeed: LibraryFeed? { isTabRoot ? .recentlyAdded : feed }
+    private var source: [MediaItem] {
+        if let activeFeed { return library.page(for: activeFeed).items }
+        return albums ?? catalog.items
+    }
+    private var items: [MediaItem] {
+        let filtered = source.matching(query)
+        if let order { return order.sort(filtered) }
+        return activeFeed == nil ? LibrarySort.title.sort(filtered) : filtered
+    }
     private var usesPadPresentation: Bool { UIDevice.current.userInterfaceIdiom == .pad }
 
     var body: some View {
@@ -243,40 +268,47 @@ struct AlbumGridView: View {
             }
         }
         .background(AppBackdrop())
-        .navigationTitle(usesPadPresentation ? "" : title)
-        .navigationBarTitleDisplayMode(usesPadPresentation ? .inline : .large)
+        .prefetchArtwork(source, size: 200)
+        .modifier(
+            AlbumGridChildNavigationTitle(title: title, usesPadPresentation: usesPadPresentation, isTabRoot: isTabRoot)
+        )
         .librarySearchable(
             text: $query,
             prompt: "検索",
-            horizontalMargin: usesPadPresentation ? 34.5 : 20
+            horizontalMargin: usesPadPresentation ? 34.5 : 20,
+            isEnabled: !isTabRoot
         )
         .libraryNavigationMargins(usesPadPresentation ? 34.5 : 20)
         .toolbar {
             if usesPadPresentation {
-                ToolbarItem(placement: .topBarLeading) {
-                    Text(title)
-                        .font(.largeTitle.bold())
-                        .accessibilityAddTraits(.isHeader)
+                if !isTabRoot {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Text(title)
+                            .font(.largeTitle.bold())
+                            .accessibilityAddTraits(.isHeader)
+                    }
                 }
                 ToolbarItemGroup(placement: .topBarTrailing) {
-                    Button {
-                        play(shuffled: false)
-                    } label: {
-                        Image(systemName: "play.fill")
-                            .foregroundStyle(Color.primary)
+                    if !isTabRoot {
+                        Button {
+                            play(shuffled: false)
+                        } label: {
+                            Image(systemName: "play.fill")
+                                .foregroundStyle(Color.primary)
+                        }
+                        .disabled(items.isEmpty || isPreparing)
+                        .accessibilityLabel("再生")
+                        Button {
+                            play(shuffled: true)
+                        } label: {
+                            Image(systemName: "shuffle")
+                                .foregroundStyle(Color.primary)
+                        }
+                        .disabled(items.isEmpty || isPreparing)
+                        .accessibilityLabel("シャッフル")
                     }
-                    .disabled(items.isEmpty || isPreparing)
-                    .accessibilityLabel("再生")
-                    Button {
-                        play(shuffled: true)
-                    } label: {
-                        Image(systemName: "shuffle")
-                            .foregroundStyle(Color.primary)
-                    }
-                    .disabled(items.isEmpty || isPreparing)
-                    .accessibilityLabel("シャッフル")
                     Menu {
-                        Picker("並べ替え", selection: $order) {
+                        Picker("並べ替え", selection: Binding(get: { order ?? .title }, set: { order = $0 })) {
                             ForEach([LibrarySort.title, .artist, .year], id: \.self) { option in
                                 Text(option.label).tag(option)
                             }
@@ -295,9 +327,11 @@ struct AlbumGridView: View {
                     .accessibilityLabel("その他")
                 }
             } else {
-                LibrarySortMenu(order: $order, options: [.title, .artist, .year])
+                LibrarySortMenu(
+                    order: Binding(get: { order ?? .title }, set: { order = $0 }), options: [.title, .artist, .year])
             }
         }
+        .tabNavigationTitle(Text(title), isEnabled: isTabRoot)
     }
 
     private var phoneGrid: some View {
@@ -311,22 +345,26 @@ struct AlbumGridView: View {
                 .padding(.top, 14)
             }
             .safeAreaInset(edge: .top, spacing: 0) {
-                if !items.isEmpty {
-                    TrackListActions(
-                        play: { play(shuffled: false) },
-                        shuffle: { play(shuffled: true) },
-                        listInsets: nil
-                    )
-                    .disabled(isPreparing)
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 10)
-                    .background(.bar)
-                    .accessibilityElement(children: .contain)
-                    .accessibilityIdentifier("library.albums.actions")
+                if !isTabRoot, !items.isEmpty {
+                    albumActions
                 }
             }
             .overlay { emptyOverlay }
         }
+    }
+
+    private var albumActions: some View {
+        TrackListActions(
+            play: { play(shuffled: false) },
+            shuffle: { play(shuffled: true) },
+            listInsets: nil
+        )
+        .disabled(isPreparing)
+        .padding(.horizontal, 20)
+        .padding(.vertical, 10)
+        .background(.bar)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("library.albums.actions")
     }
 
     private var padGrid: some View {
@@ -371,13 +409,16 @@ struct AlbumGridView: View {
     @ViewBuilder
     private var pagination: some View {
         // 絞り込み中に次ページを読み続けると一覧が飛ぶので、全件表示のときだけ継ぎ足す。
-        if albums == nil, query.isEmpty {
+        if query.isEmpty, let activeFeed {
+            LibraryFeedLoader(feed: activeFeed)
+        } else if albums == nil, query.isEmpty {
             if let message = catalog.errorMessage {
                 LoadErrorView(message: message) { await loadNext() }
+            } else if !catalog.isComplete, catalog.needsManualContinuation {
+                Button("さらに読み込む") { Task { await loadNext() } }
             } else if !catalog.isComplete {
-                ProgressView()
-                    .padding()
-                    .task(id: catalog.items.count) { await loadNext() }
+                PaginationLoader(
+                    revision: catalog.revision, isLoading: { catalog.isLoading }, load: { await loadNext() })
             }
         }
     }
@@ -406,6 +447,24 @@ struct AlbumGridView: View {
     private func loadNext() async {
         guard let client = auth.client else { return }
         await catalog.loadNext { try await client.fetchAlbums(startIndex: $0) }
+    }
+}
+
+private struct AlbumGridChildNavigationTitle: ViewModifier {
+    let title: String
+    let usesPadPresentation: Bool
+    let isTabRoot: Bool
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if isTabRoot {
+            // 子画面の inline 指定を重ねると、タブ共通の大見出しまで小さく中央に寄ってしまう。
+            content
+        } else {
+            content
+                .navigationTitle(usesPadPresentation ? "" : title)
+                .navigationBarTitleDisplayMode(usesPadPresentation ? .inline : .large)
+        }
     }
 }
 
@@ -452,6 +511,7 @@ struct GenreListView: View {
             }
         }
         .background(AppBackdrop())
+        .prefetchArtwork(catalog.items, size: 200)
         .navigationTitle("ジャンル")
         // 一覧の画面名は左寄せの largeTitle（仕様 1.1 章）。中央インラインにはしない。
         .navigationBarTitleDisplayMode(.large)
@@ -527,6 +587,7 @@ struct LibraryCollectionView: View {
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
         .background(AppBackdrop())
+        .prefetchArtwork(source, size: 64)
         .navigationTitle(title)
         // 一覧の画面名は左寄せの largeTitle（仕様 1.1 章）。中央インラインにはしない。
         .navigationBarTitleDisplayMode(.large)
@@ -616,6 +677,7 @@ struct SongsView: View {
                 }
         }
         .background(AppBackdrop())
+        .prefetchArtwork(library.tracks, size: 48)
         .navigationTitle("曲")
         // 一覧の画面名は左寄せの largeTitle（仕様 1.1 章）。中央インラインにはしない。
         .navigationBarTitleDisplayMode(.large)
@@ -641,9 +703,6 @@ struct SongsView: View {
                     ForEach(section.tracks) { track in
                         SongListRow(track: track, queue: tracks, horizontalMargin: horizontalMargin)
                             .accessibilityIdentifier("song.row")
-                            .task {
-                                if query.isEmpty { await library.loadMoreTracksIfNeeded(currentItem: track) }
-                            }
                     }
                 } header: {
                     Text(section.key)
@@ -666,8 +725,9 @@ struct SongsView: View {
                 }
             }
 
-            if query.isEmpty, library.tracksState == .loading, !library.tracks.isEmpty {
-                ProgressView().frame(maxWidth: .infinity)
+            if query.isEmpty {
+                LibraryFeedLoader(feed: .tracks)
+                    .listRowSeparator(.hidden)
             }
         }
         .listStyle(.plain)
@@ -771,11 +831,16 @@ private struct SongListRow: View {
 // MARK: - お気に入りの曲
 
 struct FavoriteTracksView: View {
+    var feed: LibraryFeed = .favoriteTracks
+    private var title: LocalizedStringKey { feed == .favoriteTracks ? "お気に入りの曲" : "最近再生した曲" }
     @Environment(LibraryStore.self) private var library
     @Environment(PlaybackEngine.self) private var player
     @State private var query = ""
 
-    private var source: [MediaItem] { library.favoriteTracks.filter(\.isFavorite) }
+    private var source: [MediaItem] {
+        let items = library.page(for: feed).items
+        return feed == .favoriteTracks ? items.filter(\.isFavorite) : items
+    }
     private var tracks: [MediaItem] { source.matching(query) }
     private var horizontalMargin: CGFloat {
         UIDevice.current.userInterfaceIdiom == .pad ? 34.5 : 20
@@ -812,10 +877,12 @@ struct FavoriteTracksView: View {
                         } label: {
                             Label("次に再生", systemImage: "text.line.first.and.arrowtriangle.forward")
                         }
-                        Button(role: .destructive) {
+                        Button {
                             Task { await library.toggleFavorite(track) }
                         } label: {
-                            Label("お気に入りから削除", systemImage: "heart.slash")
+                            Label(
+                                track.isFavorite ? "お気に入りから削除" : "お気に入りに追加",
+                                systemImage: track.isFavorite ? "heart.slash" : "heart")
                         }
                     }
                 }
@@ -831,16 +898,20 @@ struct FavoriteTracksView: View {
                     Button {
                         Task { await library.toggleFavorite(track) }
                     } label: {
-                        Label("お気に入りから削除", systemImage: "heart.slash")
+                        Label(
+                            track.isFavorite ? "お気に入りから削除" : "お気に入りに追加",
+                            systemImage: track.isFavorite ? "heart.slash" : "heart")
                     }
                     .tint(.pink)
                 }
             }
+            if query.isEmpty { LibraryFeedLoader(feed: feed).listRowSeparator(.hidden) }
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
         .background(AppBackdrop())
-        .navigationTitle("お気に入りの曲")
+        .prefetchArtwork(source, size: 48)
+        .navigationTitle(title)
         // 一覧の画面名は左寄せの largeTitle（仕様 1.1 章）。中央インラインにはしない。
         .navigationBarTitleDisplayMode(.large)
         .librarySearchable(text: $query, prompt: "検索", horizontalMargin: horizontalMargin)
@@ -853,7 +924,12 @@ struct FavoriteTracksView: View {
                 case .idle, .loading: ProgressView()
                 case .failed(let message):
                     LoadErrorView(message: message) { await library.loadHome(force: true) }
-                case .loaded: ContentUnavailableView("お気に入りの曲がありません", systemImage: "heart")
+                case .loaded:
+                    if feed == .favoriteTracks {
+                        ContentUnavailableView("お気に入りの曲がありません", systemImage: "heart")
+                    } else {
+                        ContentUnavailableView("最近再生した曲がありません", systemImage: "clock")
+                    }
                 }
             }
         }
