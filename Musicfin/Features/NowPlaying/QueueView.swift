@@ -3,15 +3,17 @@ import SwiftUI
 /// 曲順と再生方式だけを示し、未対応の編集操作を連想させるハンドルは置かない。
 struct QueueView: View {
     @Environment(PlaybackEngine.self) private var player
+    /// 横長では再生方式を左の操作列に置くため、本文へ重複させない。
+    var showsPlaybackModes = true
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            modeRow
+            if showsPlaybackModes { modeRow }
             Text("次に再生")
                 .font(.headline)
                 .accessibilityAddTraits(.isHeader)
                 // 見出しの直下に罫線は引かず、縦の余白だけで区切る（仕様 5.2 章）。
-                .padding(.top, 20)
+                .padding(.top, showsPlaybackModes ? 20 : 0)
                 .padding(.bottom, 8)
             if player.upcoming.isEmpty {
                 ScrollView {
@@ -47,6 +49,7 @@ struct QueueView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         // 見出しも行も、アートワーク状態の曲名と同じ左右 32 pt に載る（仕様 5 章）。外側の 24 pt との差。
         .padding(.horizontal, 8)
+        .prefetchArtwork(Array(player.upcoming), size: 48)
     }
 
     /// 再生方式は見出し脇の裸アイコンではなく、独立した淡いカプセルに入れる（仕様 5.2 章）。

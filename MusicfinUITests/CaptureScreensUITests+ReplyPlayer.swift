@@ -5,7 +5,7 @@ extension CaptureScreensUITests {
     /// Apple Music の参照と同じ `Reply` を検索結果から選び、歌詞を含むプレイヤー一式を撮る。
     /// 同名曲が複数あるため、API で歌詞登録を確認した並びの個体を使い、画面上でも曲名と歌詞本文を検証する。
     @MainActor
-    func captureReplyPlayerScreens() {
+    func captureReplyPlayerScreens(onPrelude: (() -> Void)? = nil, onLyricsReady: (() -> Void)? = nil) {
         let playerScreens = ["miniplayer", "nowplaying", "lyrics-loading", "lyrics", "queue"]
         selectTab("検索")
         let searchField = searchFieldElement
@@ -80,7 +80,8 @@ extension CaptureScreensUITests {
         playerPause.tap()
         lyricsButton.tap()
         // 通信中ではなく、同期歌詞を読み込んで先頭時刻より前に置いた安定状態を loading 参照へ使う。
-        let introPlaceholder = app.staticTexts["lyrics.intro-placeholder"]
+        let introPlaceholder = app.descendants(matching: .any)
+            .matching(identifier: "lyrics.intro-placeholder").firstMatch
         let seekBar = app.otherElements.matching(
             NSPredicate(format: "label == %@ OR label == %@", "Playback Position", "再生位置")
         ).firstMatch
@@ -107,7 +108,10 @@ extension CaptureScreensUITests {
             return
         }
         settle()
+        assertLyricsIntroAppearance(introPlaceholder)
+        let introPosition = introPlaceholder.frame.midY
         capture("lyrics-loading")
+        onPrelude?()
         // 同期歌詞は行タップでシークできる Button として公開される。
         let lyricLine = app.buttons.matching(
             NSPredicate(format: "label == %@", "瞳映る 静かな世界 なにを見てたんだろう")
@@ -130,8 +134,41 @@ extension CaptureScreensUITests {
             return
         }
         XCTAssertTrue(playerReplyTitle.exists, "歌詞表示中の曲名が Reply ではない")
+        XCTAssertFalse(introPlaceholder.exists, "歌詞の時刻に入っても前奏の丸が残った")
         settle()
         capture("lyrics")
+        onLyricsReady?()
+
+        // 行へ進んだ後で前奏へ戻しても、丸が画面外へ置き去りにならないことを確かめる。
+        let returnStart = seekBar.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        let returnBeginning = seekBar.coordinate(withNormalizedOffset: CGVector(dx: 0.001, dy: 0.5))
+        returnStart.press(forDuration: 0.05, thenDragTo: returnBeginning)
+        XCTAssertTrue(introPlaceholder.waitForExistence(timeout: 10), "前奏へ戻しても丸が表示されなかった")
+        settle()
+        assertLyricsIntroAppearance(introPlaceholder)
+        XCTAssertEqual(introPlaceholder.frame.midY, introPosition, accuracy: 2, "前奏へ戻したときに丸の位置が変わった")
+
+        // 操作帯を動かさない短い送りでも追従は止まるため、復帰先が最初の歌詞にならないことを確かめる。
+        let lyricCenter = lyricLine.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        lyricCenter.withOffset(CGVector(dx: 0, dy: 10)).press(
+            forDuration: 0.1, thenDragTo: lyricCenter.withOffset(CGVector(dx: 0, dy: -10)),
+            withVelocity: .slow, thenHoldForDuration: 0.3)
+        RunLoop.current.run(until: Date(timeIntervalSinceNow: 4))
+        assertLyricsIntroAppearance(introPlaceholder)
+        XCTAssertEqual(introPlaceholder.frame.midY, introPosition, accuracy: 2, "自動追従の復帰後に丸の位置が変わった")
+
+        // 短い送りでも慣性が閾値を越すと操作帯は退避する。次のシーク前に実指で戻し、
+        // テストの待ち時間やスクロールの減速具合に操作帯の存在を依存させない。
+        if !seekBar.waitForExistence(timeout: 2) {
+            lyricCenter.press(
+                forDuration: 0.1, thenDragTo: lyricCenter.withOffset(CGVector(dx: 0, dy: 60)),
+                withVelocity: .slow, thenHoldForDuration: 0)
+            guard seekBar.waitForExistence(timeout: 5) else {
+                XCTFail("Queue 撮影前の読み戻しで操作帯を表示できなかった")
+                skippedScreens.append("queue")
+                return
+            }
+        }
 
         // 歌詞 2 枚を撮り終えてからだけ参照の 0:55 再生状態へ移し、歌詞 loading の前提を壊さない。
         let seekStart = seekBar.coordinate(withNormalizedOffset: CGVector(dx: 0.001, dy: 0.5))

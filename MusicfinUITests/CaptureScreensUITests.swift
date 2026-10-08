@@ -121,7 +121,7 @@ final class CaptureScreensUITests: XCTestCase {
     }
 
     @MainActor
-    func launchApp(capturePlayer: Bool = false) {
+    func launchApp(capturePlayer: Bool = false, contentSizeCategoryOverride: String? = nil) {
         // 前の method の Simulator 状態に依存せず、毎回 portrait から実際の横向き遷移を起こす。
         if isIPadCapture {
             XCUIDevice.shared.orientation = .portrait
@@ -135,7 +135,7 @@ final class CaptureScreensUITests: XCTestCase {
         app.launchEnvironment["AppleLocale"] = "en_US"
         // 文字サイズは起動引数でしか差し替えられない（Simulator 全体の設定を触らずに済む）。
         // 未指定のときは引数ごと足さないので、既定の撮影は今までと同じ経路を通る。
-        if let contentSizeCategory {
+        if let contentSizeCategory = contentSizeCategoryOverride ?? contentSizeCategory {
             app.launchArguments += ["-UIPreferredContentSizeCategoryName", contentSizeCategory]
         }
         app.launch()

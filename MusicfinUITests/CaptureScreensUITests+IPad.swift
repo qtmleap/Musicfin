@@ -4,6 +4,55 @@ import XCTest
 // MARK: - ログイン後の画面
 
 extension CaptureScreensUITests {
+    /// 矢印を狙わなくても区分を開閉でき、隣の区分の状態まで変わらないことを確かめる。
+    @MainActor
+    func testPadSidebarSectionHeaderHitTargets() throws {
+        guard isIPadCapture else { throw XCTSkip("iPad 専用の確認") }
+        launchApp()
+        ensureSignedIn()
+
+        let albums = padSidebarRow("sidebar.albums")
+        let playlists = padSidebarRow("sidebar.playlists")
+        XCTAssertTrue(albums.waitForExistence(timeout: 30))
+        XCTAssertTrue(playlists.exists)
+
+        func checkHeader(_ title: String, child: XCUIElement, other: XCUIElement) {
+            let header = app.staticTexts[title].firstMatch
+            XCTAssertTrue(header.exists)
+            if title != "Pins" {
+                XCTAssertGreaterThanOrEqual(header.frame.height, 44, "区分のタップ領域が 44 pt より小さい")
+            }
+            // 文字・余白・標準の矢印を押し、上下にずれても一度だけ開閉することを確かめる。
+            for (x, dy) in [
+                (header.frame.minX + 2, CGFloat(0)), (CGFloat(180), CGFloat(-16)), (CGFloat(180), CGFloat(16)),
+                (app.buttons["sidebar.account"].frame.maxX - 37.5, CGFloat(0)),
+            ] {
+                let origin = app.windows.firstMatch.coordinate(withNormalizedOffset: .zero)
+                let targetY = header.frame.midY + dy
+                origin.withOffset(CGVector(dx: x, dy: targetY)).tap()
+                let hidden = XCTNSPredicateExpectation(
+                    predicate: NSPredicate(format: "exists == false"), object: child)
+                let result = XCTWaiter.wait(for: [hidden], timeout: 5)
+                XCTAssertEqual(result, .completed, "\(title) header: \(header.frame), tap \(x),\(targetY)")
+                XCTAssertTrue(other.exists)
+                origin.withOffset(CGVector(dx: x, dy: header.frame.midY + dy)).tap()
+                XCTAssertTrue(child.waitForExistence(timeout: 5))
+            }
+        }
+        let pinnedItem = app.staticTexts.matching(
+            NSPredicate(format: "identifier BEGINSWITH %@", "sidebar.pin.")
+        ).firstMatch
+        XCTAssertTrue(pinnedItem.waitForExistence(timeout: 15))
+        checkHeader("Pins", child: pinnedItem, other: playlists)
+        checkHeader("Library", child: albums, other: playlists)
+        checkHeader("Playlists", child: playlists, other: albums)
+        albums.tap()
+        XCTAssertTrue(albums.isSelected, "開閉後にライブラリの子項目を選べなかった")
+        if ProcessInfo.processInfo.environment["MUSICFIN_SHOT_DIR"] != nil {
+            capture("sidebar-hit-targets")
+        }
+    }
+
     /// iPad の配置だけを再撮影し、再生状態や参照曲の検索失敗から独立して検証する。
     @MainActor
     func testCaptureIPadLayoutRegression() throws {

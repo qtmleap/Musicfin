@@ -34,23 +34,52 @@ xcodebuild -project Musicfin.xcodeproj -scheme Musicfin -configuration Debug \
 - Unit tests: `./scripts/run-unit-tests.sh` (details in `Tests/README.md`)
 - CI locally: `./scripts/act.sh` (`--host <job>` for the macOS jobs)
 
-## Ship every finished piece of work
+## Release only through develop or master merge CI
 
-When a request is finished — built, linted, verified — **commit it and ship it to
-TestFlight**. Do not leave finished work sitting in the working tree waiting to
-be asked about.
+All CI jobs use self-hosted runners. macOS jobs select
+`[self-hosted, macos-26]`; Linux jobs select
+`[self-hosted, Linux, X64, ubuntu-latest, docker]`. The macOS runner starts a
+disposable VM per job; host credentials are not inherited.
 
-1. Commit the work itself, one Conventional Commit per coherent change.
-2. `bundle exec fastlane beta` — this is what "release" means here. Tagging `v*`
-   fires the **App Store** lane instead, so never push a tag as part of this.
-3. Commit the build record fastlane writes to
-   `fastlane/testflight/last_shipped.json`, as
-   `chore(fastlane): record build N as shipped to TestFlight`.
+When a request is finished — built, linted, verified — commit the work and open
+a PR targeting `develop`, or `master` when requested. **Only the Deployment
+GitHub Actions workflow after that PR is merged may upload a build to TestFlight.**
+Never deploy from a local checkout, a tag, a direct push, or a manual workflow dispatch. The App Store
+`release` lane is disabled. Keep the repository default branch unchanged.
 
-**The orchestrator does this, not `implementer` or `reviewer`** — they are told
-to leave the tree uncommitted so that one seat owns the history. It waits until
-every piece of the request is in and verified, so a request is shipped once, not
-once per sub-task.
+Deployment runs on a push to `develop`/`master`. A secret-free Linux `verify` job
+proves the push is a new same-repo PR merge and hands the SHA and PR to the
+protected `deploy` job, which mints a short-lived read-only `match` token from
+the GitHub App secrets `MUSICFIN_MATCH_APP_CLIENT_ID` / `MUSICFIN_MATCH_APP_PRIVATE_KEY`.
+
+Store all ASC and MATCH deployment credentials only in the protected GitHub
+Environment `testflight`, with deployment branches restricted to the branches
+`develop` and `master`. Use the `MUSICFIN_` secret names listed in `fastlane/SETUP.md`;
+do not keep repository-level or organization-level copies of these credentials.
+Historical tagged workflows must not inherit these Musicfin-specific credentials.
+Existing shared organization credentials used by other projects have separate access
+policies; do not claim that this workflow change isolates or removes those copies.
+
+Use a merge commit or squash merge for release PRs. CI checks out the exact
+merge SHA and checks the live PR base branch tip before building and uploading;
+obsolete merges and dirty checkouts fail. Rebase merges with a record-only
+final commit are conservatively rejected. CI reruns cannot upload again.
+Do not merge another PR, including a record-only PR, while Deployment CI is
+building or uploading. Wait for the entire deployment run to finish.
+
+CI preserves `fastlane/testflight/last_shipped.json` as a
+`testflight-shipped-<merge SHA>` artifact after a successful upload. The
+orchestrator verifies that artifact and commits the record through a separate
+record-only PR as `chore(fastlane): record build N as shipped to TestFlight`.
+Record-only PRs do not trigger deployment, and CI never creates Git commits.
+If an upload or artifact outcome is uncertain, inspect the run and App Store
+Connect before creating a fresh recovery PR; never retry a local deployment.
+If the upload succeeded but artifact preservation failed, reconstruct the
+record from the verified run merge SHA and the actual App Store Connect build
+and upload time, then submit a record-only PR without rerunning deployment.
+
+**The orchestrator owns commits and PRs, not `implementer` or `reviewer`** —
+workers leave changes uncommitted so that one seat owns the history.
 
 ## Agents
 

@@ -23,7 +23,7 @@ nonisolated enum PlayerPresentationStyle: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .slideUp: String(localized: "せり上がり（現行）")
+        case .slideUp: String(localized: "せり上がり")
         case .expandFromMiniPlayer: String(localized: "ミニプレイヤーから展開")
         case .systemZoom: String(localized: "システムZoom")
         }

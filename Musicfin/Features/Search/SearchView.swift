@@ -34,12 +34,8 @@ struct SearchView: View {
         .scrollContentBackground(.hidden)
         .background(AppBackdrop())
         .tint(.pink)
-        .navigationTitle("検索")
+        .tabNavigationTitle(Text("検索"))
         .accessibilityIdentifier("search.root")
-        // 入力前は大きな画面名をツールバー内に置く。標準の large はバーの下段に積まれ、
-        // Apple 実機より 59 pt 低い位置から始まってしまう（仕様 1.1 章）。
-        .toolbarTitleDisplayMode(term.isEmpty ? .inlineLarge : .automatic)
-        .libraryNavigationMargins(horizontalMargin)
         .overlay { searchStatus }
         .onChange(of: query) { _, _ in
             // 古い語句の結果を新しい検索結果と誤認させないため、入力変更時に消す。
@@ -48,6 +44,8 @@ struct SearchView: View {
             isSearching = !term.isEmpty
         }
         .task(id: [query, String(retryGeneration)]) { await search() }
+        .prefetchArtwork(results, size: SearchResultRow.artworkSize)
+        .prefetchArtwork(term.isEmpty ? catalog.items : [], size: 200)
     }
 
     private var resultList: some View {
