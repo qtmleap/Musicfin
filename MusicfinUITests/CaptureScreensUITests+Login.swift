@@ -5,6 +5,55 @@ import XCTest
 
 extension CaptureScreensUITests {
     @MainActor
+    func testAccountHeaderStaysFixedWhenScrolled() throws {
+        // 本文が収まる端末でも実際にスクロールさせ、固定位置の回帰を検出する。
+        launchApp(contentSizeCategoryOverride: "UICTContentSizeCategoryExtraExtraExtraLarge")
+        ensureSignedIn()
+        let account = element(.button, "アカウント")
+        XCTAssertTrue(account.waitForExistence(timeout: 10))
+        account.tap()
+
+        let title = app.staticTexts["Jellyfin Account"]
+        let close = element(.button, "閉じる")
+        let quality = app.staticTexts["Audio Quality"]
+        XCTAssertTrue(title.waitForExistence(timeout: 10))
+        XCTAssertTrue(quality.exists, "音質のカードが表示されなかった")
+        settle()
+        let titleFrame = title.frame
+        let closeFrame = close.frame
+        let qualityY = quality.frame.minY
+        try captureAccountHeader("account-header-initial")
+
+        app.scrollViews.containing(.staticText, identifier: "Audio Quality").firstMatch.swipeUp(velocity: .slow)
+        settle()
+        try captureAccountHeader("account-header-scrolled")
+        XCTAssertLessThan(quality.frame.minY, qualityY - 10, "本文がスクロールしていなかった")
+        XCTAssertTrue(title.isHittable, "見出しが画面外へ移動した")
+        XCTAssertTrue(close.isHittable, "閉じるボタンが画面外へ移動した")
+        XCTAssertEqual(title.frame.minY, titleFrame.minY, accuracy: 1, "見出しがスクロールした")
+        XCTAssertEqual(close.frame.minY, closeFrame.minY, accuracy: 1, "閉じるボタンがスクロールした")
+        close.tap()
+        XCTAssertTrue(title.waitForNonExistence(timeout: 10), "アカウント画面が閉じられなかった")
+        XCTAssertTrue(account.waitForExistence(timeout: 10), "アカウント画面を閉じられなかった")
+    }
+
+    @MainActor
+    private func captureAccountHeader(_ name: String) throws {
+        // スクロール後の固定ヘッダーも含む、合成済みの画面を記録する。
+        let screenshot = XCUIScreen.main.screenshot()
+        let attachment = XCTAttachment(screenshot: screenshot)
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        add(attachment)
+        if let directory = ProcessInfo.processInfo.environment["MUSICFIN_SHOT_DIR"] {
+            let output = URL(fileURLWithPath: directory, isDirectory: true)
+            try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
+            try screenshot.pngRepresentation.write(
+                to: output.appendingPathComponent("\(name).png"))
+        }
+    }
+
+    @MainActor
     func testCaptureLoginScreens() throws {
         launchApp()
 
