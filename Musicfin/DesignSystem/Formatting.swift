@@ -3,7 +3,9 @@ import Foundation
 nonisolated extension TimeInterval {
     /// 3:07 / 1:02:33 のような再生時間表記。
     var timeLabel: String {
-        guard isFinite, self >= 0 else { return "--:--" }
+        // 桁の代わりに置く記号なので、ハイフンではなく数字と同じ字送りを持つ figure dash (U+2012) にする。
+        // ハイフンだと数字より細く、再生位置のラベルの幅が実際の時間表示と食い違って見える。
+        guard isFinite, self >= 0 else { return "‒‒:‒‒" }
         let total = Int(rounded())
         let seconds = total % 60
         let minutes = (total / 60) % 60
