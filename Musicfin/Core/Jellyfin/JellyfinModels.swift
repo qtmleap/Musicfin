@@ -114,10 +114,12 @@ nonisolated struct MediaItem: Decodable, Sendable, Identifiable, Hashable {
 
     /// トラックなら演奏者、アルバムならアルバムアーティストを優先して返す。
     var displayArtist: String? {
+        // 区切り文字は言語ごとに異なるため、呼び出しごとに一度だけ解決する。
+        let separator = String(localized: "artist.separator", defaultValue: "、")
         if let artistItems, !artistItems.isEmpty {
-            return artistItems.compactMap(\.name).joined(separator: "、")
+            return artistItems.compactMap(\.name).joined(separator: separator)
         }
-        if let artists, !artists.isEmpty { return artists.joined(separator: "、") }
+        if let artists, !artists.isEmpty { return artists.joined(separator: separator) }
         return albumArtist
     }
 

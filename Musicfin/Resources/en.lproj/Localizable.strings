@@ -159,3 +159,7 @@
 "弾まないばね" = "Smooth Spring";
 "小さく弾むばね" = "Snappy Spring";
 "大きく弾むばね" = "Bouncy Spring";
+
+"前奏" = "Intro";
+"日付として解釈できません: %@" = "Could not parse a date: %@";
+"artist.separator" = ", ";

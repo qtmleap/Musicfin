@@ -210,7 +210,7 @@ struct AlbumDetailView: View {
         var parts: [String] = []
         if let genre = album.genres?.first { parts.append(genre) }
         if let year = album.productionYear { parts.append("\(year)") }
-        if isCosmicPrincessKaguya { parts.append("♏ Lossless") }
+        if isCosmicPrincessKaguya { parts.append("♏ " + String(localized: "ロスレス")) }
         return parts.joined(separator: " · ")
     }
 
