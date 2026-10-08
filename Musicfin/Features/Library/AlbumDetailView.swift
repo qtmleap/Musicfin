@@ -91,6 +91,7 @@ struct AlbumDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { toolbarContent(palette: palette) }
         .task { await load() }
+        .prefetchArtwork(isPlaylist ? tracks : [], size: Self.playlistArtworkSize)
     }
 
     // MARK: - ヘッダー

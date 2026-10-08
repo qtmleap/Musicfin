@@ -18,20 +18,23 @@ struct AccountView: View {
     var body: some View {
         @Bindable var settings = settings
 
-        ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
-                header
-                // 閉じるボタンの下端から最初のカードまでは 44 pt 空ける（Apple 実機の実測）。
-                // 他のカード間の 24 pt は保ちたいので、差の 20 pt をこのカードだけに足す。
-                accountSurface
-                    .padding(.top, 20)
-                qualitySurface(wifi: $settings.wifiQuality, cellular: $settings.cellularQuality)
-                playerSurface
-                signOutSurface
+        VStack(spacing: 0) {
+            header
+                .padding(.horizontal, 16)
+                .padding(.top, 16)
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 24) {
+                    accountSurface
+                    qualitySurface(wifi: $settings.wifiQuality, cellular: $settings.cellularQuality)
+                    playerSurface
+                    signOutSurface
+                }
+                .padding(.horizontal, 16)
+                // ヘッダーを固定しても、閉じるボタンから最初のカードまでの実測の余白は保つ。
+                .padding(.top, 44)
+                .padding(.bottom, 40)
             }
-            .padding(.horizontal, 16)
-            .padding(.top, 16)
-            .padding(.bottom, 40)
         }
         .background(Color(.systemBackground).ignoresSafeArea())
         .confirmationDialog("ログアウトしますか？", isPresented: $confirmsSignOut, titleVisibility: .visible) {

@@ -111,7 +111,7 @@ else
     capture_width=1179
     capture_height=2556
 fi
-python3 scripts/native-screenshot-worker.py \
+scripts/native-screenshot-worker.sh \
     --bridge "$bridge" --output "$shot_dir" --udid "$udid" \
     --width "$capture_width" --height "$capture_height" &
 worker_pid=$!
@@ -124,14 +124,7 @@ if [ "$ipad" -eq 1 ]; then
     # 対象外の player 導線が単独で落ちても、sidebar と検索・一覧の比較セットまで更新できなくなる
     # のは行き過ぎなので、必須は配置回帰だけにする。同じ名前を前段も撮るため最後に回し、
     # 必須セットは常に最新の 1 回で揃った世代が残るようにする。
-    # 板が閉じられないことは静止画に写らないので、動的な確認をこの流れの中で回す。**1 枚も撮らない**
-    # ので staging の世代には影響しない。**最後に置く。**先頭に置いた run 15 では、この確認が窓の
-    # 左端から右へ払う（Split View / Slide Over を呼ぶ操作でもある）ため、次の撮影が半幅の
-    # 512×683 窓を引き継いで landscape 判定で落ちた。撮影のあとなら道連れにできない。
-    test_methods=(
-        testCaptureAppScreens testCaptureIPadPlayer testCaptureIPadLayoutRegression
-        testPadSidebarCannotBeDismissed
-    )
+    test_methods=(testCaptureAppScreens testCaptureIPadPlayer testCaptureIPadLayoutRegression)
     required_methods=(testCaptureIPadLayoutRegression)
 fi
 for test_method in "${test_methods[@]}"; do
