@@ -18,10 +18,11 @@ nonisolated enum JellyfinError: LocalizedError, Sendable {
         case .http(let status, let body):
             String(localized: "サーバーがエラーを返しました (HTTP \(status))。")
                 + (body.map { "\n\($0)" } ?? "")
-        case .decoding(let underlying):
-            String(localized: "サーバーの応答を解釈できませんでした。") + "\n\(underlying)"
-        case .transport(let underlying):
-            String(localized: "サーバーに接続できませんでした。") + "\n\(underlying)"
+        // 生の診断文は言語が混在するため、画面には翻訳済みの概要だけを表示する。
+        case .decoding:
+            String(localized: "サーバーの応答を解釈できませんでした。")
+        case .transport:
+            String(localized: "サーバーに接続できませんでした。")
         case .missingCredentials:
             String(localized: "サーバーへのログインが必要です。")
         }
@@ -173,6 +174,8 @@ nonisolated struct JellyfinClient: Sendable, Equatable {
         do {
             (data, response) = try await Self.session.data(for: request)
         } catch {
+            // 画面には概要だけを出しても、通信失敗の原因はログで追えるようにする。
+            Self.logger.error("通信失敗: \(error.localizedDescription, privacy: .private)")
             throw JellyfinError.transport(underlying: error.localizedDescription)
         }
         guard let http = response as? HTTPURLResponse else {

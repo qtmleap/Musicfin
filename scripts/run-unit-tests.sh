@@ -60,3 +60,5 @@ xcrun swiftc -parse-as-library -swift-version 6 -default-isolation MainActor \
   Musicfin/Features/NowPlaying/LyricsFollowPolicy.swift \
   Tests/LyricsFollowPolicyTests.swift -o "$test_dir/lyrics-follow-policy-tests"
 "$test_dir/lyrics-follow-policy-tests"
+
+bash scripts/run-localization-tests.sh

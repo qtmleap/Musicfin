@@ -32,7 +32,7 @@ nonisolated enum JellyfinCoding {
             if let date = ISO8601DateFormatter.jellyfinPlain.date(from: raw) { return date }
             throw DecodingError.dataCorruptedError(
                 in: try decoder.singleValueContainer(),
-                debugDescription: "日付として解釈できません: \(raw)"
+                debugDescription: String(localized: "日付として解釈できません: \(raw)")
             )
         }
         return decoder
