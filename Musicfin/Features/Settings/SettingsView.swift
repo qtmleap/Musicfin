@@ -18,24 +18,25 @@ struct AccountView: View {
     var body: some View {
         @Bindable var settings = settings
 
-        VStack(spacing: 0) {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 24) {
+                accountSurface
+                qualitySurface(wifi: $settings.wifiQuality, cellular: $settings.cellularQuality)
+                playerSurface
+                signOutSurface
+            }
+            .padding(.horizontal, 16)
+            // 標準バーに移しても、閉じるボタンから最初のカードまでの実測の余白は保つ。
+            .padding(.top, 44)
+            .padding(.bottom, 40)
+        }
+        // 本文が固定ヘッダーの背後へ入るときのぼかしをシステムに任せる。
+        .safeAreaBar(edge: .top, spacing: 0) {
             header
                 .padding(.horizontal, 16)
                 .padding(.top, 16)
-
-            ScrollView {
-                VStack(alignment: .leading, spacing: 24) {
-                    accountSurface
-                    qualitySurface(wifi: $settings.wifiQuality, cellular: $settings.cellularQuality)
-                    playerSurface
-                    signOutSurface
-                }
-                .padding(.horizontal, 16)
-                // ヘッダーを固定しても、閉じるボタンから最初のカードまでの実測の余白は保つ。
-                .padding(.top, 44)
-                .padding(.bottom, 40)
-            }
         }
+        .scrollEdgeEffectStyle(.soft, for: .top)
         .background(Color(.systemBackground).ignoresSafeArea())
         .confirmationDialog("ログアウトしますか？", isPresented: $confirmsSignOut, titleVisibility: .visible) {
             Button("ログアウト", role: .destructive) {

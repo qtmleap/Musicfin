@@ -49,6 +49,9 @@ Apple Account・契約・ダウンロードなど Jellyfin に無い機能は模
   計算で出そうとしない。**上の表の実測値をそのまま置く。
   検索のジャンルタイルの 14 pt（本章の下）はさらに別物で、混同しない
 - ホーム右上は円形のアカウント導線。押すと従来どおり設定 sheet を開く。
+  アカウント sheet の「Jellyfin Account」と閉じるボタンは上端に固定する。
+  ヘッダーは透明な `safeAreaBar` とし、本文が背後へ潜るときは標準の
+  `.scrollEdgeEffectStyle(.soft, for: .top)` でぼかす。最初のカードまでの余白は維持する。
 - **タブの入口の画面名は、各 `NavigationStack` の `navigationTitle` に統一する。**
   Home / New / Radio / Library は本文へ画面名を書かず、同じ標準のタイトル設定を使う。
   `.toolbarTitleDisplayMode(.inlineLarge)` で、iPhone のタイトルを右上のアイコンと同じ行の
