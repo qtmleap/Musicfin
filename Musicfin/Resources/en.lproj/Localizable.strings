@@ -146,3 +146,16 @@
 "さらに読み込む" = "Load More";
 
 "最近再生した曲がありません" = "No Recently Played Songs";
+
+/* アカウント画面の一時的な比較設定も、端末の言語に揃える。 */
+"プレイヤー" = "Player";
+"開き方" = "Opening Style";
+"歌詞の行送り" = "Lyrics Scrolling";
+"実機比較用の一時的な切り替えです。" = "Temporary options for comparing behavior on a device.";
+"せり上がり" = "Slide Up";
+"ミニプレイヤーから展開" = "Expand from Mini Player";
+"システムZoom" = "System Zoom";
+"加減速" = "Ease In and Out";
+"弾まないばね" = "Smooth Spring";
+"小さく弾むばね" = "Snappy Spring";
+"大きく弾むばね" = "Bouncy Spring";
