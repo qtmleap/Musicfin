@@ -23,7 +23,7 @@ nonisolated enum LyricsScrollAnimation: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .easeInOut: String(localized: "加減速（現行）")
+        case .easeInOut: String(localized: "加減速")
         case .smooth: String(localized: "弾まないばね")
         case .snappy: String(localized: "小さく弾むばね")
         case .bouncy: String(localized: "大きく弾むばね")
