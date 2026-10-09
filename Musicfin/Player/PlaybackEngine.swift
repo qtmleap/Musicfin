@@ -34,7 +34,13 @@ final class PlaybackEngine {
     private(set) var isBuffering = false
     private(set) var currentTime: TimeInterval = 0
     private(set) var isShuffled = false
-    var repeatMode: RepeatMode = .off
+    var repeatMode: RepeatMode = .off {
+        didSet {
+            // 終了通知直後の旧曲には、新しいリピート設定を当てて自動送りを止めない。
+            if let actual = player.currentItem, trackIDByPlayerItem[ObjectIdentifier(actual)] == nil { return }
+            player.actionAtItemEnd = repeatMode == .one ? .pause : .advance
+        }
+    }
 
     var currentItem: MediaItem? {
         queue.indices.contains(currentIndex) ? queue[currentIndex] : nil
@@ -62,7 +68,9 @@ final class PlaybackEngine {
 
     // MARK: - 内部状態
 
-    private let player = AVQueuePlayer()
+    private let player: AVQueuePlayer
+    /// 差し替えがなければ Jellyfin のストリーム URL から AVPlayerItem を作る。
+    private let playerItemResolver: (@MainActor (MediaItem) async -> AVPlayerItem?)?
     private let audioSession = AudioSessionManager()
     private let logger = Logger(subsystem: "jp.qleap.musicfin", category: "PlaybackEngine")
 
@@ -80,13 +88,23 @@ final class PlaybackEngine {
     /// AVPlayerItem から Jellyfin のアイテム ID を引くための対応表。
     private var trackIDByPlayerItem: [ObjectIdentifier: String] = [:]
     private let cleanup = CleanupBox()
-    private var statusObservation: NSKeyValueObservation?
+    /// 積んだ曲ごとの失敗監視。対応表から外すときに一緒に捨て、古い曲の失敗で今の曲を止めない。
+    private var statusObservations: [ObjectIdentifier: NSKeyValueObservation] = [:]
 
     /// ストリーム URL の解決は非同期なので、解決中に曲が切り替わった古い結果を捨てるための世代番号。
     private var loadGeneration = 0
     private var lookaheadTask: Task<Void, Never>?
+    private var currentItemObservation: NSKeyValueObservation?
+    /// 終了通知の後に AVQueuePlayer が旧曲を外すまで、読み直しで新しい曲を積まない。
+    private var reloadAfterAdvance = false
+    private var rebuildAfterAdvance = false
 
-    init() {
+    init(
+        player: AVQueuePlayer = AVQueuePlayer(),
+        playerItemResolver: (@MainActor (MediaItem) async -> AVPlayerItem?)? = nil
+    ) {
+        self.player = player
+        self.playerItemResolver = playerItemResolver
         player.automaticallyWaitsToMinimizeStalling = true
         player.actionAtItemEnd = .advance
         setUpObservers()
@@ -140,8 +158,8 @@ final class PlaybackEngine {
 
     // MARK: - 再生開始
 
-    /// キューを差し替えて指定位置から再生する。通常の入口は毎回元順から始め、シャッフル入口だけ明示する。
-    func play(items: [MediaItem], startingAt index: Int = 0, shuffled: Bool = false) {
+    /// キューを差し替えて指定位置から再生する。位置を省くと、通常は元順の先頭から、シャッフルは全曲から始める。
+    func play(items: [MediaItem], startingAt index: Int? = nil, shuffled: Bool = false) {
         guard
             let order = PlaybackQueueOrder.make(
                 items: items,
@@ -202,7 +220,7 @@ final class PlaybackEngine {
         invalidatePendingLoads()
         player.pause()
         player.removeAllItems()
-        trackIDByPlayerItem.removeAll()
+        forgetAllPlayerItems()
         queue = []
         unshuffledQueue = []
         currentIndex = 0
@@ -258,7 +276,7 @@ final class PlaybackEngine {
 
     func cycleRepeatMode() {
         repeatMode = repeatMode.next
-        // リピート 1 曲では先読みを止め、曲末で頭出しに切り替える。
+        // リピート 1 曲では曲末で次へ進ませず現在の AVPlayerItem を保ち、先読みも止める。
         rebuildLookahead()
     }
 
@@ -289,6 +307,7 @@ final class PlaybackEngine {
 
     /// マスタープレイリストの補正のためサーバーへ 1 往復するので非同期。対応表への登録は積むときに行う。
     private func makePlayerItem(for item: MediaItem) async -> AVPlayerItem? {
+        if let playerItemResolver { return await playerItemResolver(item) }
         guard let client else {
             logger.error("ストリーム URL を作れませんでした: \(item.id, privacy: .public)")
             return nil
@@ -308,12 +327,30 @@ final class PlaybackEngine {
 
     private func enqueue(_ playerItem: AVPlayerItem, for item: MediaItem, after: AVPlayerItem?) {
         trackIDByPlayerItem[ObjectIdentifier(playerItem)] = item.id
+        observeStatus(of: playerItem, trackID: item.id)
         player.insert(playerItem, after: after)
+    }
+
+    private func forgetPlayerItem(_ identifier: ObjectIdentifier) {
+        trackIDByPlayerItem.removeValue(forKey: identifier)
+        statusObservations.removeValue(forKey: identifier)
+    }
+
+    private func forgetAllPlayerItems() {
+        trackIDByPlayerItem.removeAll()
+        statusObservations.removeAll()
+    }
+
+    /// AVQueuePlayer が実際に再生している曲の ID。論理上の現在曲とずれている間を見分けるのに使う。
+    private var actualCurrentTrackID: String? {
+        player.currentItem.flatMap { trackIDByPlayerItem[ObjectIdentifier($0)] }
     }
 
     /// 解決中の URL があっても、その結果をキューへ積ませない。
     private func invalidatePendingLoads() {
         loadGeneration += 1
+        reloadAfterAdvance = false
+        rebuildAfterAdvance = false
         lookaheadTask?.cancel()
         lookaheadTask = nil
     }
@@ -322,7 +359,7 @@ final class PlaybackEngine {
         reportStopIfNeeded()
         invalidatePendingLoads()
         player.removeAllItems()
-        trackIDByPlayerItem.removeAll()
+        forgetAllPlayerItems()
         currentTime = 0
 
         guard let item = currentItem else { return }
@@ -341,31 +378,35 @@ final class PlaybackEngine {
                 return
             }
             enqueue(playerItem, for: item, after: nil)
-            observeStatus(of: playerItem)
             refillLookahead()
             if autoPlay { play() }
         }
     }
 
     /// 先読み用に次の 1 曲だけを AVQueuePlayer に積む。これがギャップレス再生の肝。
-    private func refillLookahead() {
+    /// 終了通知は AVQueuePlayer が次へ進む前に届くので、終了した曲は数にも積む位置にも含めない。
+    private func refillLookahead(excludingEnded ended: ObjectIdentifier? = nil) {
+        // 古い URL の解決結果が新しい状態へ積まれないよう、判定の前に必ず取り消す。
+        lookaheadTask?.cancel()
+        lookaheadTask = nil
         guard repeatMode != .one else { return }
-        guard player.items().count < 2 else { return }
+        guard player.items().filter({ ObjectIdentifier($0) != ended }).count < 2 else { return }
         let nextIndex = currentIndex + 1
         guard queue.indices.contains(nextIndex) else { return }
         let next = queue[nextIndex]
 
-        lookaheadTask?.cancel()
         let generation = loadGeneration
         lookaheadTask = Task { [weak self] in
             guard let self else { return }
             let playerItem = await makePlayerItem(for: next)
             // 解決中に曲が進んだ・キューが変わった・別の先読みが積まれた場合は捨てる。
-            guard !Task.isCancelled, generation == loadGeneration, player.items().count < 2,
+            let remaining = player.items().filter { ObjectIdentifier($0) != ended }
+            guard !Task.isCancelled, generation == loadGeneration, remaining.count < 2,
                 queue.indices.contains(currentIndex + 1), queue[currentIndex + 1].id == next.id,
+                remaining.last.flatMap({ trackIDByPlayerItem[ObjectIdentifier($0)] }) == queue[currentIndex].id,
                 let playerItem
             else { return }
-            enqueue(playerItem, for: next, after: player.items().last)
+            enqueue(playerItem, for: next, after: remaining.last)
         }
     }
 
@@ -373,8 +414,12 @@ final class PlaybackEngine {
     private func rebuildLookahead() {
         lookaheadTask?.cancel()
         let playing = player.currentItem
+        if let playing, trackIDByPlayerItem[ObjectIdentifier(playing)] == nil {
+            rebuildAfterAdvance = true
+            return
+        }
         for queued in player.items() where queued !== playing {
-            trackIDByPlayerItem.removeValue(forKey: ObjectIdentifier(queued))
+            forgetPlayerItem(ObjectIdentifier(queued))
             player.remove(queued)
         }
         refillLookahead()
@@ -383,10 +428,24 @@ final class PlaybackEngine {
     // MARK: - 監視
 
     private func setUpObservers() {
+        currentItemObservation = player.observe(\.currentItem, options: [.new]) { [weak self] _, _ in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                if player.currentItem == nil {
+                    if reloadAfterAdvance { loadCurrentTrack(autoPlay: true) }
+                } else {
+                    player.actionAtItemEnd = repeatMode == .one ? .pause : .advance
+                    synchronizeActualTrack()
+                    if rebuildAfterAdvance {
+                        rebuildAfterAdvance = false
+                        rebuildLookahead()
+                    }
+                }
+            }
+        }
         let interval = CMTime(seconds: 0.2, preferredTimescale: 600)
-        let observer = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
-            let seconds = time.seconds
-            MainActor.assumeIsolated { self?.handleTimeUpdate(seconds) }
+        let observer = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.handleTimeUpdate() }
         }
         cleanup.add { [player] in player.removeTimeObserver(observer) }
 
@@ -398,8 +457,26 @@ final class PlaybackEngine {
         }
     }
 
-    private func handleTimeUpdate(_ seconds: TimeInterval) {
+    private func synchronizeActualTrack() {
+        // AVQueuePlayer が失敗した先読みを飛ばしたときも、実際の音声に表示を合わせる。
+        if let id = actualCurrentTrackID, id != currentItem?.id,
+            let index = queue.indices.dropFirst(currentIndex).first(where: { queue[$0].id == id })
+        {
+            reportStopIfNeeded()
+            currentIndex = index
+            currentTime = 0
+            nowPlaying?.update(item: currentItem, isPlaying: isPlaying, position: 0, duration: duration)
+            reporter?.start(itemID: currentItem?.id, position: 0)
+            refillLookahead()
+        }
+    }
+
+    private func handleTimeUpdate() {
+        synchronizeActualTrack()
+        let seconds = player.currentTime().seconds
         guard seconds.isFinite else { return }
+        // 論理上は次の曲へ進んだのに AVQueuePlayer がまだ前の曲を指している間の時刻は、新しい曲の位置にしない。
+        guard let currentID = currentItem?.id, actualCurrentTrackID == currentID else { return }
         currentTime = seconds
         isBuffering = player.timeControlStatus == .waitingToPlayAtSpecifiedRate
         nowPlaying?.updateElapsed(seconds, isPlaying: isPlaying)
@@ -407,44 +484,88 @@ final class PlaybackEngine {
     }
 
     private func handleItemEnded(_ endedItem: ObjectIdentifier?) {
-        guard let endedItem, trackIDByPlayerItem[endedItem] != nil else { return }
+        guard let endedItem, trackIDByPlayerItem[endedItem] == currentItem?.id else { return }
         reportStopIfNeeded(position: duration)
 
         if repeatMode == .one {
+            // actionAtItemEnd が .pause なので同じ曲が残っている。頭へ戻して続ける。
+            currentTime = 0
             player.seek(to: .zero)
             player.play()
+            nowPlaying?.update(item: currentItem, isPlaying: true, position: 0, duration: duration)
             reporter?.start(itemID: currentItem?.id, position: 0)
             return
         }
 
+        // 同じ曲の終了通知を二度処理して曲を飛ばさないよう、ここで一度だけ消費する。
+        forgetPlayerItem(endedItem)
+
         let nextIndex = currentIndex + 1
         if queue.indices.contains(nextIndex) {
-            // AVQueuePlayer は先読み分へ自動で進んでいるので、論理位置だけ合わせて先読みを補充する。
+            let remaining = player.items().filter { ObjectIdentifier($0) != endedItem }
+            let queuedIDs = remaining.map { trackIDByPlayerItem[ObjectIdentifier($0)] }
+            let advance =
+                remaining.first?.status == .failed
+                ? PlaybackAdvance.reload
+                : PlaybackAdvance.decide(expectedNext: queue[nextIndex].id, queuedIDs: queuedIDs)
             currentIndex = nextIndex
             currentTime = 0
-            refillLookahead()
-            nowPlaying?.update(item: currentItem, isPlaying: true, position: 0, duration: duration)
-            reporter?.start(itemID: currentItem?.id, position: 0)
+            switch advance {
+            case .keepQueued:
+                // AVQueuePlayer は先読み分へ自動で進むので、論理位置だけ合わせて先読みを補充する。
+                refillLookahead(excludingEnded: endedItem)
+                nowPlaying?.update(item: currentItem, isPlaying: true, position: 0, duration: duration)
+                reporter?.start(itemID: currentItem?.id, position: 0)
+            case .reload:
+                // 先読みが間に合っていない・食い違っているときは、期待する曲を読み直す。
+                reloadCurrentAfterAdvance(ended: endedItem)
+            }
         } else if repeatMode == .all, !queue.isEmpty {
             currentIndex = 0
-            loadCurrentTrack(autoPlay: true)
+            reloadCurrentAfterAdvance(ended: endedItem)
         } else {
             isPlaying = false
             nowPlaying?.update(item: currentItem, isPlaying: false, position: duration, duration: duration)
         }
     }
 
-    private func observeStatus(of playerItem: AVPlayerItem) {
-        statusObservation = playerItem.observe(\.status, options: [.new]) { [weak self] observed, _ in
+    private func reloadCurrentAfterAdvance(ended: ObjectIdentifier) {
+        invalidatePendingLoads()
+        // 旧曲の自動切り替えが済んでいれば、その場で正しい曲に差し替えられる。
+        guard player.currentItem.map(ObjectIdentifier.init) == ended else {
+            loadCurrentTrack(autoPlay: true)
+            return
+        }
+        for queued in player.items() where ObjectIdentifier(queued) != ended {
+            forgetPlayerItem(ObjectIdentifier(queued))
+            player.remove(queued)
+        }
+        reloadAfterAdvance = true
+        isBuffering = true
+        currentTime = 0
+        nowPlaying?.update(item: currentItem, isPlaying: true, position: 0, duration: duration)
+        if player.currentItem == nil { loadCurrentTrack(autoPlay: true) }
+    }
+
+    private func observeStatus(of playerItem: AVPlayerItem, trackID: String) {
+        let identifier = ObjectIdentifier(playerItem)
+        statusObservations[identifier] = playerItem.observe(\.status, options: [.initial, .new]) {
+            [weak self] observed, _ in
             guard observed.status == .failed else { return }
             let message = observed.error?.localizedDescription ?? String(localized: "不明なエラー")
-            Task { @MainActor in self?.handlePlaybackFailure(message) }
+            Task { @MainActor in self?.handlePlaybackFailure(message, of: identifier, trackID: trackID) }
         }
     }
 
-    private func handlePlaybackFailure(_ message: String) {
+    private func handlePlaybackFailure(_ message: String, of identifier: ObjectIdentifier, trackID: String) {
+        // 対応表から外れた曲の失敗は古い通知なので、今の再生を止めない。
+        guard trackIDByPlayerItem[identifier] == trackID else { return }
         logger.error("再生に失敗: \(message, privacy: .public)")
-        isPlaying = false
+        if player.currentItem.map(ObjectIdentifier.init) == identifier, trackID == currentItem?.id {
+            player.pause()
+            isPlaying = false
+            nowPlaying?.update(item: currentItem, isPlaying: false, position: currentTime, duration: duration)
+        }
     }
 
     private func reportStopIfNeeded(position: TimeInterval? = nil) {

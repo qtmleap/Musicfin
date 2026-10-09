@@ -125,10 +125,11 @@ final class NowPlayingCenter {
 
     private func loadArtwork(for item: MediaItem) {
         artworkTask?.cancel()
-        guard let client, let url = client.artworkURL(for: item, maxSize: 600) else { return }
+        // 表示側と同じ認証付きの要求にして、認証が必要なサーバーでもロック画面の絵を取れるようにする。
+        guard let request = ArtworkRequest(item: item, client: client, size: 600) else { return }
 
         artworkTask = Task { [weak self] in
-            guard let image = await ArtworkLoader.shared.image(for: url) else { return }
+            guard case .success(let image) = await ArtworkLoader.shared.image(for: request) else { return }
             guard !Task.isCancelled, self?.artworkItemID == item.id else { return }
             // MediaPlayer はこのクロージャをバックグラウンドキューから呼ぶため、MainActor 隔離にしない。
             let artwork = MPMediaItemArtwork(boundsSize: image.size) { @Sendable _ in image }

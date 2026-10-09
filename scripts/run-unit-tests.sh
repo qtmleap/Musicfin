@@ -31,6 +31,12 @@ xcrun swiftc -swift-version 6 \
   "$test_dir/main.swift" -o "$test_dir/playback-queue-order-tests"
 "$test_dir/playback-queue-order-tests"
 
+cp Tests/PlaybackAdvanceTests.swift "$test_dir/main.swift"
+xcrun swiftc -swift-version 6 \
+  Musicfin/Player/PlaybackAdvance.swift \
+  "$test_dir/main.swift" -o "$test_dir/playback-advance-tests"
+"$test_dir/playback-advance-tests"
+
 # キャッシュの永続化と要求制御は UIKit から切り離し、アプリと同じ既定の隔離でも検証する。
 xcrun swiftc -parse-as-library -swift-version 6 -default-isolation MainActor \
   Musicfin/DesignSystem/ArtworkRequest.swift \
