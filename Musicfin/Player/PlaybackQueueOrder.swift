@@ -9,10 +9,16 @@ nonisolated struct PlaybackQueueOrder<Item> {
 
     static func make(
         items: [Item],
-        startingAt index: Int,
+        startingAt index: Int?,
         shuffled: Bool,
         shuffle: ([Item]) -> [Item]
     ) -> Self? {
+        guard !items.isEmpty else { return nil }
+        // 位置の指定がないシャッフルは全曲が対象。先頭曲を固定すると毎回同じ曲から始まってしまう。
+        if index == nil, shuffled {
+            return Self(queue: shuffle(items), original: items, currentIndex: 0, isShuffled: true)
+        }
+        let index = index ?? 0
         guard items.indices.contains(index) else { return nil }
         guard shuffled else {
             return Self(queue: items, original: items, currentIndex: index, isShuffled: false)

@@ -440,7 +440,7 @@ struct AlbumGridView: View {
             defer { isPreparing = false }
             let tracks = await library.tracks(forAll: albums)
             guard !tracks.isEmpty else { return }
-            player.play(items: tracks, startingAt: 0, shuffled: shuffled)
+            player.play(items: tracks, startingAt: shuffled ? nil : 0, shuffled: shuffled)
         }
     }
 
@@ -692,7 +692,7 @@ struct SongsView: View {
             if !library.tracks.isEmpty {
                 TrackListActions(
                     play: { player.play(items: tracks, startingAt: 0) },
-                    shuffle: { player.play(items: tracks, startingAt: 0, shuffled: true) },
+                    shuffle: { player.play(items: tracks, startingAt: nil, shuffled: true) },
                     listInsets: horizontalMargin
                 )
                 .disabled(tracks.isEmpty)
@@ -851,7 +851,7 @@ struct FavoriteTracksView: View {
             if !source.isEmpty {
                 TrackListActions(
                     play: { player.play(items: tracks, startingAt: 0) },
-                    shuffle: { player.play(items: tracks, startingAt: 0, shuffled: true) },
+                    shuffle: { player.play(items: tracks, startingAt: nil, shuffled: true) },
                     listInsets: horizontalMargin
                 )
                 .disabled(tracks.isEmpty)
