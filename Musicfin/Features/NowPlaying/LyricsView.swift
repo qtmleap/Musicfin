@@ -376,8 +376,13 @@ struct LyricsView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.bottom, 8)
                 }
-                if isSynced, active == nil {
-                    introIndicator.id(Self.introID)
+                if isSynced, (lines.compactMap(\.startSeconds).min() ?? 0) > 0 {
+                    // 歌い出しで器まで外すと本文が縮み、追従のスクロールと位置変更が重なる。
+                    // 丸だけを消し、高さを保ったまま現在行へ送る。
+                    introIndicator
+                        .opacity(active == nil ? 1 : 0)
+                        .accessibilityHidden(active != nil)
+                        .id(Self.introID)
                 }
                 ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
                     Group {
@@ -583,7 +588,7 @@ private struct LyricsPreludeIndicator: View {
 
     var body: some View {
         let scale = lyricSize / 32
-        let advancing = isAdvancing && scenePhase == .active
+        let advancing = isAdvancing && scenePhase == .active && position < lyricStart
         return TimelineView(.animation(minimumInterval: 1.0 / 30, paused: !advancing || reduceMotion)) { context in
             let time = advancing ? sample.presentationPosition(at: context.date, advancing: true) : position
             let motion = LyricsPreludeMotion.at(position: time, lyricStart: lyricStart, reduceMotion: reduceMotion)
