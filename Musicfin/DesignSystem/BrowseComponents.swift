@@ -12,18 +12,37 @@ struct AppBackdrop: View {
     }
 }
 
+/// zoom 遷移の起点を、ラベル全体ではなくアートワークだけに付けるための識別子と名前空間。
+/// 戻りの着地先をアートワークの実体に合わせ、題名の余白まで含めた枠へ縮まないようにする。
+typealias AlbumZoomSource = (id: String, namespace: Namespace.ID)
+
+extension View {
+    /// `source` が nil のときは何も付けない（zoom を使わない呼び出し元は挙動が変わらない）。
+    @ViewBuilder
+    func albumZoomSource(_ source: AlbumZoomSource?) -> some View {
+        if let source {
+            matchedTransitionSource(id: source.id, in: source.namespace)
+        } else {
+            self
+        }
+    }
+}
+
 /// アルバム／プレイリストのカード。影や大きな角丸は付けず、アートワーク自体を主役にする。
 struct AlbumCard: View {
     let item: MediaItem
     var size: CGFloat = 160
     /// 省略時はアーティスト名。アーティスト詳細のように文脈で自明なときは別の文言（年など）に差し替える。
     var subtitle: String?
+    /// 指定時だけアートワークを zoom の遷移元にする。
+    var zoomSource: AlbumZoomSource?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             // Apple 実機の角の輪郭は一辺に比例せず、ライブラリの一覧の行は 5 pt、検索結果の行だけが 4 pt、
             // グリッドのカードは 8 pt で分かれる（仕様 1.1 章）。
             ArtworkView(item: item, size: size, cornerRadius: 8)
+                .albumZoomSource(zoomSource)
 
             // Apple 実機は作品名とアーティスト名を同じ大きさで置き、色の濃淡だけで主従を付ける。
             // 左端も画像に揃うので、文字側に横余白は入れない。

@@ -161,12 +161,25 @@ extension CaptureScreensUITests {
         XCTAssertTrue(play.waitForExistence(timeout: 20))
         XCTAssertTrue(mini.isHittable)
         capture("home-album-mini-reopened")
-        // 標準 zoom の下スワイプで、元のカードへ戻れることを確かめる。
+        // 小さく動かして止めた場合は閉じずに戻り、指を離す前後の状態を録画に残す。
         let window = app.windows.firstMatch
         window.coordinate(withNormalizedOffset: CGVector(dx: 0.78, dy: 0.3))
             .press(
                 forDuration: 0.05,
-                thenDragTo: window.coordinate(withNormalizedOffset: CGVector(dx: 0.78, dy: 0.78)))
+                thenDragTo: window.coordinate(withNormalizedOffset: CGVector(dx: 0.78, dy: 0.335)),
+                withVelocity: .slow, thenHoldForDuration: 1)
+        settle()
+        XCTAssertTrue(play.isHittable, "小さいドラッグをやめた後に詳細へ復帰しなかった")
+        XCTAssertTrue(mini.isHittable)
+        XCTAssertEqual(mini.frame.midX, miniFrame.midX, accuracy: 1)
+        XCTAssertEqual(mini.frame.maxY, miniFrame.maxY, accuracy: 1)
+        capture("home-album-after-drag-cancel")
+        // ゆっくり斜め下へ動かし、指を止めた状態から離して帰着する二段階を確かめる。
+        window.coordinate(withNormalizedOffset: CGVector(dx: 0.78, dy: 0.3))
+            .press(
+                forDuration: 0.05,
+                thenDragTo: window.coordinate(withNormalizedOffset: CGVector(dx: 0.82, dy: 0.72)),
+                withVelocity: .slow, thenHoldForDuration: 1.5)
         let dismissed = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: play)
         XCTAssertEqual(XCTWaiter.wait(for: [dismissed], timeout: 10), .completed)
         settle()
