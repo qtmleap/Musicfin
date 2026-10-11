@@ -106,7 +106,10 @@ struct LyricsView: View {
     @ScaledMetric(relativeTo: .title) private var lyricSize = 32.0
     /// 横長（iPad の右列）の歌詞は参照実測の 48 pt bold。狭い表示の 32 pt とは別に Dynamic Type へ載せる。
     @ScaledMetric(relativeTo: .title) private var wideLyricSize = 48.0
-    @ScaledMetric(relativeTo: .title) private var lyricSpacing = 12.0
+    @ScaledMetric(relativeTo: .title) private var narrowLyricSpacing = 12.0
+    /// 横長の行送りは参照の字面ピッチ 97.5 pt（48 pt bold の行 57.5 pt ＋ 40 pt）から逆算した値。
+    @ScaledMetric(relativeTo: .title) private var wideLyricSpacing = 40.0
+    private var lyricSpacing: Double { usesWideMetrics ? wideLyricSpacing : narrowLyricSpacing }
     /// 現在行以外に掛けるぼかし（仕様 5.2 章）。**`docs/org/movie.mov` から測った値**で、
     /// 文字と一緒に伸びるよう `lyricSize` と同じ尺に載せる。測り方は仕様 5.2 章に書いた。
     @ScaledMetric(relativeTo: .title) private var lyricBlur = 1.7
@@ -148,8 +151,14 @@ struct LyricsView: View {
 
     /// 現在行を本文の上端寄りに置く（仕様 5.2 章）。`.top` ちょうどだと現在行が縁に貼り付いて窮屈で、
     /// 直前に歌った行も見えなくなる。1 行ぶんだけ上を覗かせる位置として 0.15 を採る。
-    private static let activeLineTopRatio: CGFloat = 0.15
-    private static let activeLineAnchor = UnitPoint(x: 0, y: activeLineTopRatio)
+    private static let narrowActiveLineTopRatio: CGFloat = 0.15
+    /// ScrollView の安全領域も含めた実描画を測り、横長の現在行を参照の y348 pt に合わせる。
+    /// 狭い表示の 0.15 は従来の追従・手動スクロール復帰の基準なので触らない。
+    private static let wideActiveLineTopRatio: CGFloat = 0.3455
+    private var activeLineTopRatio: CGFloat {
+        usesWideMetrics ? Self.wideActiveLineTopRatio : Self.narrowActiveLineTopRatio
+    }
+    private var activeLineAnchor: UnitPoint { UnitPoint(x: 0, y: activeLineTopRatio) }
     private static let introID = -1
 
     private var isSynced: Bool { lines.contains { $0.startSeconds != nil } }
@@ -418,9 +427,9 @@ struct LyricsView: View {
                 }
             }
             .scrollTargetLayout()
-            // 先頭行にも同じ 0.15 の位置を渡せるだけのスクロール可能な余白を作る。
+            // 先頭行にも同じ比率（横長は 0.3455、狭い表示は 0.15）の位置を渡せるだけのスクロール可能な余白を作る。
             // 外側へ padding すると本文の見える上端まで下がるので、内容側だけを延ばす。
-            .padding(.top, max(0, viewportHeight - bottomExtension) * Self.activeLineTopRatio)
+            .padding(.top, max(0, viewportHeight - bottomExtension) * activeLineTopRatio)
             // 下の 24 pt は最終行が操作帯へ貼り付かないための余白なので残す。
             .padding(.bottom, 24)
             // 同じ画面の小アートワークや曲名と同じ左右 32 pt に載せる（仕様 5 章）。外側の 24 pt との差。
@@ -464,6 +473,8 @@ struct LyricsView: View {
         let active = index == activeIndex
         return Text(line.text.isEmpty ? " " : line.text)
             .font(.system(size: bodySize, weight: .bold))
+            // 同じ 12 文字の行で参照より約 7 px 広かったため、横長だけ字間を補正する。
+            .tracking(usesWideMetrics ? -0.3 * bodySize / 48 : 0)
             .foregroundStyle(active ? .primary : .secondary)
             // ぼかすのは**文字だけ**。`.frame` と `.contentShape` より前に掛けることで、
             // 押せる範囲と読み上げの範囲はぼかしても動かない。
@@ -516,7 +527,7 @@ struct LyricsView: View {
                 introPosition.scrollTo(edge: .top)
             } else {
                 introPosition.isPositionedByUser = true
-                proxy.scrollTo(index, anchor: Self.activeLineAnchor)
+                proxy.scrollTo(index, anchor: activeLineAnchor)
             }
         }
     }
