@@ -64,3 +64,10 @@ iPad フルプレイヤーの終了領域は、通常表示・歌詞とキュー
 `TEST_RUNNER_MUSICFIN_REGRESSION_ACCOUNT_TOOLBAR=1` は Home 右上のアカウント、
 `TEST_RUNNER_MUSICFIN_REGRESSION_PLAYLIST=1` は左メニューのプレイリストを対象にする。
 開始前に既存端末を記録し、成功・失敗にかかわらず作成した端末を終了・削除する。結果バンドルのスクリーンショットは残す。
+
+`testPadFullPlayerInteractiveDrag` は 40 pt の短い引きと 300 pt の引きを、それぞれ指を離す前に 2 秒保持する。
+短い引きの復帰、長い引きの終了、歌詞・キューの右側とシークからの操作除外を検証する。
+`TEST_RUNNER_MUSICFIN_PLAYER_DRAG_ORIENTATION=portrait` で縦向きも確認できる。
+保持中の追従は終了後の XCTest の frame だけでは検出できないため、同時に画面録画を行い、
+ログの `PLAYER-DRAG epoch=` と照合して、指を保持した区間のタイトル・画像が移動していることを確認する。
+全フレームを使い、短い引きの保持中は約 40 pt 動き、離すと元へ戻ることと、終了時に位置が飛ばないことを見る。

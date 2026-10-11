@@ -149,7 +149,10 @@ struct RootView: View {
         .tint(.pink)
         .environment(catalog)
         // iPad は参照どおり sidebar を含む全窓を覆う。fitted sheet へ戻すと左右の構成が残ってしまう。
-        .fullScreenCover(isPresented: padPlayerPresented) { playerContent }
+        // 引き下げ中に下の画面が見えるよう、提示の地は透明にする。静止したプレイヤー自身は不透明のまま。
+        .fullScreenCover(isPresented: padPlayerPresented) {
+            playerContent.presentationBackground(.clear)
+        }
         .playerPresentation(
             isPresented: customPlayerPresented,
             source: miniPlayerSource,

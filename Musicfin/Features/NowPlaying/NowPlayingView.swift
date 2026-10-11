@@ -43,20 +43,11 @@ struct NowPlayingView: View {
     @State private var favoriteTrack: MediaItem?
     @State private var isUpdatingFavorite = false
 
-    /// iPad の下スワイプで閉じる判定に使う、ルートの座標空間と開始時の記録。
+    /// シーク・音量の枠を報告する座標空間。閉じる容器の内側だが、指を置く時点では
+    /// 中身が動いていないので、容器の外側空間で測る開始位置と一致する。
     fileprivate static let rootSpace = "nowPlayingRoot"
-    private struct DismissTouch {
-        /// 指を置いた時点の判定。途中でモードや寸法が変わっても読み直さない。
-        let isEligible: Bool
-        /// 触れている間に一度でもシークが成立したか。
-        var sawScrub: Bool
-    }
-    @State private var dismissTouch: DismissTouch?
-    /// 取り消しでも必ず戻る `GestureState`。`onEnded` が呼ばれない経路で `dismissTouch` を捨てる合図にする。
-    @GestureState private var isTrackingDismiss = false
     /// スクロール中の寸法報告で本文を再描画せず、接触開始時にだけ最新の枠を読む。
     private final class DismissMeasurements {
-        var size = CGSize.zero
         var seek = CGRect.null
         var volume = CGRect.null
     }
@@ -108,6 +99,27 @@ struct NowPlayingView: View {
     /// 円の地と記号の両方を配色から引くので、背景以外にも配色そのものを下へ渡す。
     /// **地は不透明のまま**にする。半透明にすると sheet の下のアルバム詳細が本文に重なって読めなくなる。
     var body: some View {
+        if Self.isPad {
+            // 不透明な背景とグラバーも一緒に動かすため、容器は最外周に置く。
+            PadPlayerDismissContainer(
+                allowsStart: { start, size in
+                    PlayerDismissRegion.allows(
+                        start: start,
+                        size: size,
+                        detailIsVisible: mode != .artwork,
+                        excluded: [dismissMeasurements.seek, dismissMeasurements.volume].filter { !$0.isNull }
+                    )
+                },
+                isScrubbing: isScrubbing,
+                close: close,
+                content: { playerBody }
+            )
+        } else {
+            playerBody
+        }
+    }
+
+    private var playerBody: some View {
         GeometryReader { geometry in
             ArtworkBackdrop(item: player.currentItem, band: .player, artworkSize: Self.paletteArtworkSize) { palette in
                 if geometry.size.width >= PlayerDismissRegion.wideBreakpoint {
@@ -144,15 +156,9 @@ struct NowPlayingView: View {
             if Self.isPad { grabber }
         }
         .coordinateSpace(.named(Self.rootSpace))
-        .onGeometryChange(for: CGSize.self, of: \.size) { dismissMeasurements.size = $0 }
         .onPreferenceChange(ControlFramePreferenceKey.self) { frames in
             dismissMeasurements.seek = frames[.seek] ?? .null
             dismissMeasurements.volume = frames[.volume] ?? .null
-        }
-        // iPhone は UIKit の対話的な終了に任せるので、このジェスチャは iPad だけに掛ける。
-        .simultaneousGesture(dismissGesture, including: Self.isPad ? .all : .subviews)
-        .onChange(of: isTrackingDismiss) { _, tracking in
-            if !tracking { dismissTouch = nil }
         }
         // 地が常に暗い帯になったので、明るい外観の端末でも文字と記号は白のままにする（仕様 1.2 章）。
         // 個々の `.primary` / `.secondary` を白に置き換えて回らないのは、選択中の記号が地の色へ
@@ -271,37 +277,6 @@ struct NowPlayingView: View {
     }
 
     private static var isPad: Bool { UIDevice.current.userInterfaceIdiom == .pad }
-
-    /// iPad の下スワイプで閉じる操作を、ルートの 1 本に集約する。
-    /// 本文のスクロールやボタンを奪わないよう同時認識にし、どこから始めたかで可否を決める。
-    /// 可否は指を置いた最初の更新で固定する。指が動いた先で領域やモードが変わっても結果を変えない。
-    /// UIKit のシークは SwiftUI の `onEnded` より先に終わりうるので、`isScrubbing` の終了だけは信用せず、
-    /// 触れている間に一度でも立ったら閉じない。
-    private var dismissGesture: some Gesture {
-        DragGesture(minimumDistance: 12, coordinateSpace: .named(Self.rootSpace))
-            .updating($isTrackingDismiss) { _, tracking, _ in tracking = true }
-            .onChanged { value in
-                if dismissTouch == nil {
-                    dismissTouch = DismissTouch(
-                        isEligible: PlayerDismissRegion.allows(
-                            start: value.startLocation,
-                            size: dismissMeasurements.size,
-                            detailIsVisible: mode != .artwork,
-                            excluded: [dismissMeasurements.seek, dismissMeasurements.volume].filter { !$0.isNull }
-                        ),
-                        sawScrub: false
-                    )
-                }
-                if isScrubbing { dismissTouch?.sawScrub = true }
-            }
-            .onEnded { value in
-                defer { dismissTouch = nil }
-                guard let touch = dismissTouch, touch.isEligible, !touch.sawScrub, !isScrubbing else { return }
-                if value.translation.height > 60, value.translation.height > abs(value.translation.width) {
-                    close()
-                }
-            }
-    }
 
     private var wideTransport: some View {
         HStack(spacing: 0) {
