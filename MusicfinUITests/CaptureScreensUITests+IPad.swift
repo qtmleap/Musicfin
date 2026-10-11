@@ -115,6 +115,167 @@ extension CaptureScreensUITests {
         capture("artists-filtered-height")
     }
 
+    @MainActor
+    func testPadHomeAlbumKeepsMiniPlayer() throws {
+        guard isIPadCapture else { throw XCTSkip("iPad 専用の検証") }
+        launchApp()
+        ensureSignedIn()
+        let album = app.buttons.matching(
+            NSPredicate(
+                format: "identifier BEGINSWITH %@ AND identifier != %@", "home.top-pick.", "home.top-pick.favorites")
+        ).firstMatch
+        XCTAssertTrue(album.waitForExistence(timeout: 30))
+        album.tap()
+        let play = app.buttons["album.play"].firstMatch
+        XCTAssertTrue(play.waitForExistence(timeout: 30))
+        play.tap()
+        // 同じ Home 行の再選択では経路が消えないため、別の選択を経由して入口へ戻す。
+        padSidebarRow("sidebar.artists").tap()
+        padSidebarRow("sidebar.home").tap()
+        let mini = app.buttons["miniplayer.play-pause"]
+        XCTAssertTrue(mini.waitForExistence(timeout: 30))
+        XCTAssertTrue(mini.isHittable, "ホームでミニプレイヤーを操作できなかった")
+        let miniFrame = mini.frame
+        let sidebarFrame = app.buttons["sidebar.account"].frame
+        capture("home-mini-before-detail")
+        XCTAssertTrue(album.waitForExistence(timeout: 10))
+        album.tap()
+        XCTAssertTrue(play.waitForExistence(timeout: 20))
+        settle()
+        // 存在だけでは遷移先の背後に残った帯も通るため、実際に触れられることを確かめる。
+        XCTAssertTrue(mini.isHittable, "アルバム詳細に移動するとミニプレイヤーが隠れた")
+        XCTAssertEqual(mini.frame.midX, miniFrame.midX, accuracy: 1)
+        XCTAssertEqual(mini.frame.maxY, miniFrame.maxY, accuracy: 1)
+        XCTAssertEqual(app.buttons["sidebar.account"].frame, sidebarFrame)
+        capture("home-album-mini")
+        // 戻る時と再度開く時の遷移も録画に残し、帯が列の外へ動かないことを確認する。
+        let back = app.buttons["album.overlay.close"]
+        XCTAssertTrue(back.isHittable)
+        back.tap()
+        XCTAssertTrue(album.waitForExistence(timeout: 10))
+        XCTAssertTrue(mini.isHittable)
+        XCTAssertEqual(mini.frame.midX, miniFrame.midX, accuracy: 1)
+        XCTAssertEqual(app.buttons["sidebar.account"].frame, sidebarFrame)
+        capture("home-mini-after-back")
+        album.tap()
+        XCTAssertTrue(play.waitForExistence(timeout: 20))
+        XCTAssertTrue(mini.isHittable)
+        capture("home-album-mini-reopened")
+        // 小さく動かして止めた場合は閉じずに戻り、指を離す前後の状態を録画に残す。
+        let window = app.windows.firstMatch
+        window.coordinate(withNormalizedOffset: CGVector(dx: 0.78, dy: 0.3))
+            .press(
+                forDuration: 0.05,
+                thenDragTo: window.coordinate(withNormalizedOffset: CGVector(dx: 0.78, dy: 0.38)),
+                withVelocity: .slow, thenHoldForDuration: 1)
+        settle()
+        XCTAssertTrue(play.isHittable, "小さいドラッグをやめた後に詳細へ復帰しなかった")
+        XCTAssertTrue(mini.isHittable)
+        XCTAssertEqual(mini.frame.midX, miniFrame.midX, accuracy: 1)
+        XCTAssertEqual(mini.frame.maxY, miniFrame.maxY, accuracy: 1)
+        capture("home-album-after-drag-cancel")
+        // ゆっくり斜め下へ動かし、指を止めた状態から離して帰着する二段階を確かめる。
+        window.coordinate(withNormalizedOffset: CGVector(dx: 0.78, dy: 0.3))
+            .press(
+                forDuration: 0.05,
+                thenDragTo: window.coordinate(withNormalizedOffset: CGVector(dx: 0.82, dy: 0.72)),
+                withVelocity: .slow, thenHoldForDuration: 1.5)
+        let dismissed = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: play)
+        XCTAssertEqual(XCTWaiter.wait(for: [dismissed], timeout: 10), .completed)
+        settle()
+        XCTAssertEqual(app.state, .runningForeground)
+        XCTAssertTrue(album.isHittable, "下スワイプ後に元のカードを操作できなかった")
+        XCTAssertTrue(mini.isHittable)
+        XCTAssertEqual(mini.frame.midX, miniFrame.midX, accuracy: 1)
+        XCTAssertEqual(app.buttons["sidebar.account"].frame, sidebarFrame)
+        XCTAssertEqual(mini.frame.maxY, miniFrame.maxY, accuracy: 1)
+        capture("home-mini-after-swipe")
+        album.tap()
+        XCTAssertTrue(play.waitForExistence(timeout: 20))
+        capture("home-album-after-swipe-reopened")
+        if mini.isHittable {
+            mini.tap()
+            let pauses = expectation(for: NSPredicate(format: "label == %@", "Play"), evaluatedWith: mini)
+            XCTAssertEqual(XCTWaiter.wait(for: [pauses], timeout: 10), .completed)
+            XCTAssertGreaterThan(mini.frame.minX, app.buttons["sidebar.account"].frame.maxX)
+            // 帯の外にある詳細の操作も、透明な配置枠に奪われないことを確かめる。
+            play.tap()
+            let resumes = expectation(for: NSPredicate(format: "label == %@", "Pause"), evaluatedWith: mini)
+            XCTAssertEqual(XCTWaiter.wait(for: [resumes], timeout: 10), .completed)
+            let openPlayer = app.buttons.matching(NSPredicate(format: "label ENDSWITH 'Open Player'")).firstMatch
+            XCTAssertTrue(openPlayer.isHittable)
+            openPlayer.tap()
+            XCTAssertTrue(element(.button, "歌詞").waitForExistence(timeout: 10))
+            capture("home-album-full-player")
+        }
+    }
+
+    @MainActor
+    func testPadAlbumOverlayScrollAndEntries() throws {
+        guard isIPadCapture else { throw XCTSkip("iPad 専用の検証") }
+        // 作品の曲数が変わっても一覧が画面内に収まらないよう、文字を大きくして操作を検証する。
+        launchApp(contentSizeCategoryOverride: "UICTContentSizeCategoryAccessibilityXXXL")
+        ensureSignedIn()
+        let albums = app.buttons.matching(
+            NSPredicate(
+                format: "identifier BEGINSWITH %@ AND identifier != %@", "home.top-pick.", "home.top-pick.favorites"))
+        let album = albums.element(boundBy: 1)
+        XCTAssertTrue(album.waitForExistence(timeout: 30))
+        album.tap()
+        let close = app.buttons["album.overlay.close"]
+        let play = app.buttons["album.play"].firstMatch
+        XCTAssertTrue(play.waitForExistence(timeout: 30))
+        let window = app.windows.firstMatch
+        let initialPlayY = play.frame.minY
+        // 曲が多い作品で本文を送り、先頭へ戻る同じ接触が閉じる操作に化けないことを確かめる。
+        window.coordinate(withNormalizedOffset: CGVector(dx: 0.8, dy: 0.75))
+            .press(
+                forDuration: 0.05, thenDragTo: window.coordinate(withNormalizedOffset: CGVector(dx: 0.8, dy: 0.25)),
+                withVelocity: .slow, thenHoldForDuration: 0.2)
+        settle()
+        XCTAssertTrue(close.isHittable)
+        XCTAssertLessThan(play.frame.minY, initialPlayY - 20, "曲一覧がスクロールしなかった")
+        capture("album-overlay-scrolled")
+        for _ in 0..<5 {
+            if abs(play.frame.minY - initialPlayY) < 2 { break }
+            window.coordinate(withNormalizedOffset: CGVector(dx: 0.8, dy: 0.3))
+                .press(
+                    forDuration: 0.05, thenDragTo: window.coordinate(withNormalizedOffset: CGVector(dx: 0.8, dy: 0.75)),
+                    withVelocity: .slow, thenHoldForDuration: 0.2)
+            settle()
+            XCTAssertTrue(close.isHittable, "先頭以外で始めたスクロールが詳細を閉じた")
+        }
+        XCTAssertTrue(play.isHittable)
+        XCTAssertEqual(play.frame.minY, initialPlayY, accuracy: 2)
+        close.tap()
+        XCTAssertTrue(album.waitForExistence(timeout: 10))
+        album.tap()
+        XCTAssertTrue(close.waitForExistence(timeout: 10))
+        // 選択済みの Home 行でも重なった詳細を片付ける。
+        app.staticTexts["sidebar.home"].tap()
+        let removed = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: close)
+        XCTAssertEqual(XCTWaiter.wait(for: [removed], timeout: 10), .completed)
+        for prefix in ["home.carousel.", "home.album."] {
+            let entry = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", prefix)).firstMatch
+            for _ in 0..<6 {
+                if entry.exists && entry.isHittable { break }
+                window.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.78))
+                    .press(
+                        forDuration: 0.05,
+                        thenDragTo: window.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.35)),
+                        withVelocity: .slow, thenHoldForDuration: 0.1)
+                settle()
+            }
+            XCTAssertTrue(entry.isHittable, "ホームの別の入口が見つからなかった")
+            entry.tap()
+            XCTAssertTrue(close.waitForExistence(timeout: 10))
+            XCTAssertTrue(play.waitForExistence(timeout: 20))
+            close.tap()
+            settle()
+            XCTAssertTrue(entry.isHittable)
+        }
+    }
+
     /// 板が閉じられないこと、表示モードボタンが出ないことの確認（仕様 6 章）。
     /// 静止画では見えない要件なので、実際に払って板の位置と幅が動かないことで確かめる。
     @MainActor

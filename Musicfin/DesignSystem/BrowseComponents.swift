@@ -18,12 +18,18 @@ struct AlbumCard: View {
     var size: CGFloat = 160
     /// 省略時はアーティスト名。アーティスト詳細のように文脈で自明なときは別の文言（年など）に差し替える。
     var subtitle: String?
+    /// 指定時だけアートワークを zoom の遷移元にする。
+    var overlaySource: HomeAlbumSource?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             // Apple 実機の角の輪郭は一辺に比例せず、ライブラリの一覧の行は 5 pt、検索結果の行だけが 4 pt、
             // グリッドのカードは 8 pt で分かれる（仕様 1.1 章）。
-            ArtworkView(item: item, size: size, cornerRadius: 8)
+            ArtworkView(
+                item: item, size: size, cornerRadius: 8,
+                onImageChange: overlaySource.map { source in { source.box.image = $0 } }
+            )
+            .homeAlbumSource(overlaySource)
 
             // Apple 実機は作品名とアーティスト名を同じ大きさで置き、色の濃淡だけで主従を付ける。
             // 左端も画像に揃うので、文字側に横余白は入れない。

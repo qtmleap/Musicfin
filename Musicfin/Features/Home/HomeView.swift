@@ -7,6 +7,8 @@ struct HomeView: View {
     @Environment(LibraryStore.self) private var library
     @Environment(PlaybackEngine.self) private var player
     @Environment(AlbumCatalog.self) private var catalog
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    var albumOverlay: HomeAlbumPresentation?
     @State private var showsAccount = false
 
     private var favorites: [MediaItem] { library.favoriteTracks.filter(\.isFavorite) }
@@ -22,6 +24,36 @@ struct HomeView: View {
     /// ここを 20 pt のままにすると、同じ detail の一覧画面より本文だけ左に出てしまう。
     private var horizontalMargin: CGFloat {
         UIDevice.current.userInterfaceIdiom == .pad ? 34.5 : 20
+    }
+
+    /// RootView の `usesTabShell`（iPhone / compact）の逆で、iPad かつ regular のとき。
+    /// 条件がずれると、分割表示の detail ではない画面にまで zoom が出てしまう。
+    private var usesAlbumOverlay: Bool {
+        UIDevice.current.userInterfaceIdiom == .pad && horizontalSizeClass != .compact
+    }
+
+    /// 同じ作品でも入口の段を区別し、戻るときはカード余白ではなく元の画像へ着地する。
+    /// compact は従来の push を保ち、regular だけ Root 所有の詳細を開く。
+    @ViewBuilder
+    private func albumLink<Label: View>(
+        _ album: MediaItem, prefix: String,
+        @ViewBuilder label: (HomeAlbumSource?) -> Label
+    ) -> some View {
+        let id = "\(prefix).\(album.id)"
+        if usesAlbumOverlay, let albumOverlay {
+            let box = albumOverlay.source(for: id)
+            Button {
+                albumOverlay.open(album, entry: id, source: box)
+            } label: {
+                label(HomeAlbumSource(box: box, hidden: albumOverlay.selection?.entry == id))
+            }
+        } else {
+            NavigationLink {
+                AlbumDetailView(album: album)
+            } label: {
+                label(nil)
+            }
+        }
     }
 
     /// Top Picks の 1 枚は裸のアートワークではなく、内余白 16 pt の板にアートワークと
@@ -97,10 +129,8 @@ struct HomeView: View {
                 // 立たない。実機と同じく複数枚を並べて画面の幅を越えさせる。
                 LazyHStack(alignment: .top, spacing: topPickMetrics.spacing) {
                     ForEach(library.recentlyAdded) { recommendation in
-                        NavigationLink {
-                            AlbumDetailView(album: recommendation)
-                        } label: {
-                            editorialAlbumCard(recommendation)
+                        albumLink(recommendation, prefix: "topPick") { overlaySource in
+                            editorialAlbumCard(recommendation, overlaySource: overlaySource)
                         }
                         .buttonStyle(.plain)
                         .accessibilityIdentifier("home.top-pick.\(recommendation.id)")
@@ -121,9 +151,13 @@ struct HomeView: View {
         }
     }
 
-    private func editorialAlbumCard(_ album: MediaItem) -> some View {
+    private func editorialAlbumCard(_ album: MediaItem, overlaySource: HomeAlbumSource?) -> some View {
         topPickCard {
-            ArtworkView(item: album, size: topPickMetrics.artwork, cornerRadius: 12)
+            ArtworkView(
+                item: album, size: topPickMetrics.artwork, cornerRadius: 12,
+                onImageChange: overlaySource.map { source in { source.box.image = $0 } }
+            )
+            .homeAlbumSource(overlaySource)
             Text("Trending with \(album.displayArtist ?? album.albumArtist ?? album.displayName)")
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.secondary)
@@ -194,12 +228,11 @@ struct HomeView: View {
             title: title, destination: { AlbumGridView(title: String(localized: title), feed: .recentlyPlayedAlbums) },
             content: {
                 ForEach(items) { album in
-                    NavigationLink {
-                        AlbumDetailView(album: album)
-                    } label: {
-                        AlbumCard(item: album, size: size)
+                    albumLink(album, prefix: "recentlyPlayed") { overlaySource in
+                        AlbumCard(item: album, size: size, overlaySource: overlaySource)
                     }
                     .buttonStyle(.plain)
+                    .accessibilityIdentifier("home.carousel.\(album.id)")
                 }
                 LibraryFeedLoader(feed: .recentlyPlayedAlbums).frame(width: size)
             })
@@ -277,10 +310,8 @@ struct HomeView: View {
                 columns: metrics.gridItems, alignment: .leading, spacing: AlbumGridMetrics.rowSpacing
             ) {
                 ForEach(catalog.items) { album in
-                    NavigationLink {
-                        AlbumDetailView(album: album)
-                    } label: {
-                        AlbumCard(item: album, size: metrics.size)
+                    albumLink(album, prefix: "explore") { overlaySource in
+                        AlbumCard(item: album, size: metrics.size, overlaySource: overlaySource)
                     }
                     .buttonStyle(.plain)
                     .accessibilityIdentifier("home.album.\(album.id)")

@@ -5,6 +5,9 @@ import UIKit
 /// 画像・題名・再生操作・メニューの実行処理は共用し、ヘッダーの内訳と曲行だけを種別で分ける（仕様 8 章）。
 struct AlbumDetailView: View {
     let album: MediaItem
+    var overlayArtworkHidden = false
+    var overlayMarker: ((UIView) -> Void)?
+    var overlayClose: (() -> Void)?
 
     @Environment(LibraryStore.self) private var library
     @Environment(PlaybackEngine.self) private var player
@@ -89,7 +92,16 @@ struct AlbumDetailView: View {
         .background(usesWideLayout ? Color.black : Color.clear)
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar { toolbarContent(palette: palette) }
+        .toolbar {
+            toolbarContent(palette: palette)
+            if let overlayClose {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button(action: overlayClose) { Label("アートワークへ戻る", systemImage: "chevron.left") }
+                        .accessibilityIdentifier("album.overlay.close")
+                }
+            }
+        }
+        .overlayEscape(overlayClose)
         .task { await load() }
         .prefetchArtwork(isPlaylist ? tracks : [], size: Self.playlistArtworkSize)
     }
@@ -107,7 +119,17 @@ struct AlbumDetailView: View {
 
     private var wideHeader: some View {
         HStack(alignment: .center, spacing: 34) {
-            ArtworkView(item: album, size: 300, cornerRadius: 8)
+            Group {
+                if overlayArtworkHidden {
+                    // 空の同寸スロットにすることで、遷移画像と詳細の別画像が重なるのを避ける。
+                    Color.clear.frame(width: 300, height: 300)
+                } else {
+                    ArtworkView(item: album, size: 300, cornerRadius: 8)
+                }
+            }
+            .background {
+                if let overlayMarker { HomeAlbumMarker(attach: overlayMarker) }
+            }
             VStack(alignment: .leading, spacing: 0) {
                 Spacer()
                 VStack(alignment: .leading, spacing: 6) {
@@ -494,4 +516,16 @@ private struct UndimmedButtonStyle: ButtonStyle {
     .environment(AuthStore())
     .environment(LibraryStore())
     .environment(PlaybackEngine())
+}
+
+extension View {
+    /// 何も閉じる対象がない通常の画面では、escape を VoiceOver に公開しない。
+    @ViewBuilder
+    fileprivate func overlayEscape(_ close: (() -> Void)?) -> some View {
+        if let close {
+            accessibilityAction(.escape, close)
+        } else {
+            self
+        }
+    }
 }

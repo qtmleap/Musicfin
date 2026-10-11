@@ -14,6 +14,8 @@ struct RootView: View {
         static let sidebarCornerRadius: CGFloat = 24
         /// detail の左端は板の右端に接する。参照の黒い隙間 34.5 pt は detail 本文が持つ左右余白そのもの。
         static let detailOrigin: CGFloat = sidebarLeading + sidebarWidth
+        /// detail 列の枠を測る座標空間の名前。
+        static let splitSpace = "padSplit"
         /// sidebar の行の高さ。参照の選択背景 473 × 88 px（236.5 × 44 pt）に合わせる。
         /// `List` 既定のままだと 52 pt になり、行を下るほど参照との差が積み上がる。
         static let sidebarRowHeight: CGFloat = 44
@@ -97,6 +99,7 @@ struct RootView: View {
     /// 窓が狭くなると成り立たないので、幅の級を見て 1 列へ落とす。
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var catalog = AlbumCatalog()
+    @State private var albumOverlay = HomeAlbumPresentation()
     @State private var selection: RootTab = .home
     @State private var padSelection: PadDestination? = .home
     /// 標準 split view の列の見え方。参照の板は閉じられないので `.all` から動かさない。
@@ -127,6 +130,8 @@ struct RootView: View {
     /// **矩形を `@State` の値として持たない**のが要点で、持つと幾何の報告がこの画面全体の再評価を呼び、
     /// `tabViewBottomAccessory` の作り直し → 再計測、と輪になる。箱の作り直しを防ぐために `@State` で 1 度だけ作る。
     @State private var miniPlayerSource = PlayerSourceBox()
+    /// primary 列の右端（split view 座標）。detail 側は push で動くので測らず、動かない sidebar 側から取る。
+    @State private var padSidebarTrailing: CGFloat = 0
     /// フルプレイヤーの開き方。**実機比較のための一時的な切り替え**で、設定画面と同じキーを読む。
     @AppStorage(PlayerPresentationStyle.storageKey) private var playerStyle = PlayerPresentationStyle.slideUp
 
@@ -160,6 +165,9 @@ struct RootView: View {
         // 幅が変わって shell が入れ替わるとき、2 つの shell が共有している path を持ち越すと、
         // 別の root の上へ積まれたままの経路が復元されてしまう。入口へ戻してから渡す。
         .onChange(of: usesTabShell) { _, _ in
+            // 狭い表示から戻った初回に、以前の列幅で帯を置かない。
+            albumOverlay.clear()
+            padSidebarTrailing = 0
             homePath = NavigationPath()
             libraryPath = NavigationPath()
             searchPath = NavigationPath()
@@ -212,6 +220,13 @@ struct RootView: View {
     private var padSplitView: some View {
         NavigationSplitView(columnVisibility: $padColumnVisibility) {
             padSidebar
+                // 帯の置き場は sidebar 列の右端から決める。native の split view は列幅が変わるので
+                // `PadShell.detailOrigin` の固定値は使えず、detail 側は push で動くので測れない。
+                .onGeometryChange(for: CGFloat.self) {
+                    $0.frame(in: .named(PadShell.splitSpace)).maxX
+                } action: {
+                    padSidebarTrailing = $0
+                }
                 // 列そのものが地を持つので、板の material を見せるには一覧側と同じく外す。
                 .scrollContentBackground(.hidden)
                 .toolbar(removing: .sidebarToggle)
@@ -233,6 +248,9 @@ struct RootView: View {
                 .toolbar(removing: .sidebarToggle)
         }
         .navigationSplitViewStyle(.balanced)
+        .coordinateSpace(.named(PadShell.splitSpace))
+        .overlay { padAlbumOverlay }
+        .overlay { padMiniPlayerOverlay }
         // 端の払いや toolbar から閉じられても、参照どおり常に開いた状態へ戻す。
         // 狭い窓はこの shell へ来ない（`usesTabShell`）ので、ここで固定して詰むことはない。
         .onChange(of: padColumnVisibility) { _, visibility in
@@ -241,6 +259,7 @@ struct RootView: View {
         // 選択が変わったら detail に残った深い path を捨て、常に選択先の root から見せる。
         // 行が `Button` だったときは押した側でやっていた片付けで、選択へ移したぶんをここへ寄せる。
         .onChange(of: padSelection) { _, destination in
+            albumOverlay.clear()
             homePath = NavigationPath()
             libraryPath = NavigationPath()
             searchPath = NavigationPath()
@@ -321,25 +340,54 @@ struct RootView: View {
     }
 
     private var padDetailColumn: some View {
-        ZStack(alignment: .bottom) {
-            padDetail
-            if showsMiniPlayer {
-                MiniPlayerView(
-                    onFrameChange: { miniPlayerSource.rect = $0 },
-                    forceExpanded: true
-                ) { showsPlayer = true }
-                .frame(maxWidth: 689)
-                .frame(height: 63.5)
-                .glassEffect(.regular, in: .rect(cornerRadius: 24, style: .continuous))
-                .padding(.horizontal, 16)
-                .background { PlayerZoomSource(source: miniPlayerSource) }
-                // 下端 25 pt は窓の下端から測る（仕様 6 章）。帯は高さが決まっているので
-                // `ignoresSafeArea` だけでは動かない。伸び縮みする枠でいったん包み、その枠を
-                // 窓の下端まで広げてから 25 pt 詰める。枠のままだとホームインジケータぶん浮く。
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-                .padding(.bottom, 25)
-                .ignoresSafeArea(edges: .bottom)
+        padDetail
+            .allowsHitTesting(albumOverlay.selection == nil || padSidebarTrailing <= 0)
+            .accessibilityHidden(albumOverlay.selection != nil && padSidebarTrailing > 0)
+    }
+
+    /// アルバム詳細は split view の外から detail 列の上へ重ねる。detail の中へ置くと、
+    /// 内側の `NavigationStack` の toolbar が split 側の navigation bar と競合し、
+    /// Home の大見出しとアカウントが残ったまま戻るボタンも出ない。
+    /// 左端は mini player と同じ sidebar 右端から決め、sidebar は覆わない。
+    @ViewBuilder
+    private var padAlbumOverlay: some View {
+        if let session = albumOverlay.selection, padSidebarTrailing > 0 {
+            HomeAlbumCanvas(
+                session: session, presentation: albumOverlay, interrupted: showsPlayer
+            )
+            .id(session.generation)
+            .ignoresSafeArea()
+            .padding(.leading, padSidebarTrailing)
+        }
+    }
+
+    /// split view 直上に持つ帯。detail 内の兄弟にすると、詳細画面へ push した時に
+    /// destination の hosting ごと隠れてしまうため、遷移の外へ出す。
+    /// 空き領域は描画も contentShape も持たないので、下の画面へのタップはそのまま通る。
+    @ViewBuilder
+    private var padMiniPlayerOverlay: some View {
+        if showsMiniPlayer, padSidebarTrailing > 0 {
+            GeometryReader { proxy in
+                if padSidebarTrailing < proxy.size.width {
+                    MiniPlayerView(
+                        onFrameChange: { miniPlayerSource.rect = $0 },
+                        forceExpanded: true
+                    ) { showsPlayer = true }
+                    .frame(maxWidth: 689)
+                    .frame(height: 63.5)
+                    .glassEffect(.regular, in: .rect(cornerRadius: 24, style: .continuous))
+                    .padding(.horizontal, 16)
+                    .background { PlayerZoomSource(source: miniPlayerSource) }
+                    .frame(width: proxy.size.width - padSidebarTrailing)
+                    // 下端 25 pt は窓の下端から測る（仕様 6 章）。帯は高さが決まっているので
+                    // `ignoresSafeArea` だけでは動かない。伸び縮みする枠でいったん包み、その枠を
+                    // 窓の下端まで広げてから 25 pt 詰める。枠のままだとホームインジケータぶん浮く。
+                    .padding(.bottom, 25)
+                    .padding(.leading, padSidebarTrailing)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+                }
             }
+            .ignoresSafeArea(edges: .bottom)
         }
     }
 
@@ -463,6 +511,7 @@ struct RootView: View {
             )
             .contentShape(.rect)
             .tag(destination)
+            .simultaneousGesture(TapGesture().onEnded { albumOverlay.clear() })
             .background { PadSidebarFocusStyle() }
             .listRowInsets(
                 EdgeInsets(
@@ -575,15 +624,16 @@ struct RootView: View {
 
     private var homeNavigation: some View {
         NavigationStack(path: $homePath) {
-            HomeView {
-                if usesTabShell {
-                    libraryPath = NavigationPath([LibraryRoute.albums])
-                    selection = .library
-                } else {
-                    libraryPath = NavigationPath()
-                    padSelection = .albums
-                }
-            }
+            HomeView(
+                showAlbums: {
+                    if usesTabShell {
+                        libraryPath = NavigationPath([LibraryRoute.albums])
+                        selection = .library
+                    } else {
+                        libraryPath = NavigationPath()
+                        padSelection = .albums
+                    }
+                }, albumOverlay: albumOverlay)
         }
     }
 

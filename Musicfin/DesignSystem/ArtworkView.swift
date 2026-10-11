@@ -7,6 +7,8 @@ struct ArtworkView: View {
     var cornerRadius: CGFloat = 8
     /// 見た目の伸縮で画像を取り直さないよう、取得時の解像度を表示寸法から独立させる。
     var requestSize: CGFloat?
+    /// 遷移中に別画像へ差し替わらないよう、入口で取得済みの画像だけを捕捉する。
+    var onImageChange: ((UIImage?) -> Void)?
 
     @Environment(AuthStore.self) private var auth
     @State private var image: UIImage?
@@ -70,6 +72,7 @@ struct ArtworkView: View {
         let request = request
         if imageSource != request?.sourceKey {
             image = nil
+            onImageChange?(nil)
             imageSource = request?.sourceKey
         }
         didFail = false
@@ -79,6 +82,7 @@ struct ArtworkView: View {
         switch result {
         case .success(let loaded):
             withAnimation(.easeOut(duration: 0.2)) { image = loaded }
+            onImageChange?(loaded)
         case .failure(let failure):
             didFail = failure.isRetryable
         }
