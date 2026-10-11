@@ -203,7 +203,7 @@ struct NowPlayingView: View {
         let height = max(size.height, minimumTitleHeight + controlsHeight + 420)
         let controlsTop = height - controlsHeight - 81
         let bigSide = min(columnWidth - 16, max(180, controlsTop - minimumTitleHeight - 80))
-        let artworkSide = mode == .artwork && player.currentItem != nil ? bigSide : min(380, bigSide)
+        let artworkSide = player.currentItem != nil ? bigSide : min(380, bigSide)
         let titleTop = controlsTop - minimumTitleHeight + 16
         // 文字拡大や低い窓では曲情報が上へ広がるため、画像の下端との間に必ず 16 pt を残す。
         // 画像の一辺はその上の空きから決めてあるので、中心を上げても画像上端は表示領域内に収まる。
@@ -221,7 +221,8 @@ struct NowPlayingView: View {
                                 // 右列は最初から全高を使えるため、歌詞を送っても左列の操作を隠さない。
                                 LyricsView(
                                     track: track, isSettled: !isTopTransitioning,
-                                    isSeeking: isScrubbing || pendingSeekTime != nil
+                                    isSeeking: isScrubbing || pendingSeekTime != nil,
+                                    usesWideMetrics: true
                                 )
                                 .id(track.id)
                             }
@@ -236,7 +237,7 @@ struct NowPlayingView: View {
                 ZStack(alignment: .topLeading) {
                     artworkSlot(
                         bigSide: bigSide, pausedScale: player.currentItem == nil ? 1 : min(1, 380 / bigSide),
-                        detailPausedScale: Self.isPad ? 0.9 : 1
+                        detailPausedScale: player.currentItem == nil ? 1 : min(1, 380 / bigSide)
                     )
                     .frame(width: artworkSide, height: artworkSide)
                     .position(x: columnWidth / 2, y: artworkCenterY)
