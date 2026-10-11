@@ -226,9 +226,12 @@ struct NowPlayingView: View {
                     .allowsHitTesting(mode != .artwork)
 
                 ZStack(alignment: .topLeading) {
-                    artworkSlot(bigSide: bigSide, pausedScale: player.currentItem == nil ? 1 : min(1, 380 / bigSide))
-                        .frame(width: artworkSide, height: artworkSide)
-                        .position(x: columnWidth / 2, y: artworkCenterY)
+                    artworkSlot(
+                        bigSide: bigSide, pausedScale: player.currentItem == nil ? 1 : min(1, 380 / bigSide),
+                        detailPausedScale: Self.isPad ? 0.9 : 1
+                    )
+                    .frame(width: artworkSide, height: artworkSide)
+                    .position(x: columnWidth / 2, y: artworkCenterY)
                     HStack(spacing: 12) {
                         VStack(alignment: .leading, spacing: 4) {
                             songTitle(compact: false)
@@ -445,7 +448,7 @@ struct NowPlayingView: View {
             // 並び順は `PlayerTopLayout` の添字と対応する。本文を最初に置くのは、
             // 縮んでいく画像が本文の領域を通る間、画像が上に来て文字と重なって見えないようにするため。
             detailSlot(extra: detailExtra)
-            artworkSlot(bigSide: bigSide)
+            artworkSlot(bigSide: bigSide, detailPausedScale: Self.isPad ? 0.9 : 1)
             songTitle(compact: mode != .artwork)
             songArtist(compact: mode != .artwork)
             favoriteButton
@@ -467,7 +470,8 @@ struct NowPlayingView: View {
     /// アートワーク。**大きさも角丸も同じ View の上で変える**ので、状態を切り替えても
     /// 画像の読み込みやプレースホルダーからのフェードは起き直らない（仕様 5.1 章）。
     /// 一辺はレイアウトが提示した枠から読む。ここで状態を見て決めると、補間の途中の値を取れない。
-    private func artworkSlot(bigSide: CGFloat, pausedScale: CGFloat = 0.9) -> some View {
+    private func artworkSlot(bigSide: CGFloat, pausedScale: CGFloat = 0.9, detailPausedScale: CGFloat = 1) -> some View
+    {
         // **3 状態とも同じ `Button`** にする（仕様 5.1 章 第 4 版）。歌詞で操作帯が退避している間は
         // 下部の 3 ボタンが画面外にあるので、この見出しの画像だけがアートワーク状態へ戻る道になる。
         // 状態によって `Button` を付け外しすると identity が変わり、補間の途中で画像が作り直される。
@@ -492,9 +496,12 @@ struct NowPlayingView: View {
         // `ArtworkView` 自体は読み上げ対象を持たず、曲名・アーティストは隣の `Text` が読まれる。
         .accessibilityHidden(mode == .artwork)
         // 停止中は縮めて「止まっている」ことを形で示す。横長は参照の 380 pt、狭い幅は従来の 90%。
-        // 72 pt まで縮んだ状態では掛けない。小さい画像でさらに縮めても止まっていることは伝わらず、
-        // 曲名との縦位置だけがずれる。
-        .scaleEffect(reduceMotion || player.isPlaying || mode != .artwork ? 1 : pausedScale)
+        // iPad は歌詞・キューでも停止を形で示す。枠ではなく描画だけを縮め、曲情報と操作の位置を保つ。
+        // iPhone の小さな見出し画像と曲のない詳細画像は、停止表示でさらに縮めない。
+        .scaleEffect(
+            reduceMotion || player.isPlaying
+                ? 1 : (mode == .artwork ? pausedScale : (player.currentItem == nil ? 1 : detailPausedScale))
+        )
         .animation(reduceMotion ? nil : .spring(duration: 0.4, bounce: 0.2), value: player.isPlaying)
         // 影は無彩色に替えるのではなく付けない。画像そのものを見せる（仕様 1.1 章）。
     }
@@ -711,6 +718,7 @@ struct NowPlayingView: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel(player.isPlaying ? String(localized: "一時停止") : String(localized: "再生"))
+            .accessibilityIdentifier("nowplaying.play-pause")
 
             Button {
                 player.playNext()
