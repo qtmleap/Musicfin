@@ -115,6 +115,51 @@ extension CaptureScreensUITests {
         capture("artists-filtered-height")
     }
 
+    @MainActor
+    func testPadHomeAlbumKeepsMiniPlayer() throws {
+        guard isIPadCapture else { throw XCTSkip("iPad 専用の検証") }
+        launchApp()
+        ensureSignedIn()
+        let album = app.buttons.matching(
+            NSPredicate(
+                format: "identifier BEGINSWITH %@ AND identifier != %@", "home.top-pick.", "home.top-pick.favorites")
+        ).firstMatch
+        XCTAssertTrue(album.waitForExistence(timeout: 30))
+        album.tap()
+        let play = app.buttons["album.play"].firstMatch
+        XCTAssertTrue(play.waitForExistence(timeout: 30))
+        play.tap()
+        // 同じ Home 行の再選択では経路が消えないため、別の選択を経由して入口へ戻す。
+        padSidebarRow("sidebar.artists").tap()
+        padSidebarRow("sidebar.home").tap()
+        let mini = app.buttons["miniplayer.play-pause"]
+        XCTAssertTrue(mini.waitForExistence(timeout: 30))
+        XCTAssertTrue(mini.isHittable, "ホームでミニプレイヤーを操作できなかった")
+        capture("home-mini-before-detail")
+        XCTAssertTrue(album.waitForExistence(timeout: 10))
+        album.tap()
+        XCTAssertTrue(play.waitForExistence(timeout: 20))
+        settle()
+        // 存在だけでは遷移先の背後に残った帯も通るため、実際に触れられることを確かめる。
+        XCTAssertTrue(mini.isHittable, "アルバム詳細に移動するとミニプレイヤーが隠れた")
+        capture("home-album-mini")
+        if mini.isHittable {
+            mini.tap()
+            let pauses = expectation(for: NSPredicate(format: "label == %@", "Play"), evaluatedWith: mini)
+            XCTAssertEqual(XCTWaiter.wait(for: [pauses], timeout: 10), .completed)
+            XCTAssertGreaterThan(mini.frame.minX, app.buttons["sidebar.account"].frame.maxX)
+            // 帯の外にある詳細の操作も、透明な配置枠に奪われないことを確かめる。
+            play.tap()
+            let resumes = expectation(for: NSPredicate(format: "label == %@", "Pause"), evaluatedWith: mini)
+            XCTAssertEqual(XCTWaiter.wait(for: [resumes], timeout: 10), .completed)
+            let openPlayer = app.buttons.matching(NSPredicate(format: "label ENDSWITH 'Open Player'")).firstMatch
+            XCTAssertTrue(openPlayer.isHittable)
+            openPlayer.tap()
+            XCTAssertTrue(element(.button, "歌詞").waitForExistence(timeout: 10))
+            capture("home-album-full-player")
+        }
+    }
+
     /// 板が閉じられないこと、表示モードボタンが出ないことの確認（仕様 6 章）。
     /// 静止画では見えない要件なので、実際に払って板の位置と幅が動かないことで確かめる。
     @MainActor
