@@ -99,6 +99,7 @@ struct RootView: View {
     /// 窓が狭くなると成り立たないので、幅の級を見て 1 列へ落とす。
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var catalog = AlbumCatalog()
+    @State private var albumOverlay = HomeAlbumPresentation()
     @State private var selection: RootTab = .home
     @State private var padSelection: PadDestination? = .home
     /// 標準 split view の列の見え方。参照の板は閉じられないので `.all` から動かさない。
@@ -165,6 +166,7 @@ struct RootView: View {
         // 別の root の上へ積まれたままの経路が復元されてしまう。入口へ戻してから渡す。
         .onChange(of: usesTabShell) { _, _ in
             // 狭い表示から戻った初回に、以前の列幅で帯を置かない。
+            albumOverlay.clear()
             padSidebarTrailing = 0
             homePath = NavigationPath()
             libraryPath = NavigationPath()
@@ -247,6 +249,7 @@ struct RootView: View {
         }
         .navigationSplitViewStyle(.balanced)
         .coordinateSpace(.named(PadShell.splitSpace))
+        .overlay { padAlbumOverlay }
         .overlay { padMiniPlayerOverlay }
         // 端の払いや toolbar から閉じられても、参照どおり常に開いた状態へ戻す。
         // 狭い窓はこの shell へ来ない（`usesTabShell`）ので、ここで固定して詰むことはない。
@@ -256,6 +259,7 @@ struct RootView: View {
         // 選択が変わったら detail に残った深い path を捨て、常に選択先の root から見せる。
         // 行が `Button` だったときは押した側でやっていた片付けで、選択へ移したぶんをここへ寄せる。
         .onChange(of: padSelection) { _, destination in
+            albumOverlay.clear()
             homePath = NavigationPath()
             libraryPath = NavigationPath()
             searchPath = NavigationPath()
@@ -337,6 +341,24 @@ struct RootView: View {
 
     private var padDetailColumn: some View {
         padDetail
+            .allowsHitTesting(albumOverlay.selection == nil || padSidebarTrailing <= 0)
+            .accessibilityHidden(albumOverlay.selection != nil && padSidebarTrailing > 0)
+    }
+
+    /// アルバム詳細は split view の外から detail 列の上へ重ねる。detail の中へ置くと、
+    /// 内側の `NavigationStack` の toolbar が split 側の navigation bar と競合し、
+    /// Home の大見出しとアカウントが残ったまま戻るボタンも出ない。
+    /// 左端は mini player と同じ sidebar 右端から決め、sidebar は覆わない。
+    @ViewBuilder
+    private var padAlbumOverlay: some View {
+        if let session = albumOverlay.selection, padSidebarTrailing > 0 {
+            HomeAlbumCanvas(
+                session: session, presentation: albumOverlay, interrupted: showsPlayer
+            )
+            .id(session.generation)
+            .ignoresSafeArea()
+            .padding(.leading, padSidebarTrailing)
+        }
     }
 
     /// split view 直上に持つ帯。detail 内の兄弟にすると、詳細画面へ push した時に
@@ -489,6 +511,7 @@ struct RootView: View {
             )
             .contentShape(.rect)
             .tag(destination)
+            .simultaneousGesture(TapGesture().onEnded { albumOverlay.clear() })
             .background { PadSidebarFocusStyle() }
             .listRowInsets(
                 EdgeInsets(
@@ -601,15 +624,16 @@ struct RootView: View {
 
     private var homeNavigation: some View {
         NavigationStack(path: $homePath) {
-            HomeView {
-                if usesTabShell {
-                    libraryPath = NavigationPath([LibraryRoute.albums])
-                    selection = .library
-                } else {
-                    libraryPath = NavigationPath()
-                    padSelection = .albums
-                }
-            }
+            HomeView(
+                showAlbums: {
+                    if usesTabShell {
+                        libraryPath = NavigationPath([LibraryRoute.albums])
+                        selection = .library
+                    } else {
+                        libraryPath = NavigationPath()
+                        padSelection = .albums
+                    }
+                }, albumOverlay: albumOverlay)
         }
     }
 

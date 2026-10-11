@@ -8,7 +8,7 @@ struct HomeView: View {
     @Environment(PlaybackEngine.self) private var player
     @Environment(AlbumCatalog.self) private var catalog
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-    @Namespace private var albumZoom
+    var albumOverlay: HomeAlbumPresentation?
     @State private var showsAccount = false
 
     private var favorites: [MediaItem] { library.favoriteTracks.filter(\.isFavorite) }
@@ -28,26 +28,24 @@ struct HomeView: View {
 
     /// RootView の `usesTabShell`（iPhone / compact）の逆で、iPad かつ regular のとき。
     /// 条件がずれると、分割表示の detail ではない画面にまで zoom が出てしまう。
-    private var usesZoomTransition: Bool {
+    private var usesAlbumOverlay: Bool {
         UIDevice.current.userInterfaceIdiom == .pad && horizontalSizeClass != .compact
     }
 
-    /// iPad regular では detail へ水平 push せず、押したカードから zoom で開く。
-    /// 同じアルバムが複数の段に出るので、zoom の識別子は段の接頭辞とアルバム ID の組にする。
-    /// 遷移元はラベル全体ではなく実体のアートワークに付ける（ラベル側が渡された `AlbumZoomSource` を
-    /// アートワークへ適用する）。戻りの着地先をアートワークに合わせ、タップ範囲と文字は変えない。
+    /// 同じ作品でも入口の段を区別し、戻るときはカード余白ではなく元の画像へ着地する。
+    /// compact は従来の push を保ち、regular だけ Root 所有の詳細を開く。
     @ViewBuilder
     private func albumLink<Label: View>(
         _ album: MediaItem, prefix: String,
-        @ViewBuilder label: (AlbumZoomSource?) -> Label
+        @ViewBuilder label: (HomeAlbumSource?) -> Label
     ) -> some View {
         let id = "\(prefix).\(album.id)"
-        if usesZoomTransition {
-            NavigationLink {
-                AlbumDetailView(album: album)
-                    .navigationTransition(.zoom(sourceID: id, in: albumZoom))
+        if usesAlbumOverlay, let albumOverlay {
+            let box = albumOverlay.source(for: id)
+            Button {
+                albumOverlay.open(album, entry: id, source: box)
             } label: {
-                label((id: id, namespace: albumZoom))
+                label(HomeAlbumSource(box: box, hidden: albumOverlay.selection?.entry == id))
             }
         } else {
             NavigationLink {
@@ -131,8 +129,8 @@ struct HomeView: View {
                 // 立たない。実機と同じく複数枚を並べて画面の幅を越えさせる。
                 LazyHStack(alignment: .top, spacing: topPickMetrics.spacing) {
                     ForEach(library.recentlyAdded) { recommendation in
-                        albumLink(recommendation, prefix: "topPick") { zoomSource in
-                            editorialAlbumCard(recommendation, zoomSource: zoomSource)
+                        albumLink(recommendation, prefix: "topPick") { overlaySource in
+                            editorialAlbumCard(recommendation, overlaySource: overlaySource)
                         }
                         .buttonStyle(.plain)
                         .accessibilityIdentifier("home.top-pick.\(recommendation.id)")
@@ -153,10 +151,13 @@ struct HomeView: View {
         }
     }
 
-    private func editorialAlbumCard(_ album: MediaItem, zoomSource: AlbumZoomSource?) -> some View {
+    private func editorialAlbumCard(_ album: MediaItem, overlaySource: HomeAlbumSource?) -> some View {
         topPickCard {
-            ArtworkView(item: album, size: topPickMetrics.artwork, cornerRadius: 12)
-                .albumZoomSource(zoomSource)
+            ArtworkView(
+                item: album, size: topPickMetrics.artwork, cornerRadius: 12,
+                onImageChange: overlaySource.map { source in { source.box.image = $0 } }
+            )
+            .homeAlbumSource(overlaySource)
             Text("Trending with \(album.displayArtist ?? album.albumArtist ?? album.displayName)")
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.secondary)
@@ -227,8 +228,8 @@ struct HomeView: View {
             title: title, destination: { AlbumGridView(title: String(localized: title), feed: .recentlyPlayedAlbums) },
             content: {
                 ForEach(items) { album in
-                    albumLink(album, prefix: "recentlyPlayed") { zoomSource in
-                        AlbumCard(item: album, size: size, zoomSource: zoomSource)
+                    albumLink(album, prefix: "recentlyPlayed") { overlaySource in
+                        AlbumCard(item: album, size: size, overlaySource: overlaySource)
                     }
                     .buttonStyle(.plain)
                     .accessibilityIdentifier("home.carousel.\(album.id)")
@@ -309,8 +310,8 @@ struct HomeView: View {
                 columns: metrics.gridItems, alignment: .leading, spacing: AlbumGridMetrics.rowSpacing
             ) {
                 ForEach(catalog.items) { album in
-                    albumLink(album, prefix: "explore") { zoomSource in
-                        AlbumCard(item: album, size: metrics.size, zoomSource: zoomSource)
+                    albumLink(album, prefix: "explore") { overlaySource in
+                        AlbumCard(item: album, size: metrics.size, overlaySource: overlaySource)
                     }
                     .buttonStyle(.plain)
                     .accessibilityIdentifier("home.album.\(album.id)")

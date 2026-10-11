@@ -31,3 +31,10 @@ Simulator では自然な行送り・手動の読み戻し・現在行が見え�
 `bash scripts/run-playback-transition-tests.sh` は無音の短い音声と本番の AVQueuePlayer・再生エンジンを使い、
 先読み遅延、食い違う先読み、重複曲、一曲リピート、古い終了通知で音声と表示用メタデータが一致することを確認する。
 この実再生検証は macOS の再生クロックを使う。音量は 0 で、ネットワーク・iOS の音声経路・ロック画面への公開はテスト用の受け口に差し替える。
+
+Home の iPad アルバム遷移は、UI テスト `testPadHomeAlbumKeepsMiniPlayer` で長いドラッグと取消、戻る操作、再生操作を検証する。
+`MUSICFIN_SHOT_DIR` に残った `album-overlay-*.jsonl` を `python3 Tests/check-album-overlay-trace.py <保存先>` で検証すると、
+実際に描画された画像が同じまま、指を離したサイズから元の画像へ単調に縮み、直線上を移動して帰着したことを確かめられる。
+帰着せずフェードだけで閉じた記録では成功にならない。取消で詳細へ戻るときの寸法も検証する。
+`testPadAlbumOverlayScrollAndEntries` は文字を大きくして一覧を確実にスクロールできる状態にし、
+先頭以外で始めた下スクロールが途中で終了操作へ変わらないことと、Home の 3 種類の入口を確認する。

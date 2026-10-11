@@ -149,7 +149,7 @@ extension CaptureScreensUITests {
         XCTAssertEqual(app.buttons["sidebar.account"].frame, sidebarFrame)
         capture("home-album-mini")
         // 戻る時と再度開く時の遷移も録画に残し、帯が列の外へ動かないことを確認する。
-        let back = app.navigationBars.buttons.firstMatch
+        let back = app.buttons["album.overlay.close"]
         XCTAssertTrue(back.isHittable)
         back.tap()
         XCTAssertTrue(album.waitForExistence(timeout: 10))
@@ -166,7 +166,7 @@ extension CaptureScreensUITests {
         window.coordinate(withNormalizedOffset: CGVector(dx: 0.78, dy: 0.3))
             .press(
                 forDuration: 0.05,
-                thenDragTo: window.coordinate(withNormalizedOffset: CGVector(dx: 0.78, dy: 0.335)),
+                thenDragTo: window.coordinate(withNormalizedOffset: CGVector(dx: 0.78, dy: 0.38)),
                 withVelocity: .slow, thenHoldForDuration: 1)
         settle()
         XCTAssertTrue(play.isHittable, "小さいドラッグをやめた後に詳細へ復帰しなかった")
@@ -207,6 +207,72 @@ extension CaptureScreensUITests {
             openPlayer.tap()
             XCTAssertTrue(element(.button, "歌詞").waitForExistence(timeout: 10))
             capture("home-album-full-player")
+        }
+    }
+
+    @MainActor
+    func testPadAlbumOverlayScrollAndEntries() throws {
+        guard isIPadCapture else { throw XCTSkip("iPad 専用の検証") }
+        // 作品の曲数が変わっても一覧が画面内に収まらないよう、文字を大きくして操作を検証する。
+        launchApp(contentSizeCategoryOverride: "UICTContentSizeCategoryAccessibilityXXXL")
+        ensureSignedIn()
+        let albums = app.buttons.matching(
+            NSPredicate(
+                format: "identifier BEGINSWITH %@ AND identifier != %@", "home.top-pick.", "home.top-pick.favorites"))
+        let album = albums.element(boundBy: 1)
+        XCTAssertTrue(album.waitForExistence(timeout: 30))
+        album.tap()
+        let close = app.buttons["album.overlay.close"]
+        let play = app.buttons["album.play"].firstMatch
+        XCTAssertTrue(play.waitForExistence(timeout: 30))
+        let window = app.windows.firstMatch
+        let initialPlayY = play.frame.minY
+        // 曲が多い作品で本文を送り、先頭へ戻る同じ接触が閉じる操作に化けないことを確かめる。
+        window.coordinate(withNormalizedOffset: CGVector(dx: 0.8, dy: 0.75))
+            .press(
+                forDuration: 0.05, thenDragTo: window.coordinate(withNormalizedOffset: CGVector(dx: 0.8, dy: 0.25)),
+                withVelocity: .slow, thenHoldForDuration: 0.2)
+        settle()
+        XCTAssertTrue(close.isHittable)
+        XCTAssertLessThan(play.frame.minY, initialPlayY - 20, "曲一覧がスクロールしなかった")
+        capture("album-overlay-scrolled")
+        for _ in 0..<5 {
+            if abs(play.frame.minY - initialPlayY) < 2 { break }
+            window.coordinate(withNormalizedOffset: CGVector(dx: 0.8, dy: 0.3))
+                .press(
+                    forDuration: 0.05, thenDragTo: window.coordinate(withNormalizedOffset: CGVector(dx: 0.8, dy: 0.75)),
+                    withVelocity: .slow, thenHoldForDuration: 0.2)
+            settle()
+            XCTAssertTrue(close.isHittable, "先頭以外で始めたスクロールが詳細を閉じた")
+        }
+        XCTAssertTrue(play.isHittable)
+        XCTAssertEqual(play.frame.minY, initialPlayY, accuracy: 2)
+        close.tap()
+        XCTAssertTrue(album.waitForExistence(timeout: 10))
+        album.tap()
+        XCTAssertTrue(close.waitForExistence(timeout: 10))
+        // 選択済みの Home 行でも重なった詳細を片付ける。
+        app.staticTexts["sidebar.home"].tap()
+        let removed = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: close)
+        XCTAssertEqual(XCTWaiter.wait(for: [removed], timeout: 10), .completed)
+        for prefix in ["home.carousel.", "home.album."] {
+            let entry = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", prefix)).firstMatch
+            for _ in 0..<6 {
+                if entry.exists && entry.isHittable { break }
+                window.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.78))
+                    .press(
+                        forDuration: 0.05,
+                        thenDragTo: window.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.35)),
+                        withVelocity: .slow, thenHoldForDuration: 0.1)
+                settle()
+            }
+            XCTAssertTrue(entry.isHittable, "ホームの別の入口が見つからなかった")
+            entry.tap()
+            XCTAssertTrue(close.waitForExistence(timeout: 10))
+            XCTAssertTrue(play.waitForExistence(timeout: 20))
+            close.tap()
+            settle()
+            XCTAssertTrue(entry.isHittable)
         }
     }
 
