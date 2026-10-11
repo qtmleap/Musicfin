@@ -563,7 +563,8 @@ private struct LibrarySearchField: UIViewRepresentable {
     ) -> CGSize? {
         CGSize(
             width: proposal.width ?? uiView.intrinsicContentSize.width,
-            height: uiView.intrinsicContentSize.height
+            // UIKit の既定は 28 pt まで縮むため、欄そのものに指で押せる高さを確保する。
+            height: max(44, uiView.intrinsicContentSize.height)
         )
     }
 
