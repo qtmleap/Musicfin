@@ -96,6 +96,25 @@ extension CaptureScreensUITests {
         capture("albums")
     }
 
+    @MainActor
+    func testPadArtistSearchHasUsableHeight() throws {
+        guard isIPadCapture else { throw XCTSkip("iPad 専用の検証") }
+        launchApp()
+        ensureSignedIn()
+        capturePadSidebarChild(identifier: "sidebar.artists", title: "アーティスト", screen: "artists-height")
+        let field = listSearchField
+        XCTAssertTrue(field.waitForExistence(timeout: 10))
+        // 外側の余白ではなく、入力欄そのものが指で押せる高さを持つことを測る。
+        XCTAssertGreaterThanOrEqual(field.frame.height, 44, "検索欄の高さが押せる大きさに満たない")
+        XCTAssertTrue(typeSearchQuery(field, "Aimer"))
+        field.typeText("\n")
+        let artist = app.buttons.matching(
+            NSPredicate(format: "identifier BEGINSWITH %@ AND label CONTAINS[c] %@", "artist.row.", "Aimer")
+        ).firstMatch
+        XCTAssertTrue(artist.waitForExistence(timeout: 20), "入力した語でアーティストを絞り込めなかった")
+        capture("artists-filtered-height")
+    }
+
     /// 板が閉じられないこと、表示モードボタンが出ないことの確認（仕様 6 章）。
     /// 静止画では見えない要件なので、実際に払って板の位置と幅が動かないことで確かめる。
     @MainActor
