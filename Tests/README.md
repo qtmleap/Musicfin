@@ -43,3 +43,16 @@ iPad フルプレイヤーの終了領域は、通常表示・歌詞とキュー
 `testPadFullPlayerDismissRegions` は実際の下スワイプ、左右をまたぐ操作、右本文、シーク始点の保護を確認する。
 `testPadSidebarSingleTapTargets` は行のアイコンと空白を単押しし、再選択時のアルバム終了も確認する。
 `testPadPlaylistSwitchReloadsShuffleSource` は API で確認した異なる曲を持つ 2 作品を切り替え、曲一覧・現在曲・キューに前の作品が混入しないことを検証する。
+
+`testPadAccountKeepsSidebarWidth` は初回ログイン・ログイン済みの再起動とアカウントの提示中・表示中・終了後で、
+メニュー幅が 269.5 pt のままかを検証する。2 回繰り返し、Home 行の位置と幅も確認する。
+`testPadShuffledMiniPlayerControls` は実サーバーの作品をシャッフルし、ミニプレイヤーの一時停止・全画面への移動・
+再生位置の保持・次曲送りを実際の座標タップで検証する。2 曲以上を持つ作品が必要。
+
+これらは `xcodebuild test` の `-only-testing:MusicfinUITests/CaptureScreensUITests/<テスト名>` で個別に実行する。
+`TEST_RUNNER_MUSICFIN_IPAD_CAPTURE=1` を渡し、所有する使い捨て端末の UDID を destination に指定する。
+撮影用のスクリプトと同じ `TEST_RUNNER_MUSICFIN_SERVER_URL` / `TEST_RUNNER_MUSICFIN_USERNAME` / `TEST_RUNNER_MUSICFIN_PASSWORD` で接続先を指定できる。
+追加の起動環境 `TEST_RUNNER_MUSICFIN_REGRESSION_PORTRAIT=1` は縦向き、
+`TEST_RUNNER_MUSICFIN_REGRESSION_ACCOUNT_TOOLBAR=1` は Home 右上のアカウント、
+`TEST_RUNNER_MUSICFIN_REGRESSION_PLAYLIST=1` は左メニューのプレイリストを対象にする。
+開始前に既存端末を記録し、成功・失敗にかかわらず作成した端末を終了・削除する。結果バンドルのスクリーンショットは残す。
