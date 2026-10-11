@@ -92,6 +92,7 @@ struct QueueView: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(label)
+        .accessibilityIdentifier("queue.mode.\(symbol)")
         .accessibilityValue(value)
         .accessibilityAddTraits(isOn ? .isSelected : [])
     }

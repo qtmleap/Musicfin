@@ -98,6 +98,9 @@ extension CaptureScreensUITests {
             ).firstMatch
             XCTAssertTrue(artwork.waitForExistence(timeout: 10))
             let playingFrame = artwork.frame
+            if app.windows.firstMatch.frame.size == CGSize(width: 1366, height: 1024) {
+                XCTAssertEqual(playingFrame.width, 520, accuracy: 1, "参照の再生中サイズと一致しない")
+            }
             let titleFrame = title.frame
             let transportFrame = transport.frame
             print("[ArtworkFrame] \(prefix) playing=\(playingFrame)")
@@ -105,7 +108,10 @@ extension CaptureScreensUITests {
             waitLabel(pausedLabels, "\(prefix): 一時停止できていない")
             shoot("\(prefix)-paused")
             print("[ArtworkFrame] \(prefix) paused=\(artwork.frame)")
-            XCTAssertEqual(artwork.frame.width / playingFrame.width, isIPadCapture ? 0.9 : 1, accuracy: 0.02)
+            // 横長（幅 900 pt 以上）は停止時に 380 pt へ縮む。狭い iPad は従来の 0.9、iPhone は 1。
+            let wide = app.windows.firstMatch.frame.width >= 900
+            let expectedRatio: CGFloat = wide ? min(1, 380 / playingFrame.width) : (isIPadCapture ? 0.9 : 1)
+            XCTAssertEqual(artwork.frame.width / playingFrame.width, expectedRatio, accuracy: 0.02)
             XCTAssertEqual(artwork.frame.midX, playingFrame.midX, accuracy: 1)
             XCTAssertEqual(artwork.frame.midY, playingFrame.midY, accuracy: 1)
             XCTAssertEqual(title.frame.midY, titleFrame.midY, accuracy: 1)
@@ -133,11 +139,11 @@ extension CaptureScreensUITests {
             rotate(to: orientation)
             XCTAssertTrue(title.waitForExistence(timeout: 10), "\(name): 回転後にプレイヤーが残らなかった")
 
-            element(.button, "歌詞").tap()
+            app.buttons["nowplaying.mode.lyrics"].tap()
             exerciseState("\(name)-lyrics")
             backToArtwork()
 
-            element(.button, "次に再生").tap()
+            app.buttons["nowplaying.mode.queue"].tap()
             exerciseState("\(name)-queue")
             backToArtwork()
         }

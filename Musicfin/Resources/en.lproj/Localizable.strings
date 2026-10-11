@@ -163,3 +163,5 @@
 "前奏" = "Intro";
 "日付として解釈できません: %@" = "Could not parse a date: %@";
 "artist.separator" = ", ";
+
+"再生待ち一覧" = "Up Next";

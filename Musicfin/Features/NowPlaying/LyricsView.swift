@@ -87,6 +87,8 @@ struct LyricsView: View {
     /// 操作帯の退避後に本文が下へ伸びた量。初期位置の上余白は伸びる前の高さから決め、
     /// 本文が場所を受け取っても上部と読む位置を動かさない。
     var bottomExtension: CGFloat = 0
+    /// 横長の右列かどうか。true のときだけ本文を 48 pt にし、狭い表示は従来の 32 pt のまま。
+    var usesWideMetrics = false
     /// 操作帯を隠すかどうかの変化だけを外へ知らせる（仕様 5.1 章 第 4 版）。
     /// 帯を実際に動かすのは `NowPlayingView` 側で、ここは「読み進めたか / 戻ったか」の判定だけを持つ。
     var onControlsVisibilityChange: (Bool) -> Void = { _ in }
@@ -102,10 +104,14 @@ struct LyricsView: View {
     /// 比較用の暫定値（仕様 5.2 章）。**Apple 実機の実測値ではない。**
     /// 固定値や `.custom` にせず `@ScaledMetric` に持たせるのは、Dynamic Type へ追従させるため。
     @ScaledMetric(relativeTo: .title) private var lyricSize = 32.0
+    /// 横長（iPad の右列）の歌詞は参照実測の 48 pt bold。狭い表示の 32 pt とは別に Dynamic Type へ載せる。
+    @ScaledMetric(relativeTo: .title) private var wideLyricSize = 48.0
     @ScaledMetric(relativeTo: .title) private var lyricSpacing = 12.0
     /// 現在行以外に掛けるぼかし（仕様 5.2 章）。**`docs/org/movie.mov` から測った値**で、
     /// 文字と一緒に伸びるよう `lyricSize` と同じ尺に載せる。測り方は仕様 5.2 章に書いた。
     @ScaledMetric(relativeTo: .title) private var lyricBlur = 1.7
+    /// 本文の調整で前奏の丸まで拡大しないよう、文字の寸法だけを分ける。
+    private var bodySize: Double { usesWideMetrics ? wideLyricSize : lyricSize }
     @State private var lines: [LyricLine] = []
     @State private var isLoading = true
     @State private var isFollowing = true
@@ -337,7 +343,7 @@ struct LyricsView: View {
                 .onChange(of: reduceMotion) { _, reduced in
                     if reduced { cancelRoll() }
                 }
-                .onChange(of: lyricSize) { _, _ in cancelRoll() }
+                .onChange(of: bodySize) { _, _ in cancelRoll() }
                 // 初回だけは上部の切り替えが終わってから合わせる（仕様 5.1 章）。
                 // 遷移中に動かすと、対応付けた画像と本文が別の速さで流れて二重に見える。
                 .onChange(of: isSettled, initial: true) { _, settled in
@@ -457,7 +463,7 @@ struct LyricsView: View {
     private func lineText(_ line: LyricLine, index: Int, activeIndex: Int?) -> some View {
         let active = index == activeIndex
         return Text(line.text.isEmpty ? " " : line.text)
-            .font(.system(size: lyricSize, weight: .bold))
+            .font(.system(size: bodySize, weight: .bold))
             .foregroundStyle(active ? .primary : .secondary)
             // ぼかすのは**文字だけ**。`.frame` と `.contentShape` より前に掛けることで、
             // 押せる範囲と読み上げの範囲はぼかしても動かない。

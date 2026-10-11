@@ -121,7 +121,9 @@ final class CaptureScreensUITests: XCTestCase {
     }
 
     @MainActor
-    func launchApp(capturePlayer: Bool = false, contentSizeCategoryOverride: String? = nil) {
+    func launchApp(
+        capturePlayer: Bool = false, contentSizeCategoryOverride: String? = nil, checksReferenceSize: Bool = true
+    ) {
         // 前の method の Simulator 状態に依存せず、毎回 portrait から実際の横向き遷移を起こす。
         if isIPadCapture {
             XCUIDevice.shared.orientation = .portrait
@@ -140,13 +142,13 @@ final class CaptureScreensUITests: XCTestCase {
         }
         app.launch()
         if isIPadCapture {
-            ensureIPadLandscape()
+            ensureIPadLandscape(checksReferenceSize: checksReferenceSize)
         }
     }
 
     /// orientation の設定値ではなく app window の実寸を待ち、Air 系で遷移が遅れても縦画面を撮らない。
     @MainActor
-    private func ensureIPadLandscape() {
+    private func ensureIPadLandscape(checksReferenceSize: Bool = true) {
         let window = app.windows.firstMatch
         guard window.waitForExistence(timeout: 10) else {
             XCTFail("iPad の app window が表示されなかった（orientation: \(XCUIDevice.shared.orientation.rawValue)）")
@@ -162,9 +164,11 @@ final class CaptureScreensUITests: XCTestCase {
             // 回転イベントは app が前面のまま発火させる。設定直後の activate は scene を
             // portrait geometry で再アクティブ化し、Air 系では要求を打ち消してしまう。
             if waitForWindow(window, landscape: true, timeout: 10) {
-                let image = XCUIScreen.main.screenshot().image
-                XCTAssertEqual(image.size.width * image.scale, 2732, "iPad 撮影開始前の幅が参照と異なる")
-                XCTAssertEqual(image.size.height * image.scale, 2048, "iPad 撮影開始前の高さが参照と異なる")
+                if checksReferenceSize {
+                    let image = XCUIScreen.main.screenshot().image
+                    XCTAssertEqual(image.size.width * image.scale, 2732, "iPad 撮影開始前の幅が参照と異なる")
+                    XCTAssertEqual(image.size.height * image.scale, 2048, "iPad 撮影開始前の高さが参照と異なる")
+                }
                 return
             }
         }

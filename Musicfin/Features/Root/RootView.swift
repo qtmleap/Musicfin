@@ -114,6 +114,8 @@ struct RootView: View {
     @State private var libraryPath = NavigationPath()
     @State private var searchPath = NavigationPath()
     @State private var searchQuery = ""
+    /// 次に開くフルプレイヤーの最初の表示。`showsPlayer` を立てる**前**に必ず決める。
+    @State private var playerInitialMode = NowPlayingView.ContentMode.artwork
     // 比較撮影だけはネットワーク再生の成否に依存させず、参照の「Not Playing」を直接開く。
     // UI test の子プロセスへ明示したときだけ真になるため、通常起動の提示経路には入らない。
     @State private var showsPlayer = ProcessInfo.processInfo.environment["MUSICFIN_CAPTURE_PLAYER"] == "1"
@@ -208,7 +210,7 @@ struct RootView: View {
         .tabBarMinimizeBehavior(.onScrollDown)
         .tabViewBottomAccessory {
             if showsMiniPlayer {
-                MiniPlayerView(onFrameChange: { miniPlayerSource.rect = $0 }) { showsPlayer = true }
+                MiniPlayerView(onFrameChange: { miniPlayerSource.rect = $0 }) { presentPlayer() }
                     .background { PlayerZoomSource(source: miniPlayerSource) }
             }
         }
@@ -220,8 +222,10 @@ struct RootView: View {
     private var padSplitView: some View {
         NavigationSplitView(columnVisibility: $padColumnVisibility) {
             padSidebar
-                // 帯の置き場は sidebar 列の右端から決める。native の split view は列幅が変わるので
-                // `PadShell.detailOrigin` の固定値は使えず、detail 側は push で動くので測れない。
+                // 列幅が提示中に一時的に戻されても、板と一覧には指定幅だけを提案する。
+                .frame(width: PadShell.sidebarWidth, alignment: .leading)
+                // 帯の置き場は板の右端から決める。固定幅でも窓内の原点は変わるため座標を測る。
+                // detail 側は push で動くので、そちらの位置には追従させない。
                 .onGeometryChange(for: CGFloat.self) {
                     $0.frame(in: .named(PadShell.splitSpace)).maxX
                 } action: {
@@ -243,6 +247,7 @@ struct RootView: View {
                     // 320 pt に固定される。板を参照の 269.5 pt にできる唯一の経路がこれ。
                     PadSplitViewConfigurator(primaryColumnWidth: PadShell.sidebarWidth)
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
         } detail: {
             padDetailColumn
                 .toolbar(removing: .sidebarToggle)
@@ -382,8 +387,9 @@ struct RootView: View {
                 if padSidebarTrailing < proxy.size.width {
                     MiniPlayerView(
                         onFrameChange: { miniPlayerSource.rect = $0 },
-                        forceExpanded: true
-                    ) { showsPlayer = true }
+                        forceExpanded: true,
+                        openPlayerMode: { presentPlayer(mode: $0) }
+                    ) { presentPlayer() }
                     .frame(maxWidth: 689)
                     .frame(height: 63.5)
                     .glassEffect(.regular, in: .rect(cornerRadius: 24, style: .continuous))
@@ -694,8 +700,14 @@ struct RootView: View {
         Binding(get: { showsPlayer && isPhonePlayer }, set: { showsPlayer = $0 })
     }
 
+    /// 通常の開き方はアートワークへ戻す。前回の歌詞・キューが残ると、アートワークから開いても引き継がれる。
+    private func presentPlayer(mode: NowPlayingView.ContentMode = .artwork) {
+        playerInitialMode = mode
+        showsPlayer = true
+    }
+
     private var playerContent: some View {
-        NowPlayingView(isScrubbing: $isScrubbing) { showsPlayer = false }
+        NowPlayingView(isScrubbing: $isScrubbing, initialMode: playerInitialMode) { showsPlayer = false }
     }
 
     /// UIKit のカスタム提示は SwiftUI の環境を継がないので、本文が読む分を明示的に渡す。

@@ -6,7 +6,8 @@ import UIKit
 /// フルプレイヤー。狭い幅は 4 章の縦積み、広い幅は 6 章の独立した再生列と本文へ並べる。
 /// ログイン・設定と同じ背景を保ち、再生操作の主従は塗りではなくグリフの大きさで示す。
 struct NowPlayingView: View {
-    private enum ContentMode { case artwork, lyrics, queue }
+    /// ミニプレイヤーの右端ボタンが、開いた直後の表示を指定するために公開する。
+    enum ContentMode: String { case artwork, lyrics, queue }
 
     @Environment(AuthStore.self) private var auth
     @Environment(LibraryStore.self) private var library
@@ -23,7 +24,7 @@ struct NowPlayingView: View {
     /// 提示している側の状態を落としてもらうしかない（仕様 4.1.1 章）。
     let close: () -> Void
 
-    @State private var mode: ContentMode = .artwork
+    @State private var mode: ContentMode
     /// 上部の切り替えが動いている間だけ true。歌詞の初回位置合わせをここが下りるまで待たせる（仕様 5.1 章）。
     /// 上部が動いている最中に本文まで自分でスクロールすると、二つの動きが重なって読む位置を見失う。
     @State private var isTopTransitioning = false
@@ -60,6 +61,13 @@ struct NowPlayingView: View {
         var volume = CGRect.null
     }
     @State private var dismissMeasurements = DismissMeasurements()
+
+    init(isScrubbing: Binding<Bool>, initialMode: ContentMode = .artwork, close: @escaping () -> Void) {
+        _isScrubbing = isScrubbing
+        self.close = close
+        // onAppear で切り替えると一瞬アートワークが見えるので、最初の描画から目的の表示で始める。
+        _mode = State(initialValue: initialMode)
+    }
 
     /// 提示領域の上端からアートワークまで 35 pt（仕様 4 章）。
     /// もとは自前のグラバー（上余白 10 ＋ 高さ 5）の下端から 20 という組み立てだったが、
@@ -195,7 +203,7 @@ struct NowPlayingView: View {
         let height = max(size.height, minimumTitleHeight + controlsHeight + 420)
         let controlsTop = height - controlsHeight - 81
         let bigSide = min(columnWidth - 16, max(180, controlsTop - minimumTitleHeight - 80))
-        let artworkSide = mode == .artwork && player.currentItem != nil ? bigSide : min(380, bigSide)
+        let artworkSide = player.currentItem != nil ? bigSide : min(380, bigSide)
         let titleTop = controlsTop - minimumTitleHeight + 16
         // 文字拡大や低い窓では曲情報が上へ広がるため、画像の下端との間に必ず 16 pt を残す。
         // 画像の一辺はその上の空きから決めてあるので、中心を上げても画像上端は表示領域内に収まる。
@@ -213,7 +221,8 @@ struct NowPlayingView: View {
                                 // 右列は最初から全高を使えるため、歌詞を送っても左列の操作を隠さない。
                                 LyricsView(
                                     track: track, isSettled: !isTopTransitioning,
-                                    isSeeking: isScrubbing || pendingSeekTime != nil
+                                    isSeeking: isScrubbing || pendingSeekTime != nil,
+                                    usesWideMetrics: true
                                 )
                                 .id(track.id)
                             }
@@ -228,7 +237,7 @@ struct NowPlayingView: View {
                 ZStack(alignment: .topLeading) {
                     artworkSlot(
                         bigSide: bigSide, pausedScale: player.currentItem == nil ? 1 : min(1, 380 / bigSide),
-                        detailPausedScale: Self.isPad ? 0.9 : 1
+                        detailPausedScale: player.currentItem == nil ? 1 : min(1, 380 / bigSide)
                     )
                     .frame(width: artworkSide, height: artworkSide)
                     .position(x: columnWidth / 2, y: artworkCenterY)
@@ -302,6 +311,7 @@ struct NowPlayingView: View {
                 Image(systemName: "shuffle").frame(width: 44, height: 44)
             }
             .accessibilityLabel("シャッフル")
+            .accessibilityIdentifier("nowplaying.shuffle")
             .accessibilityAddTraits(player.isShuffled ? .isSelected : [])
             .foregroundStyle(player.isShuffled ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
             transport
@@ -325,7 +335,7 @@ struct NowPlayingView: View {
                 .accessibilityLabel("出力先")
             Spacer()
             modeButton(.lyrics, symbol: "quote.bubble", label: "歌詞", palette: palette)
-            modeButton(.queue, symbol: "list.bullet", label: "次に再生", palette: palette)
+            modeButton(.queue, symbol: "list.bullet", label: "再生待ち一覧", palette: palette)
         }
         .padding(.leading, 56)
         .padding(.trailing, 50)
@@ -764,7 +774,7 @@ struct NowPlayingView: View {
                 .frame(width: 44, height: 44)
                 .accessibilityLabel("出力先")
             Spacer()
-            modeButton(.queue, symbol: "list.bullet", label: "次に再生", palette: palette)
+            modeButton(.queue, symbol: "list.bullet", label: "再生待ち一覧", palette: palette)
         }
         // 左右の操作の中心を端から約 82 pt に置く（仕様 4 章）。外側の 24 pt と合わせて 60 pt。
         .padding(.horizontal, 36)
@@ -797,6 +807,7 @@ struct NowPlayingView: View {
                 .contentShape(.rect)
         }
         .buttonStyle(.plain)
+        .accessibilityIdentifier("nowplaying.mode.\(target.rawValue)")
         .accessibilityLabel(label)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
