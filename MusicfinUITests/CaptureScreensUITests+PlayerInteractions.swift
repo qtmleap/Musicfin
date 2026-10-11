@@ -109,7 +109,7 @@ extension CaptureScreensUITests {
         drag(0.85, 0.25, 0.85, 0.65)
         XCTAssertTrue(title.waitForNonExistence(timeout: 10), "通常表示を右側から閉じられなかった")
         openPlayer()
-        element(.button, "歌詞").tap()
+        app.buttons["nowplaying.mode.lyrics"].tap()
         settle()
         drag(0.75, 0.3, 0.75, 0.7)
         XCTAssertTrue(title.exists, "右の歌詞操作で閉じた")
@@ -130,7 +130,7 @@ extension CaptureScreensUITests {
         drag(0.4, 0.3, 0.5, 0.7)
         XCTAssertTrue(title.waitForNonExistence(timeout: 10), "左側で始めた操作を右側で離しても閉じなかった")
         openPlayer()
-        element(.button, "次に再生").tap()
+        app.buttons["nowplaying.mode.queue"].tap()
         settle()
         drag(0.75, 0.3, 0.75, 0.7)
         XCTAssertTrue(title.exists, "右のキュー操作で閉じた")
@@ -138,6 +138,129 @@ extension CaptureScreensUITests {
         drag(0.2, 0.3, 0.2, 0.7)
         XCTAssertTrue(title.waitForNonExistence(timeout: 10), "キュー表示を左側から閉じられなかった")
         XCTAssertTrue(app.buttons["miniplayer.play-pause"].isHittable)
+    }
+
+    /// 指を止めたまま保持する本物の操作で、全画面プレイヤーの追従・復帰・終了を確かめる。
+    /// 保持中の動きは root 側の画面録画で見るため、ここでは各操作の前後に時刻と frame を出す。
+    /// 縦画面の確認は `MUSICFIN_PLAYER_DRAG_ORIENTATION=portrait` で切り替える。
+    @MainActor
+    func testPadFullPlayerInteractiveDrag() throws {
+        guard isIPadCapture else { throw XCTSkip("iPad 専用の確認") }
+        launchApp(checksReferenceSize: false)
+        if ProcessInfo.processInfo.environment["MUSICFIN_PLAYER_DRAG_ORIENTATION"] == "portrait" {
+            XCUIDevice.shared.orientation = .portrait
+            settle()
+        }
+        ensureSignedIn()
+        let album = app.buttons.matching(
+            NSPredicate(
+                format: "identifier BEGINSWITH %@ AND identifier != %@", "home.top-pick.", "home.top-pick.favorites")
+        ).firstMatch
+        XCTAssertTrue(album.waitForExistence(timeout: 20))
+        album.tap()
+        let play = app.buttons["album.play"]
+        XCTAssertTrue(play.waitForExistence(timeout: 20))
+        play.tap()
+        let title = app.staticTexts["nowplaying.title"]
+        let artwork = app.buttons.matching(
+            NSPredicate(
+                format: "label IN %@ AND identifier != %@", ["Back to Artwork", "アートワークへ戻る"], "album.overlay.close")
+        ).firstMatch
+        let window = app.windows.firstMatch
+        let origin = window.coordinate(withNormalizedOffset: .zero)
+
+        func openPlayer() {
+            let open = app.buttons.matching(NSPredicate(format: "label ENDSWITH 'Open Player'")).firstMatch
+            XCTAssertTrue(open.waitForExistence(timeout: 20))
+            open.tap()
+            XCTAssertTrue(title.waitForExistence(timeout: 10))
+            settle()
+        }
+        func log(_ event: String) {
+            let titleFrame = title.exists ? "\(title.frame)" : "gone"
+            let artworkFrame = artwork.exists ? "\(artwork.frame)" : "n/a"
+            print(
+                "PLAYER-DRAG epoch=\(Date().timeIntervalSince1970) \(event) title=\(titleFrame) artwork=\(artworkFrame)"
+            )
+        }
+        // 指を離さず 2 秒保持してから離す。速度は slow 固定で、追従を録画から読めるようにする。
+        func pull(_ name: String, from start: CGPoint, dy: CGFloat) {
+            log("\(name) before")
+            origin.withOffset(CGVector(dx: start.x, dy: start.y))
+                .press(
+                    forDuration: 0.1,
+                    thenDragTo: origin.withOffset(CGVector(dx: start.x, dy: start.y + dy)),
+                    withVelocity: .slow, thenHoldForDuration: 2)
+            // 終了アニメーション中の要素は exists と frame の間に消えるため、ここでは時刻だけ残す。
+            print("PLAYER-DRAG epoch=\(Date().timeIntervalSince1970) \(name) released")
+        }
+        func attach(_ name: String) {
+            let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+            attachment.name = name
+            attachment.lifetime = .keepAlways
+            add(attachment)
+        }
+        func center(_ element: XCUIElement) -> CGPoint { CGPoint(x: element.frame.midX, y: element.frame.midY) }
+        func openMode(_ mode: String) {
+            openPlayer()
+            let button = app.buttons["nowplaying.mode.\(mode)"]
+            XCTAssertTrue(button.waitForExistence(timeout: 10))
+            button.tap()
+            settle()
+        }
+
+        openPlayer()
+        let size = window.frame
+        let bodyLeft = CGPoint(x: size.width * 0.2, y: size.height * 0.3)
+        let bodyRight = CGPoint(x: size.width * 0.85, y: size.height * 0.3)
+        let header = CGPoint(x: size.width * (size.width >= 900 ? 0.2 : 0.5), y: 40)
+
+        // 短い引きは離すと元の位置へ戻り、閉じない。
+        let baseline = center(title)
+        let baselineArtwork = artwork.exists ? center(artwork) : nil
+        pull("short-cancel", from: bodyLeft, dy: 40)
+        settle()
+        XCTAssertTrue(title.exists, "短く引いて離したのに閉じた")
+        XCTAssertEqual(center(title).x, baseline.x, accuracy: 2, "離したあと title の x が元に戻らなかった")
+        XCTAssertEqual(center(title).y, baseline.y, accuracy: 2, "離したあと title の y が元に戻らなかった")
+        if let baselineArtwork, artwork.exists {
+            XCTAssertEqual(center(artwork).x, baselineArtwork.x, accuracy: 2)
+            XCTAssertEqual(center(artwork).y, baselineArtwork.y, accuracy: 2)
+        }
+        log("short-cancel settled")
+        attach("player-drag-cancel-baseline")
+
+        // スライダー内から始まった縦の指移動も、プレイヤーを動かす操作にはしない。
+        let seek = app.otherElements.matching(
+            NSPredicate(format: "label IN %@", ["Playback Position", "再生位置"])
+        ).firstMatch
+        XCTAssertTrue(seek.waitForExistence(timeout: 10))
+        pull("seek-excluded", from: center(seek), dy: 150)
+        settle()
+        XCTAssertTrue(title.exists)
+        XCTAssertEqual(center(title).y, baseline.y, accuracy: 2)
+
+        // 長く引いて離すと閉じる。
+        pull("long-close", from: bodyLeft, dy: 300)
+        XCTAssertTrue(title.waitForNonExistence(timeout: 10), "300pt 引いて離しても閉じなかった")
+
+        // 歌詞とキューは同じ規則: 右の本文は固定のまま、左の本文と header は閉じる。
+        for mode in ["lyrics", "queue"] {
+            openMode(mode)
+            attach("player-drag-\(mode)")
+            let base = center(title)
+            pull("\(mode)-right", from: bodyRight, dy: 300)
+            settle()
+            XCTAssertTrue(title.exists, "\(mode) の右本文を引いて閉じた")
+            XCTAssertEqual(center(title).y, base.y, accuracy: 2, "\(mode) の右本文を引いたあと title が動いたままになった")
+            if size.width >= 900 {
+                pull("\(mode)-left", from: bodyLeft, dy: 300)
+                XCTAssertTrue(title.waitForNonExistence(timeout: 10), "\(mode) の左本文を 300pt 引いても閉じなかった")
+                openMode(mode)
+            }
+            pull("\(mode)-header", from: header, dy: 300)
+            XCTAssertTrue(title.waitForNonExistence(timeout: 10), "\(mode) の header から引いても閉じなかった")
+        }
     }
 
     @MainActor
