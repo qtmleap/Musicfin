@@ -135,6 +135,8 @@ extension CaptureScreensUITests {
         let mini = app.buttons["miniplayer.play-pause"]
         XCTAssertTrue(mini.waitForExistence(timeout: 30))
         XCTAssertTrue(mini.isHittable, "ホームでミニプレイヤーを操作できなかった")
+        let miniFrame = mini.frame
+        let sidebarFrame = app.buttons["sidebar.account"].frame
         capture("home-mini-before-detail")
         XCTAssertTrue(album.waitForExistence(timeout: 10))
         album.tap()
@@ -142,6 +144,9 @@ extension CaptureScreensUITests {
         settle()
         // 存在だけでは遷移先の背後に残った帯も通るため、実際に触れられることを確かめる。
         XCTAssertTrue(mini.isHittable, "アルバム詳細に移動するとミニプレイヤーが隠れた")
+        XCTAssertEqual(mini.frame.midX, miniFrame.midX, accuracy: 1)
+        XCTAssertEqual(mini.frame.maxY, miniFrame.maxY, accuracy: 1)
+        XCTAssertEqual(app.buttons["sidebar.account"].frame, sidebarFrame)
         capture("home-album-mini")
         // 戻る時と再度開く時の遷移も録画に残し、帯が列の外へ動かないことを確認する。
         let back = app.navigationBars.buttons.firstMatch
@@ -149,6 +154,8 @@ extension CaptureScreensUITests {
         back.tap()
         XCTAssertTrue(album.waitForExistence(timeout: 10))
         XCTAssertTrue(mini.isHittable)
+        XCTAssertEqual(mini.frame.midX, miniFrame.midX, accuracy: 1)
+        XCTAssertEqual(app.buttons["sidebar.account"].frame, sidebarFrame)
         capture("home-mini-after-back")
         album.tap()
         XCTAssertTrue(play.waitForExistence(timeout: 20))
