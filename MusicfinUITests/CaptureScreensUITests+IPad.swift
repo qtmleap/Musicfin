@@ -161,6 +161,25 @@ extension CaptureScreensUITests {
         XCTAssertTrue(play.waitForExistence(timeout: 20))
         XCTAssertTrue(mini.isHittable)
         capture("home-album-mini-reopened")
+        // 標準 zoom の下スワイプで、元のカードへ戻れることを確かめる。
+        let window = app.windows.firstMatch
+        window.coordinate(withNormalizedOffset: CGVector(dx: 0.78, dy: 0.3))
+            .press(
+                forDuration: 0.05,
+                thenDragTo: window.coordinate(withNormalizedOffset: CGVector(dx: 0.78, dy: 0.78)))
+        let dismissed = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: play)
+        XCTAssertEqual(XCTWaiter.wait(for: [dismissed], timeout: 10), .completed)
+        settle()
+        XCTAssertEqual(app.state, .runningForeground)
+        XCTAssertTrue(album.isHittable, "下スワイプ後に元のカードを操作できなかった")
+        XCTAssertTrue(mini.isHittable)
+        XCTAssertEqual(mini.frame.midX, miniFrame.midX, accuracy: 1)
+        XCTAssertEqual(app.buttons["sidebar.account"].frame, sidebarFrame)
+        XCTAssertEqual(mini.frame.maxY, miniFrame.maxY, accuracy: 1)
+        capture("home-mini-after-swipe")
+        album.tap()
+        XCTAssertTrue(play.waitForExistence(timeout: 20))
+        capture("home-album-after-swipe-reopened")
         if mini.isHittable {
             mini.tap()
             let pauses = expectation(for: NSPredicate(format: "label == %@", "Play"), evaluatedWith: mini)
