@@ -129,7 +129,8 @@ struct RootView: View {
     /// **矩形を `@State` の値として持たない**のが要点で、持つと幾何の報告がこの画面全体の再評価を呼び、
     /// `tabViewBottomAccessory` の作り直し → 再計測、と輪になる。箱の作り直しを防ぐために `@State` で 1 度だけ作る。
     @State private var miniPlayerSource = PlayerSourceBox()
-    @State private var padDetailFrame: CGRect = .zero
+    /// primary 列の右端（split view 座標）。detail 側は push で動くので測らず、動かない sidebar 側から取る。
+    @State private var padSidebarTrailing: CGFloat = 0
     /// フルプレイヤーの開き方。**実機比較のための一時的な切り替え**で、設定画面と同じキーを読む。
     @AppStorage(PlayerPresentationStyle.storageKey) private var playerStyle = PlayerPresentationStyle.slideUp
 
@@ -164,7 +165,7 @@ struct RootView: View {
         // 別の root の上へ積まれたままの経路が復元されてしまう。入口へ戻してから渡す。
         .onChange(of: usesTabShell) { _, _ in
             // 狭い表示から戻った初回に、以前の列幅で帯を置かない。
-            padDetailFrame = .zero
+            padSidebarTrailing = 0
             homePath = NavigationPath()
             libraryPath = NavigationPath()
             searchPath = NavigationPath()
@@ -217,6 +218,13 @@ struct RootView: View {
     private var padSplitView: some View {
         NavigationSplitView(columnVisibility: $padColumnVisibility) {
             padSidebar
+                // 帯の置き場は sidebar 列の右端から決める。native の split view は列幅が変わるので
+                // `PadShell.detailOrigin` の固定値は使えず、detail 側は push で動くので測れない。
+                .onGeometryChange(for: CGFloat.self) {
+                    $0.frame(in: .named(PadShell.splitSpace)).maxX
+                } action: {
+                    padSidebarTrailing = $0
+                }
                 // 列そのものが地を持つので、板の material を見せるには一覧側と同じく外す。
                 .scrollContentBackground(.hidden)
                 .toolbar(removing: .sidebarToggle)
@@ -329,13 +337,6 @@ struct RootView: View {
 
     private var padDetailColumn: some View {
         padDetail
-            // 帯の置き場は実測した detail 列の枠から決める。native の split view は
-            // 列幅が変わるので `PadShell.detailOrigin` の固定値は使えない。
-            .onGeometryChange(for: CGRect.self) {
-                $0.frame(in: .named(PadShell.splitSpace))
-            } action: {
-                padDetailFrame = $0
-            }
     }
 
     /// split view 直上に持つ帯。detail 内の兄弟にすると、詳細画面へ push した時に
@@ -343,23 +344,27 @@ struct RootView: View {
     /// 空き領域は描画も contentShape も持たないので、下の画面へのタップはそのまま通る。
     @ViewBuilder
     private var padMiniPlayerOverlay: some View {
-        if showsMiniPlayer, padDetailFrame.width > 0 {
-            MiniPlayerView(
-                onFrameChange: { miniPlayerSource.rect = $0 },
-                forceExpanded: true
-            ) { showsPlayer = true }
-            .frame(maxWidth: 689)
-            .frame(height: 63.5)
-            .glassEffect(.regular, in: .rect(cornerRadius: 24, style: .continuous))
-            .padding(.horizontal, 16)
-            .background { PlayerZoomSource(source: miniPlayerSource) }
-            .frame(width: padDetailFrame.width)
-            // 下端 25 pt は窓の下端から測る（仕様 6 章）。帯は高さが決まっているので
-            // `ignoresSafeArea` だけでは動かない。伸び縮みする枠でいったん包み、その枠を
-            // 窓の下端まで広げてから 25 pt 詰める。枠のままだとホームインジケータぶん浮く。
-            .padding(.bottom, 25)
-            .padding(.leading, padDetailFrame.minX)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+        if showsMiniPlayer, padSidebarTrailing > 0 {
+            GeometryReader { proxy in
+                if padSidebarTrailing < proxy.size.width {
+                    MiniPlayerView(
+                        onFrameChange: { miniPlayerSource.rect = $0 },
+                        forceExpanded: true
+                    ) { showsPlayer = true }
+                    .frame(maxWidth: 689)
+                    .frame(height: 63.5)
+                    .glassEffect(.regular, in: .rect(cornerRadius: 24, style: .continuous))
+                    .padding(.horizontal, 16)
+                    .background { PlayerZoomSource(source: miniPlayerSource) }
+                    .frame(width: proxy.size.width - padSidebarTrailing)
+                    // 下端 25 pt は窓の下端から測る（仕様 6 章）。帯は高さが決まっているので
+                    // `ignoresSafeArea` だけでは動かない。伸び縮みする枠でいったん包み、その枠を
+                    // 窓の下端まで広げてから 25 pt 詰める。枠のままだとホームインジケータぶん浮く。
+                    .padding(.bottom, 25)
+                    .padding(.leading, padSidebarTrailing)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+                }
+            }
             .ignoresSafeArea(edges: .bottom)
         }
     }

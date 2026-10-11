@@ -143,6 +143,17 @@ extension CaptureScreensUITests {
         // 存在だけでは遷移先の背後に残った帯も通るため、実際に触れられることを確かめる。
         XCTAssertTrue(mini.isHittable, "アルバム詳細に移動するとミニプレイヤーが隠れた")
         capture("home-album-mini")
+        // 戻る時と再度開く時の遷移も録画に残し、帯が列の外へ動かないことを確認する。
+        let back = app.navigationBars.buttons.firstMatch
+        XCTAssertTrue(back.isHittable)
+        back.tap()
+        XCTAssertTrue(album.waitForExistence(timeout: 10))
+        XCTAssertTrue(mini.isHittable)
+        capture("home-mini-after-back")
+        album.tap()
+        XCTAssertTrue(play.waitForExistence(timeout: 20))
+        XCTAssertTrue(mini.isHittable)
+        capture("home-album-mini-reopened")
         if mini.isHittable {
             mini.tap()
             let pauses = expectation(for: NSPredicate(format: "label == %@", "Play"), evaluatedWith: mini)
