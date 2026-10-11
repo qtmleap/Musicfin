@@ -38,3 +38,8 @@ Home の iPad アルバム遷移は、UI テスト `testPadHomeAlbumKeepsMiniPla
 帰着せずフェードだけで閉じた記録では成功にならない。取消で詳細へ戻るときの寸法も検証する。
 `testPadAlbumOverlayScrollAndEntries` は文字を大きくして一覧を確実にスクロールできる状態にし、
 先頭以外で始めた下スクロールが途中で終了操作へ変わらないことと、Home の 3 種類の入口を確認する。
+
+iPad フルプレイヤーの終了領域は、通常表示・歌詞とキューの左列・狭い幅のヘッダー・シークと音量の除外枠を単体スイートで検証する。
+`testPadFullPlayerDismissRegions` は実際の下スワイプ、左右をまたぐ操作、右本文、シーク始点の保護を確認する。
+`testPadSidebarSingleTapTargets` は行のアイコンと空白を単押しし、再選択時のアルバム終了も確認する。
+`testPadPlaylistSwitchReloadsShuffleSource` は API で確認した異なる曲を持つ 2 作品を切り替え、曲一覧・現在曲・キューに前の作品が混入しないことを検証する。

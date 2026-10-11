@@ -67,4 +67,9 @@ xcrun swiftc -parse-as-library -swift-version 6 -default-isolation MainActor \
   Tests/LyricsFollowPolicyTests.swift -o "$test_dir/lyrics-follow-policy-tests"
 "$test_dir/lyrics-follow-policy-tests"
 
+xcrun swiftc -parse-as-library -swift-version 6 -default-isolation MainActor \
+  Musicfin/Features/NowPlaying/PlayerDismissRegion.swift \
+  Tests/PlayerDismissRegionTests.swift -o "$test_dir/player-dismiss-region-tests"
+"$test_dir/player-dismiss-region-tests"
+
 bash scripts/run-localization-tests.sh

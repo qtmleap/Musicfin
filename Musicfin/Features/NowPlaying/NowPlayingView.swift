@@ -42,6 +42,25 @@ struct NowPlayingView: View {
     @State private var favoriteTrack: MediaItem?
     @State private var isUpdatingFavorite = false
 
+    /// iPad の下スワイプで閉じる判定に使う、ルートの座標空間と開始時の記録。
+    fileprivate static let rootSpace = "nowPlayingRoot"
+    private struct DismissTouch {
+        /// 指を置いた時点の判定。途中でモードや寸法が変わっても読み直さない。
+        let isEligible: Bool
+        /// 触れている間に一度でもシークが成立したか。
+        var sawScrub: Bool
+    }
+    @State private var dismissTouch: DismissTouch?
+    /// 取り消しでも必ず戻る `GestureState`。`onEnded` が呼ばれない経路で `dismissTouch` を捨てる合図にする。
+    @GestureState private var isTrackingDismiss = false
+    /// スクロール中の寸法報告で本文を再描画せず、接触開始時にだけ最新の枠を読む。
+    private final class DismissMeasurements {
+        var size = CGSize.zero
+        var seek = CGRect.null
+        var volume = CGRect.null
+    }
+    @State private var dismissMeasurements = DismissMeasurements()
+
     /// 提示領域の上端からアートワークまで 35 pt（仕様 4 章）。
     /// もとは自前のグラバー（上余白 10 ＋ 高さ 5）の下端から 20 という組み立てだったが、
     /// 指示子をシステムに任せた今は 35 を直接の値として持つ。指示子の寸法から引き算し直さない。
@@ -83,7 +102,7 @@ struct NowPlayingView: View {
     var body: some View {
         GeometryReader { geometry in
             ArtworkBackdrop(item: player.currentItem, band: .player, artworkSize: Self.paletteArtworkSize) { palette in
-                if geometry.size.width >= 900 {
+                if geometry.size.width >= PlayerDismissRegion.wideBreakpoint {
                     wideContent(palette: palette, size: geometry.size)
                 } else {
                     let artworkSide = geometry.size.width - 48
@@ -114,7 +133,18 @@ struct NowPlayingView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .overlay(alignment: .top) {
-            if UIDevice.current.userInterfaceIdiom == .pad { dismissalHeader }
+            if Self.isPad { grabber }
+        }
+        .coordinateSpace(.named(Self.rootSpace))
+        .onGeometryChange(for: CGSize.self, of: \.size) { dismissMeasurements.size = $0 }
+        .onPreferenceChange(ControlFramePreferenceKey.self) { frames in
+            dismissMeasurements.seek = frames[.seek] ?? .null
+            dismissMeasurements.volume = frames[.volume] ?? .null
+        }
+        // iPhone は UIKit の対話的な終了に任せるので、このジェスチャは iPad だけに掛ける。
+        .simultaneousGesture(dismissGesture, including: Self.isPad ? .all : .subviews)
+        .onChange(of: isTrackingDismiss) { _, tracking in
+            if !tracking { dismissTouch = nil }
         }
         // 地が常に暗い帯になったので、明るい外観の端末でも文字と記号は白のままにする（仕様 1.2 章）。
         // 個々の `.primary` / `.secondary` を白に置き換えて回らないのは、選択中の記号が地の色へ
@@ -152,10 +182,11 @@ struct NowPlayingView: View {
     /// 横長では操作列を 520 pt に保ち、本文に場所を譲ってもシーク以降の縦位置は動かさない。
     /// 子を差し替えず列全体の位置と画像の寸法だけを変えるため、切り替え中も操作と画像の identity が続く。
     private func wideContent(palette: ArtworkPalette, size: CGSize) -> some View {
-        let margin = max(32, size.width * 0.049)
-        let columnWidth = min(536, (size.width - margin * 3) * 0.46)
+        let columnGeometry = PlayerWideColumnGeometry(width: size.width)
+        let margin = columnGeometry.margin
+        let columnWidth = columnGeometry.columnWidth
         let columnLeading = mode == .artwork ? (size.width - columnWidth) / 2 : margin - 8
-        let detailLeading = margin + columnWidth + 42
+        let detailLeading = columnGeometry.detailLeading
         // 横長の帯は iPhone の再配分から独立させ、参照で測った操作列の間隔を保つ。
         let seekHeight = max(minimumSeekHeight, 64.4)
         let volumeHeight: CGFloat = 54.6
@@ -227,23 +258,37 @@ struct NowPlayingView: View {
         .overlay(alignment: .bottom) { wideBottomControls(palette: palette) }
     }
 
-    private var dismissalHeader: some View {
-        Color.clear
-            .frame(height: 44)
-            .contentShape(.rect)
-            .overlay(alignment: .top) { grabber }
-            // cover の上端だけに閉じる操作を持たせ、歌詞の縦送りやシークとは競合させない。
-            .gesture(
-                DragGesture(minimumDistance: 12)
-                    .onEnded { value in
-                        if value.translation.height > 60,
-                            value.translation.height > abs(value.translation.width)
-                        {
-                            close()
-                        }
-                    }
-            )
-            .accessibilityHidden(true)
+    private static var isPad: Bool { UIDevice.current.userInterfaceIdiom == .pad }
+
+    /// iPad の下スワイプで閉じる操作を、ルートの 1 本に集約する。
+    /// 本文のスクロールやボタンを奪わないよう同時認識にし、どこから始めたかで可否を決める。
+    /// 可否は指を置いた最初の更新で固定する。指が動いた先で領域やモードが変わっても結果を変えない。
+    /// UIKit のシークは SwiftUI の `onEnded` より先に終わりうるので、`isScrubbing` の終了だけは信用せず、
+    /// 触れている間に一度でも立ったら閉じない。
+    private var dismissGesture: some Gesture {
+        DragGesture(minimumDistance: 12, coordinateSpace: .named(Self.rootSpace))
+            .updating($isTrackingDismiss) { _, tracking, _ in tracking = true }
+            .onChanged { value in
+                if dismissTouch == nil {
+                    dismissTouch = DismissTouch(
+                        isEligible: PlayerDismissRegion.allows(
+                            start: value.startLocation,
+                            size: dismissMeasurements.size,
+                            detailIsVisible: mode != .artwork,
+                            excluded: [dismissMeasurements.seek, dismissMeasurements.volume].filter { !$0.isNull }
+                        ),
+                        sawScrub: false
+                    )
+                }
+                if isScrubbing { dismissTouch?.sawScrub = true }
+            }
+            .onEnded { value in
+                defer { dismissTouch = nil }
+                guard let touch = dismissTouch, touch.isEligible, !touch.sawScrub, !isScrubbing else { return }
+                if value.translation.height > 60, value.translation.height > abs(value.translation.width) {
+                    close()
+                }
+            }
     }
 
     private var wideTransport: some View {
@@ -352,8 +397,8 @@ struct NowPlayingView: View {
 
     /// 上部のグラバー（仕様 4 章）。システムの指示子は 36 pt 幅で Apple 実機の 60 pt より細いので、
     /// `RootView` 側で指示子を消し、同じ 60×5 pt をここで描く。
-    /// 記号自体は触れない。iPhone は提示側の対話的な終了、iPad の cover は上部 44 pt の
-    /// `dismissalHeader` が閉じる操作を担い、本文のジェスチャとは分ける。
+    /// 記号自体は触れない。iPhone は提示側の対話的な終了、iPad はルートの下スワイプが
+    /// 閉じる操作を担い、歌詞・キューの右本文とシーク・音量の操作を守る。
     /// 色は `reference/nowplaying.png` の実測（地 (99,79,76) に対しグラバー (169,149,149)）から。
     /// 白を 0.42 で重ねると 4〜5 階調以内で合う。仕様 4 章の選択中ボタンと同じ「成分への一律加算」でも
     /// 同じくらい合うが、あちらは palette の中央 stop を前提にした規則で、グラバーが載るのは
@@ -618,6 +663,7 @@ struct NowPlayingView: View {
                 // 連続して調整したときに差分が積み上がるよう、起点は再生位置ではなく表示している位置にする。
                 adjust: { offset in commitSeek(to: displayedTime + offset) }
             )
+            .reportFrame(.seek)
             HStack {
                 Text(displayedTime.timeLabel)
                 Spacer()
@@ -690,6 +736,7 @@ struct NowPlayingView: View {
             SystemVolumeView()
                 .frame(maxWidth: .infinity)
                 .frame(height: 44)
+                .reportFrame(.volume)
                 .accessibilityLabel("音量")
             Image(systemName: "speaker.wave.3.fill")
         }
@@ -1260,4 +1307,29 @@ private struct AudioRouteView: UIViewRepresentable {
         .environment(AuthStore())
         .environment(LibraryStore())
         .environment(PlaybackEngine())
+}
+
+// MARK: - 閉じる判定から除く操作の位置
+
+private enum ControlFrameKind { case seek, volume }
+
+private struct ControlFramePreferenceKey: PreferenceKey {
+    static let defaultValue: [ControlFrameKind: CGRect] = [:]
+    static func reduce(value: inout [ControlFrameKind: CGRect], nextValue: () -> [ControlFrameKind: CGRect]) {
+        value.merge(nextValue()) { $1 }
+    }
+}
+
+extension View {
+    /// ルートの座標空間での実測矩形を報告する。ジェスチャの開始位置と同じ空間なので変換が要らない。
+    fileprivate func reportFrame(_ kind: ControlFrameKind) -> some View {
+        background {
+            GeometryReader { proxy in
+                Color.clear.preference(
+                    key: ControlFramePreferenceKey.self,
+                    value: [kind: proxy.frame(in: .named(NowPlayingView.rootSpace))]
+                )
+            }
+        }
+    }
 }
