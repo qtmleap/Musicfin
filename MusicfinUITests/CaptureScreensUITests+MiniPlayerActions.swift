@@ -22,6 +22,12 @@ extension CaptureScreensUITests {
                     CGVector(dx: element.frame.midX - window.frame.minX, dy: element.frame.midY - window.frame.minY)
                 ).tap()
         }
+        // 選択状態は tap 後の反映が遅れるため述語で待つ。タップが外れた場合は待ち切ってから失敗するので、見逃しは隠れない。
+        func waitForSelected(_ element: XCUIElement, _ selected: Bool, timeout: TimeInterval = 5) -> Bool {
+            let predicate = expectation(
+                for: NSPredicate(format: "isSelected == %@", NSNumber(value: selected)), evaluatedWith: element)
+            return XCTWaiter.wait(for: [predicate], timeout: timeout) == .completed
+        }
         func note(_ name: String, _ element: XCUIElement) {
             print("[MiniPlayer] \(name) frame=\(element.frame)")
         }
@@ -59,6 +65,17 @@ extension CaptureScreensUITests {
         XCTAssertLessThanOrEqual(next.frame.maxX, track.frame.minX + 1, "次へが曲名の領域へ食い込んでいる")
 
         let initialLabel = track.label
+        let miniShuffle = app.buttons["miniplayer.shuffle"]
+        XCTAssertTrue(miniShuffle.waitForExistence(timeout: 10))
+        XCTAssertTrue(miniShuffle.isSelected, "シャッフル開始がミニプレイヤーへ反映されていない")
+        attachCapture("mini-player-shuffle-on")
+        tapCenter(miniShuffle)
+        XCTAssertTrue(waitForSelected(miniShuffle, false), "シャッフルを解除しても選択表示が残る")
+        XCTAssertEqual(track.label, initialLabel, "シャッフル切替で現在曲が替わった")
+        attachCapture("mini-player-shuffle-off")
+        tapCenter(miniShuffle)
+        XCTAssertTrue(waitForSelected(miniShuffle, true))
+        XCTAssertEqual(track.label, initialLabel)
         let title = app.staticTexts["nowplaying.title"]
 
         // 「…」はメニューを開くだけで、曲も変えず、プレイヤーも開かない。
@@ -110,9 +127,21 @@ extension CaptureScreensUITests {
         XCTAssertTrue(title.waitForExistence(timeout: 10))
         XCTAssertFalse(app.buttons["nowplaying.mode.lyrics"].isSelected)
         XCTAssertFalse(app.buttons["nowplaying.mode.queue"].isSelected)
-        attachCapture("mini-player-open-artwork")
-        closeFullPlayer(from: CGVector(dx: 0.5, dy: 0.3))
+        let isWide = window.frame.width >= 900
+        if !isWide { tapCenter(app.buttons["nowplaying.mode.queue"]) }
+        let fullShuffle = app.buttons[isWide ? "nowplaying.shuffle" : "queue.mode.shuffle"]
+        XCTAssertTrue(fullShuffle.waitForExistence(timeout: 10))
+        XCTAssertTrue(fullShuffle.isSelected, "フルプレイヤーのシャッフル状態が一致しない")
+        tapCenter(fullShuffle)
+        XCTAssertTrue(waitForSelected(fullShuffle, false))
+        attachCapture(isWide ? "mini-player-open-artwork" : "mini-player-queue-shuffle-off")
+        closeFullPlayer(from: CGVector(dx: 0.5, dy: isWide ? 0.3 : 40 / window.frame.height))
         XCTAssertEqual(track.label, initialLabel)
+        XCTAssertTrue(waitForSelected(miniShuffle, false), "フルプレイヤーでの解除がミニプレイヤーへ反映されない")
+        app.buttons["album.shuffle"].tap()
+        XCTAssertTrue(waitForSelected(miniShuffle, true))
+        app.buttons["album.play"].tap()
+        XCTAssertTrue(waitForSelected(miniShuffle, false), "通常再生でシャッフル表示が解除されない")
     }
 
     @MainActor

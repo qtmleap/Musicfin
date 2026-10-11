@@ -49,9 +49,15 @@ struct MiniPlayerView: View {
             Button {
                 player.toggleShuffle()
             } label: {
-                Image(systemName: "shuffle").frame(width: 36, height: 44)
+                Image(systemName: "shuffle")
+                    .frame(width: 36, height: 44)
+                    .contentShape(.rect)
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("シャッフル")
+            .accessibilityIdentifier("miniplayer.shuffle")
+            .accessibilityAddTraits(player.isShuffled ? .isSelected : [])
+            .foregroundStyle(player.isShuffled ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
             Button {
                 player.playPrevious()
             } label: {

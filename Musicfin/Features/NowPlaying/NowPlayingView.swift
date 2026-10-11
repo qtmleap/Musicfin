@@ -310,6 +310,7 @@ struct NowPlayingView: View {
                 Image(systemName: "shuffle").frame(width: 44, height: 44)
             }
             .accessibilityLabel("シャッフル")
+            .accessibilityIdentifier("nowplaying.shuffle")
             .accessibilityAddTraits(player.isShuffled ? .isSelected : [])
             .foregroundStyle(player.isShuffled ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
             transport
