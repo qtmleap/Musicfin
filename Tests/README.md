@@ -48,6 +48,12 @@ iPad フルプレイヤーの終了領域は、通常表示・歌詞とキュー
 メニュー幅が 269.5 pt のままかを検証する。2 回繰り返し、Home 行の位置と幅も確認する。
 `testPadShuffledMiniPlayerControls` は実サーバーの作品をシャッフルし、ミニプレイヤーの一時停止・全画面への移動・
 再生位置の保持・次曲送りを実際の座標タップで検証する。2 曲以上を持つ作品が必要。
+`testPadMiniPlayerRightControls` は右端の「…」・歌詞・キューを中心座標で押し、メニューの表示・
+最初のタップでの表示選択・通常の入口がアートワークへ戻ることと、曲が替わらないことを確認する。
+アカウントを開く途中の幅変化は、静止後の frame だけでは検出できないため録画でも確認する。
+`TEST_RUNNER_MUSICFIN_REGRESSION_DEMO_VIDEO=1` を渡すと `testPadShuffledMiniPlayerControls` は
+通常の再生操作検証の前に、シャッフル再生中の左下のアカウントを 3 回開閉する撮影経路を通る。
+録画は静止フレームの間隔が一定とは限らない。変換で間引かず、全フレームの V 字と板の端を比較する。
 
 これらは `xcodebuild test` の `-only-testing:MusicfinUITests/CaptureScreensUITests/<テスト名>` で個別に実行する。
 `TEST_RUNNER_MUSICFIN_IPAD_CAPTURE=1` を渡し、所有する使い捨て端末の UDID を destination に指定する。

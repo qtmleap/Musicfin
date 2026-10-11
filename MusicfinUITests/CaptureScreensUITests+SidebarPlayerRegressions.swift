@@ -7,16 +7,21 @@ extension CaptureScreensUITests {
     @MainActor
     func testPadAccountKeepsSidebarWidth() throws {
         guard isIPadCapture else { throw XCTSkip("iPad 専用の確認") }
-        launchApp()
+        launchApp(checksReferenceSize: false)
         ensureSignedIn()
         let coldAccount = app.buttons["sidebar.account"]
         XCTAssertTrue(coldAccount.waitForExistence(timeout: 20))
         settle()
-        print("[SidebarWidth] cold account=\(coldAccount.frame)")
+        print(
+            "[SidebarWidth] cold account=\(coldAccount.frame) detailTitle=\(app.navigationBars["Home"].staticTexts["Home"].firstMatch.frame)"
+        )
         XCTAssertEqual(coldAccount.frame.width, 269.5, accuracy: 1)
+        XCTAssertEqual(
+            app.navigationBars["Home"].staticTexts["Home"].firstMatch.frame.minX, 299.5, accuracy: 2,
+            "固定した板だけ合っていても、実際の detail 列が 320 pt へ戻っていてはならない")
         // ログイン済みで起動する日常の経路も通し、初回ログインだけ正しくなる修正を防ぐ。
         app.terminate()
-        launchApp()
+        launchApp(checksReferenceSize: false)
         prepareRegressionOrientation()
         let account = app.buttons["sidebar.account"]
         let home = padSidebarRow("sidebar.home")
@@ -25,8 +30,11 @@ extension CaptureScreensUITests {
         settle()
         let accountBefore = account.frame
         let homeBefore = home.frame
-        print("[SidebarWidth] before account=\(accountBefore) home=\(homeBefore)")
+        print(
+            "[SidebarWidth] before account=\(accountBefore) home=\(homeBefore) detailTitle=\(app.navigationBars["Home"].staticTexts["Home"].firstMatch.frame)"
+        )
         XCTAssertEqual(accountBefore.width, 269.5, accuracy: 1)
+        XCTAssertEqual(app.navigationBars["Home"].staticTexts["Home"].firstMatch.frame.minX, 299.5, accuracy: 2)
         attachScreenshot("sidebar-account-before")
 
         func assertStable(_ phase: String) {
@@ -73,13 +81,15 @@ extension CaptureScreensUITests {
     @MainActor
     func testPadShuffledMiniPlayerControls() throws {
         guard isIPadCapture else { throw XCTSkip("iPad 専用の確認") }
-        launchApp()
+        launchApp(checksReferenceSize: false)
         ensureSignedIn()
         prepareRegressionOrientation()
         let window = app.windows.firstMatch
         func tapCenter(_ element: XCUIElement) {
             window.coordinate(withNormalizedOffset: .zero)
-                .withOffset(CGVector(dx: element.frame.midX, dy: element.frame.midY)).tap()
+                .withOffset(
+                    CGVector(dx: element.frame.midX - window.frame.minX, dy: element.frame.midY - window.frame.minY)
+                ).tap()
         }
         func waitForLabel(_ element: XCUIElement, _ label: String, timeout: TimeInterval = 10) -> Bool {
             let predicate = expectation(for: NSPredicate(format: "label == %@", label), evaluatedWith: element)
@@ -119,6 +129,23 @@ extension CaptureScreensUITests {
         let miniPause = app.buttons["miniplayer.play-pause"]
         XCTAssertTrue(miniPause.waitForExistence(timeout: 30))
         XCTAssertTrue(waitForLabel(miniPause, "Pause"), "シャッフル後に再生が始まらなかった")
+        if ProcessInfo.processInfo.environment["MUSICFIN_REGRESSION_DEMO_VIDEO"] == "1" {
+            settle()
+            for round in 1...3 {
+                let account = app.buttons["sidebar.account"]
+                XCTAssertTrue(account.waitForExistence(timeout: 10))
+                attachScreenshot("demo-before-\(round)")
+                tapCenter(account)
+                let close = app.buttons["Close"]
+                XCTAssertTrue(close.waitForExistence(timeout: 10))
+                settle()
+                attachScreenshot("demo-open-\(round)")
+                RunLoop.current.run(until: Date(timeIntervalSinceNow: 2))
+                close.tap()
+                XCTAssertTrue(close.waitForNonExistence(timeout: 10))
+                settle()
+            }
+        }
         tapCenter(miniPause)
         XCTAssertTrue(waitForLabel(miniPause, "Play"), "ミニプレイヤーで一時停止できなかった")
 
