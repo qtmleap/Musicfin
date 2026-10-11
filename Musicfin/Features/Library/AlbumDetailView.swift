@@ -102,7 +102,7 @@ struct AlbumDetailView: View {
             }
         }
         .overlayEscape(overlayClose)
-        .task { await load() }
+        .task(id: album.id) { await load() }
         .prefetchArtwork(isPlaylist ? tracks : [], size: Self.playlistArtworkSize)
     }
 
@@ -180,7 +180,7 @@ struct AlbumDetailView: View {
         .font(.headline)
         .foregroundStyle(.tint)
         .buttonStyle(.plain)
-        .disabled(tracks.isEmpty)
+        .disabled(!hasTracks)
     }
 
     private func compactHeader(palette: ArtworkPalette) -> some View {
@@ -261,7 +261,7 @@ struct AlbumDetailView: View {
             }
         }
         .buttonStyle(.plain)
-        .disabled(tracks.isEmpty)
+        .disabled(!hasTracks)
         .frame(maxWidth: .infinity)
         // 284 pt の行が収まらない幅でも左右 16 pt は空ける（仕様 7 章）。
         .padding(.horizontal, 16)
@@ -279,7 +279,7 @@ struct AlbumDetailView: View {
                 .background(palette.circleFill, in: .circle)
         }
         // 押せるボタンなのに無効用の様式を当てるのは、**曲が 0 件のとき左右の円が食い違う**ため。
-        // `.disabled(tracks.isEmpty)` は 3 ボタンをまとめて無効にするが、右の円はこの様式で
+        // `.disabled(!hasTracks)` は 3 ボタンをまとめて無効にするが、右の円はこの様式で
         // 減光されないので、左だけが薄くなって「左右の円の地は同じ色」（仕様 7 章）が壊れる。
         // 代償として `.plain` 由来の押下時の反応を失う。承知のうえで左右をそろえる側を採る。
         .buttonStyle(UndimmedButtonStyle())
@@ -477,12 +477,22 @@ struct AlbumDetailView: View {
             .accessibilityLabel(
                 isPlaylist ? String(localized: "プレイリストの操作") : String(localized: "アルバムの操作")
             )
-            .disabled(tracks.isEmpty)
+            .disabled(!hasTracks)
         }
     }
 
+    /// 読み込み中は前の対象の曲が残りうるので、空かどうかだけでなく読み込み完了も操作の条件にする。
+    private var hasTracks: Bool { !isLoading && !tracks.isEmpty }
+
     private func load() async {
-        tracks = await library.tracks(for: album)
+        // 対象が変わったら前の曲を見せたまま再生操作を通さない。
+        tracks = []
+        isLoading = true
+        let requestedAlbum = album
+        let loaded = await library.tracks(for: requestedAlbum)
+        // 識別子に紐づく task の取り消しを確認し、前の対象の遅い応答を公開しない。
+        guard !Task.isCancelled else { return }
+        tracks = loaded
         isLoading = false
     }
 }

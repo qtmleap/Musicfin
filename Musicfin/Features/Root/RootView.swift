@@ -268,6 +268,17 @@ struct RootView: View {
         .sheet(isPresented: $showsAccount) { AccountView() }
     }
 
+    /// 行のタップは `List` の選択に一本化する。選択が同じ行の再タップでも setter が呼ばれるので、
+    /// 行ごとのジェスチャを足さずにアルバム overlay を閉じられる。
+    private var padSidebarSelection: Binding<PadDestination?> {
+        Binding(
+            get: { padSelection },
+            set: { destination in
+                albumOverlay.clear()
+                padSelection = destination
+            })
+    }
+
     private var padSidebar: some View {
         // 参照の板は bar を持たず、「編集」が板の左上に直に載る。`NavigationStack` を噛ませると
         // 窓の safe area ぶんだけ下がり、板の中で位置が合わなくなるので、見出しは自分で並べる。
@@ -282,7 +293,7 @@ struct RootView: View {
             .padding(.top, 12)
             .padding(.bottom, 6)
 
-            List(selection: $padSelection) {
+            List(selection: padSidebarSelection) {
                 padSidebarRow("検索", systemImage: "magnifyingglass", destination: .search)
                 padSidebarRow("ホーム", systemImage: "house", destination: .home, accentsIcon: true)
                 padSidebarRow("新着", systemImage: "square.grid.2x2", destination: .new)
@@ -511,7 +522,6 @@ struct RootView: View {
             )
             .contentShape(.rect)
             .tag(destination)
-            .simultaneousGesture(TapGesture().onEnded { albumOverlay.clear() })
             .background { PadSidebarFocusStyle() }
             .listRowInsets(
                 EdgeInsets(
@@ -606,7 +616,9 @@ struct RootView: View {
         case .playlists:
             NavigationStack(path: $libraryPath) { LibraryCollectionView(kind: .playlists) }
         case .playlist(let playlist):
+            // 別のプレイリストへ移ったとき、前の `@State`（曲・読み込み状態）を即座に捨てる。
             NavigationStack(path: $libraryPath) { AlbumDetailView(album: playlist) }
+                .id(playlist.id)
         }
     }
 

@@ -22,6 +22,9 @@ final class HomeAlbumPresentation {
     }
 
     func clear(_ session: HomeAlbumSession? = nil) {
+        // 選択が無いときの再呼び出しで世代だけ進めない。進めると遅れて届いた旧 session の後始末が
+        // 次の open と取り違えられる。
+        guard selection != nil else { return }
         if let session, selection !== session { return }
         generation += 1
         selection = nil
