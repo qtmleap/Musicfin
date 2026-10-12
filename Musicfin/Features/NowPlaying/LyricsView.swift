@@ -110,11 +110,28 @@ struct LyricsView: View {
     /// 横長の行送りは参照の字面ピッチ 97.5 pt（48 pt bold の行 57.5 pt ＋ 40 pt）から逆算した値。
     @ScaledMetric(relativeTo: .title) private var wideLyricSpacing = 40.0
     private var lyricSpacing: Double { usesWideMetrics ? wideLyricSpacing : narrowLyricSpacing }
-    /// 現在行以外に掛けるぼかし（仕様 5.2 章）。**`docs/org/movie.mov` から測った値**で、
-    /// 文字と一緒に伸びるよう `lyricSize` と同じ尺に載せる。測り方は仕様 5.2 章に書いた。
+    /// 現在行以外に掛けるぼかし（仕様 5.2 章）。**`docs/org/movie.mov` から測った 32 pt 文字の値**で、
+    /// 文字と一緒に伸びるよう `lyricSize` と同じ尺に載せる。横長は `blurScale` で 48 pt 文字へ比例させる。
     @ScaledMetric(relativeTo: .title) private var lyricBlur = 1.7
+    /// アクセシビリティ用の文字サイズでは行が大きく、縁の減衰が読める範囲を食うので外す（仕様 5.2 章）。
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     /// 本文の調整で前奏の丸まで拡大しないよう、文字の寸法だけを分ける。
     private var bodySize: Double { usesWideMetrics ? wideLyricSize : lyricSize }
+    /// 横長の文字は 32 pt の基準より大きいので、ぼかしも文字と同じ比率（既定 1.5 倍）で伸ばす。
+    private var blurScale: Double { usesWideMetrics ? wideLyricSize / lyricSize : 1 }
+    /// 下端の減衰を掛けるか。横長の右列だけで、狭い表示の見た目は変えない。
+    private var usesBottomEdgeFade: Bool {
+        usesWideMetrics && !reduceTransparency && !dynamicTypeSize.isAccessibilitySize
+    }
+    /// 下端の減衰の高さ。Musicfin の暫定値で、Apple 実機の実測値ではない。
+    /// 字面ピッチ（57.5 pt の行 ＋ 行間）2 行ぶんを文字と一緒に伸ばし、器の 20% を超えないよう抑える。
+    /// 器が低すぎて減衰が数 pt になると縁がただの暗がりに見えるので、16 pt 未満は掛けない。
+    private func bottomFadeExtent(viewportHeight: CGFloat) -> CGFloat {
+        guard usesBottomEdgeFade else { return 0 }
+        let pitch = wideLyricSize * 57.5 / 48 + wideLyricSpacing
+        let extent = min(pitch * 2, viewportHeight * 0.2)
+        return extent >= 16 ? extent : 0
+    }
     @State private var lines: [LyricLine] = []
     @State private var isLoading = true
     @State private var isFollowing = true
@@ -222,6 +239,9 @@ struct LyricsView: View {
                 }
                 .scrollPosition($introPosition)
                 .scrollIndicators(.hidden)
+                // 減衰は内容ではなく**器に固定したマスク**で掛ける。内容側に掛けると歌詞と一緒に流れてしまい、
+                // 実際に切れる縁で行が水平に切れて見える継ぎ目を消せない。幾何・可視判定・操作には関与させない。
+                .modifier(BottomEdgeFade(extent: bottomFadeExtent(viewportHeight: viewport.size.height)))
                 // 器の伸縮による補正は、その更新とは別の geometry 通知でも届く。指の間は
                 // 長さに関係なく translation だけを数え、ScrollView 自身の位置補正から独立させる。
                 .simultaneousGesture(
@@ -377,6 +397,38 @@ struct LyricsView: View {
         }
     }
 
+    /// 下端で不透明度が 0 に届くマスク。実際に切れる縁で 0 になるので、文字の断面が見えない。
+    /// 段階は smoothstep を 5 分割した値で、端の傾きが緩く帯の境目が目立たない。
+    private struct BottomEdgeFade: ViewModifier {
+        let extent: CGFloat
+
+        @ViewBuilder
+        func body(content: Content) -> some View {
+            if extent > 0 {
+                content.mask {
+                    VStack(spacing: 0) {
+                        Rectangle()
+                        LinearGradient(
+                            stops: [
+                                .init(color: .black, location: 0),
+                                .init(color: .black.opacity(0.896), location: 0.2),
+                                .init(color: .black.opacity(0.648), location: 0.4),
+                                .init(color: .black.opacity(0.352), location: 0.6),
+                                .init(color: .black.opacity(0.104), location: 0.8),
+                                .init(color: .black.opacity(0), location: 1),
+                            ],
+                            startPoint: .top, endPoint: .bottom
+                        )
+                        .frame(height: extent)
+                    }
+                }
+            } else {
+                // 狭い表示や読みやすさを優先する設定では、不要なマスク描画も増やさない。
+                content
+            }
+        }
+    }
+
     private func lyricsContent(active: Int?, viewportHeight: CGFloat, at time: TimeInterval) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             // 操作帯の伸縮中に遅延配置の見積もりが変わると、位置補正が指の送りを押し戻す。
@@ -434,7 +486,13 @@ struct LyricsView: View {
             // 操作帯を隠すと ScrollView は `bottomExtension` ぶん実際に高くなるため、差し引かず器の全高を使う。
             // 厳密な必要量は (1 − 比率) × (器の高さ − 最終行の高さ) で、全高はその上限なので行の高さを測らずに済む。
             // 時刻の無い歌詞は追従しないので、最終行が操作帯へ貼り付かないための 24 pt だけ残す。
-            .padding(.bottom, isSynced ? max(24, viewportHeight * (1 - activeLineTopRatio)) : 24)
+            // 横長で減衰を掛けるときは、止まった最終行が減衰帯に掛からないよう減衰の高さを足す。
+            .padding(
+                .bottom,
+                isSynced
+                    ? max(24, viewportHeight * (1 - activeLineTopRatio))
+                    : 24 + bottomFadeExtent(viewportHeight: viewportHeight)
+            )
             // 同じ画面の小アートワークや曲名と同じ左右 32 pt に載せる（仕様 5 章）。外側の 24 pt との差。
             .padding(.horizontal, 8)
         }
@@ -493,7 +551,7 @@ struct LyricsView: View {
     /// 手で送っている間に外すのは、そのとき読みたいのは現在行ではなく指が止めた場所だから。
     /// 前奏中は丸を現在の位置として示し、これから歌う行を同じぼかしで後ろへ退かせる。
     private func blurRadius(index: Int, activeIndex: Int?) -> CGFloat {
-        lyricBlur
+        lyricBlur * blurScale
             * LyricsFollowPolicy.blurMultiplier(
                 index: index, activeIndex: activeIndex, isSynced: isSynced, isFollowing: isFollowing,
                 reduceTransparency: reduceTransparency)

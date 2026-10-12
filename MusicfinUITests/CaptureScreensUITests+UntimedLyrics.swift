@@ -2,6 +2,49 @@ import Foundation
 import XCTest
 
 extension CaptureScreensUITests {
+    /// 時刻のない歌詞も末尾まで送ると減衰帯の上で読めるよう、静止した最終行を撮影する。
+    @MainActor
+    func testPadUntimedLyricsLastLineStaysReadable() throws {
+        guard isIPadCapture else { throw XCTSkip("iPad の歌詞下端") }
+        if ProcessInfo.processInfo.environment["MUSICFIN_CONFIGURE_FULL_SCREEN"] == "1" {
+            try configureReleaseIPadFullScreen()
+        }
+        openLyrics(
+            query: "SCRE4M NOiSE M4KER", albumID: "9b3230a42a0d86f02e0af1902c9a385c",
+            trackID: "0777b56919f14cfaec35d3912815b8f9", title: "! SCRE4M NOiSE M4KER")
+        XCTAssertTrue(app.descendants(matching: .any)["lyrics.line.0"].firstMatch.waitForExistence(timeout: 20))
+        let notice = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "have no timing information"))
+            .firstMatch
+        XCTAssertTrue(notice.exists, "時刻のない歌詞を取得できなかった")
+        let viewport = app.scrollViews.containing(.any, identifier: "lyrics.line.0").firstMatch
+        XCTAssertTrue(viewport.exists)
+        let rows = app.descendants(matching: .any).matching(
+            NSPredicate(format: "identifier BEGINSWITH %@", "lyrics.line.")
+        ).allElementsBoundByIndex
+        let lastID = try XCTUnwrap(
+            rows.max { lhs, rhs in
+                let left = Int(lhs.identifier.split(separator: ".").last ?? "") ?? -1
+                let right = Int(rhs.identifier.split(separator: ".").last ?? "") ?? -1
+                return left < right
+            }
+        ).identifier
+        let last = app.descendants(matching: .any).matching(identifier: lastID).firstMatch
+        for _ in 0..<12 {
+            let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.8, dy: 0.7))
+            start.press(
+                forDuration: 0.1,
+                thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.8, dy: 0.2)),
+                withVelocity: .fast, thenHoldForDuration: 0)
+        }
+        settle()
+        XCTAssertTrue(last.isHittable, "時刻のない歌詞の最終行を表示できなかった")
+        let fadeUpperBound = viewport.frame.height * 0.2
+        XCTAssertLessThanOrEqual(
+            last.frame.maxY, viewport.frame.maxY - fadeUpperBound - 20,
+            "最終行が下端の減衰帯に入っている")
+        capture("lyrics-untimed-final-readable")
+    }
+
     @MainActor
     func testUntimedLyricsManualScrollKeepsControlsStable() {
         openLyrics(
@@ -83,7 +126,7 @@ extension CaptureScreensUITests {
         XCTAssertTrue(openPlayer.waitForExistence(timeout: 20))
         settle()
         openPlayer.tap()
-        let lyrics = element(.button, "歌詞")
+        let lyrics = app.buttons["nowplaying.mode.lyrics"]
         XCTAssertTrue(lyrics.waitForExistence(timeout: 10))
         if let pause = firstHittableElement(in: app.buttons.matching(identifier: "Pause"), timeout: 5) { pause.tap() }
         lyrics.tap()
