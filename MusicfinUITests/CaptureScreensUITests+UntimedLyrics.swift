@@ -12,22 +12,28 @@ extension CaptureScreensUITests {
         openLyrics(
             query: "SCRE4M NOiSE M4KER", albumID: "9b3230a42a0d86f02e0af1902c9a385c",
             trackID: "0777b56919f14cfaec35d3912815b8f9", title: "! SCRE4M NOiSE M4KER")
+        let window = app.windows.firstMatch.frame
+        XCTAssertEqual(window.width, 1366, accuracy: 1, "1366x1024 の横長 iPad で検証する")
+        XCTAssertEqual(window.height, 1024, accuracy: 1, "1366x1024 の横長 iPad で検証する")
         XCTAssertTrue(app.descendants(matching: .any)["lyrics.line.0"].firstMatch.waitForExistence(timeout: 20))
         let notice = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "have no timing information"))
             .firstMatch
         XCTAssertTrue(notice.exists, "時刻のない歌詞を取得できなかった")
-        let viewport = app.scrollViews.containing(.any, identifier: "lyrics.line.0").firstMatch
-        XCTAssertTrue(viewport.exists)
+        // 操作列を含む外側の ScrollView も一致するため、歌詞だけの最も小さい器を測る。
+        let viewport = try XCTUnwrap(
+            app.scrollViews.containing(.any, identifier: "lyrics.line.0").allElementsBoundByIndex.min {
+                $0.frame.height < $1.frame.height
+            })
         let rows = app.descendants(matching: .any).matching(
             NSPredicate(format: "identifier BEGINSWITH %@", "lyrics.line.")
         ).allElementsBoundByIndex
+        let rowIDs = rows.map(\.identifier)
         let lastID = try XCTUnwrap(
-            rows.max { lhs, rhs in
-                let left = Int(lhs.identifier.split(separator: ".").last ?? "") ?? -1
-                let right = Int(rhs.identifier.split(separator: ".").last ?? "") ?? -1
+            rowIDs.max { lhs, rhs in
+                let left = Int(lhs.split(separator: ".").last ?? "") ?? -1
+                let right = Int(rhs.split(separator: ".").last ?? "") ?? -1
                 return left < right
-            }
-        ).identifier
+            })
         let last = app.descendants(matching: .any).matching(identifier: lastID).firstMatch
         for _ in 0..<12 {
             let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.8, dy: 0.7))
@@ -39,6 +45,7 @@ extension CaptureScreensUITests {
         settle()
         XCTAssertTrue(last.isHittable, "時刻のない歌詞の最終行を表示できなかった")
         let fadeUpperBound = viewport.frame.height * 0.2
+        print("LYRICS_EDGE_UNTIMED viewport=\(viewport.frame) last=\(last.frame) fadeUpperBound=\(fadeUpperBound)")
         XCTAssertLessThanOrEqual(
             last.frame.maxY, viewport.frame.maxY - fadeUpperBound - 20,
             "最終行が下端の減衰帯に入っている")

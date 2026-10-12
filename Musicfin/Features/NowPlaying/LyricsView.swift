@@ -404,8 +404,10 @@ struct LyricsView: View {
 
         @ViewBuilder
         func body(content: Content) -> some View {
-            if extent > 0 {
-                content.mask {
+            // 設定の変更で ScrollView の枝を入れ替えると、手で読んでいた位置が失われる。
+            // 内容の identity は保ち、マスクの濃淡だけを切り替える。
+            content.mask {
+                if extent > 0 {
                     VStack(spacing: 0) {
                         Rectangle()
                         LinearGradient(
@@ -421,10 +423,9 @@ struct LyricsView: View {
                         )
                         .frame(height: extent)
                     }
+                } else {
+                    Rectangle()
                 }
-            } else {
-                // 狭い表示や読みやすさを優先する設定では、不要なマスク描画も増やさない。
-                content
             }
         }
     }
