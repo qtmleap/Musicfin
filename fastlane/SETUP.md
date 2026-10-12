@@ -338,13 +338,13 @@ SSH 鍵と PAT の Secret は使わない。lane は `https://github.com/qtmleap
 
 ## 審査に出す前に必要なもの
 
-App Store 配信は現在無効。将来 CI の配信方針を変更して審査提出を扱う場合は、
-App Store Connect 側で以下を埋める必要がある。
+ローカルの `release` lane は無効。App Store の準備では、`develop` / `master` への PR マージ後の
+Deployment CI がアップロードしたビルドを App Store Connect で選択し、以下を揃える。
 
 - 輸出コンプライアンス（`ITSAppUsesNonExemptEncryption = false` を Info.plist に入れてある）
 - 年齢制限
-- プライバシーポリシー URL（`fastlane/metadata/*/privacy_url.txt` は空。決まったら埋めて `upload_metadata`）
-- サポート URL（同上 `support_url.txt`）
+- プライバシーポリシー URL（`https://qleap.jp/term/privacy_policy`。`fastlane/metadata/*/privacy_url.txt` に設定済み）
+- サポート URL（`https://qleap.jp/support`。`fastlane/metadata/*/support_url.txt` に設定済み）
 - スクリーンショット（`upload_screenshots` で別送）
 
 ## 設計メモ

@@ -145,7 +145,11 @@ extension CaptureScreensUITests {
     /// 縦画面の確認は `MUSICFIN_PLAYER_DRAG_ORIENTATION=portrait` で切り替える。
     @MainActor
     func testPadFullPlayerInteractiveDrag() throws {
+        continueAfterFailure = false
         guard isIPadCapture else { throw XCTSkip("iPad 専用の確認") }
+        if ProcessInfo.processInfo.environment["MUSICFIN_CONFIGURE_FULL_SCREEN"] == "1" {
+            try configureReleaseIPadFullScreen()
+        }
         launchApp(checksReferenceSize: false)
         if ProcessInfo.processInfo.environment["MUSICFIN_PLAYER_DRAG_ORIENTATION"] == "portrait" {
             XCUIDevice.shared.orientation = .portrait
@@ -215,19 +219,28 @@ extension CaptureScreensUITests {
         let bodyRight = CGPoint(x: size.width * 0.85, y: size.height * 0.3)
         let header = CGPoint(x: size.width * (size.width >= 900 ? 0.2 : 0.5), y: 40)
 
-        // 短い引きは離すと元の位置へ戻り、閉じない。
+        // 部分的な引き（40 pt・150 pt・画面高の約 20% の保持）は離すと元の位置へ戻り、閉じない。
         let baseline = center(title)
         let baselineArtwork = artwork.exists ? center(artwork) : nil
-        pull("short-cancel", from: bodyLeft, dy: 40)
-        settle()
-        XCTAssertTrue(title.exists, "短く引いて離したのに閉じた")
-        XCTAssertEqual(center(title).x, baseline.x, accuracy: 2, "離したあと title の x が元に戻らなかった")
-        XCTAssertEqual(center(title).y, baseline.y, accuracy: 2, "離したあと title の y が元に戻らなかった")
-        if let baselineArtwork, artwork.exists {
-            XCTAssertEqual(center(artwork).x, baselineArtwork.x, accuracy: 2)
-            XCTAssertEqual(center(artwork).y, baselineArtwork.y, accuracy: 2)
+        func assertReturnedToBaseline(_ name: String) {
+            settle()
+            XCTAssertTrue(title.exists, "\(name): 引いて離したのに閉じた")
+            XCTAssertEqual(center(title).x, baseline.x, accuracy: 2, "\(name): 離したあと title の x が元に戻らなかった")
+            XCTAssertEqual(center(title).y, baseline.y, accuracy: 2, "\(name): 離したあと title の y が元に戻らなかった")
+            if let baselineArtwork, artwork.exists {
+                XCTAssertEqual(center(artwork).x, baselineArtwork.x, accuracy: 2, "\(name): artwork の x が戻らなかった")
+                XCTAssertEqual(center(artwork).y, baselineArtwork.y, accuracy: 2, "\(name): artwork の y が戻らなかった")
+            }
         }
-        log("short-cancel settled")
+        // 閉じる側は画面高の 40%。縦横どちらの向きでも同じ割合で確定させる。
+        let closeDistance = size.height * 0.4
+        pull("short-cancel", from: bodyLeft, dy: 40)
+        assertReturnedToBaseline("short-cancel-40")
+        pull("partial-return-150", from: bodyLeft, dy: 150)
+        assertReturnedToBaseline("partial-return-150")
+        pull("partial-return-20pct", from: bodyLeft, dy: size.height * 0.2)
+        assertReturnedToBaseline("partial-return-20pct")
+        log("partial returns settled")
         attach("player-drag-cancel-baseline")
 
         // スライダー内から始まった縦の指移動も、プレイヤーを動かす操作にはしない。
@@ -241,25 +254,25 @@ extension CaptureScreensUITests {
         XCTAssertEqual(center(title).y, baseline.y, accuracy: 2)
 
         // 長く引いて離すと閉じる。
-        pull("long-close", from: bodyLeft, dy: 300)
-        XCTAssertTrue(title.waitForNonExistence(timeout: 10), "300pt 引いて離しても閉じなかった")
+        pull("long-close", from: bodyLeft, dy: closeDistance)
+        XCTAssertTrue(title.waitForNonExistence(timeout: 10), "画面高の 40% (\(Int(closeDistance))pt) 引いて離しても閉じなかった")
 
         // 歌詞とキューは同じ規則: 右の本文は固定のまま、左の本文と header は閉じる。
         for mode in ["lyrics", "queue"] {
             openMode(mode)
             attach("player-drag-\(mode)")
             let base = center(title)
-            pull("\(mode)-right", from: bodyRight, dy: 300)
+            pull("\(mode)-right", from: bodyRight, dy: closeDistance)
             settle()
             XCTAssertTrue(title.exists, "\(mode) の右本文を引いて閉じた")
             XCTAssertEqual(center(title).y, base.y, accuracy: 2, "\(mode) の右本文を引いたあと title が動いたままになった")
             if size.width >= 900 {
-                pull("\(mode)-left", from: bodyLeft, dy: 300)
-                XCTAssertTrue(title.waitForNonExistence(timeout: 10), "\(mode) の左本文を 300pt 引いても閉じなかった")
+                pull("\(mode)-left", from: bodyLeft, dy: closeDistance)
+                XCTAssertTrue(title.waitForNonExistence(timeout: 10), "\(mode) の左本文を画面高の 40% 引いても閉じなかった")
                 openMode(mode)
             }
-            pull("\(mode)-header", from: header, dy: 300)
-            XCTAssertTrue(title.waitForNonExistence(timeout: 10), "\(mode) の header から引いても閉じなかった")
+            pull("\(mode)-header", from: header, dy: closeDistance)
+            XCTAssertTrue(title.waitForNonExistence(timeout: 10), "\(mode) の header から画面高の 40% 引いても閉じなかった")
         }
     }
 

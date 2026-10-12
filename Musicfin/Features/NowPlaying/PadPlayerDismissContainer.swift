@@ -16,8 +16,9 @@ struct PadPlayerDismissContainer<Content: View>: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private static var space: String { "padPlayerDismissOuter" }
-    /// 既存の閉じる判定。速度や進捗の閾値は足さない。
-    private static var closeDistance: CGFloat { 60 }
+    /// iPhone の `PlayerPresentation` と同じ閾値。大きな画面で固定距離だと、ゆっくり少し引いただけで閉じてしまう。
+    private static var closeProgress: CGFloat { 0.33 }
+    private static var closeVelocity: CGFloat { 800 }
 
     private enum Phase { case idle, following, returning, closing }
 
@@ -28,6 +29,8 @@ struct PadPlayerDismissContainer<Content: View>: View {
         /// 最初の更新で縦優勢だったか。横に始まった指は後から縦へ流れても追従しない。
         let isDownward: Bool
         var baseOffset: CGFloat = 0
+        /// 進捗の分母。回転などで途中に変わっても、開始時の寸法で判定を固定する。
+        var viewportHeight: CGFloat = 1
         var sawScrub = false
         /// 消滅・寸法変更・シーク成立で無効にした接触。指が離れるまで何もしない。
         var isInvalid = false
@@ -116,7 +119,8 @@ struct PadPlayerDismissContainer<Content: View>: View {
                     let newContact = Contact(
                         isEligible: eligible,
                         isDownward: value.translation.height > abs(value.translation.width),
-                        baseOffset: base
+                        baseOffset: base,
+                        viewportHeight: max(size.height, 1)
                     )
                     if newContact.isUsable { generation += 1 }
                     contact = newContact
@@ -137,10 +141,13 @@ struct PadPlayerDismissContainer<Content: View>: View {
             .onEnded { value in
                 defer { contact = nil }
                 guard let current = contact else { return }
+                // 復帰の途中で触り直した場合も、描画中の位置からの総変位で進捗を測る。
+                let displacement = max(0, current.baseOffset + value.translation.height)
+                let progress = displacement / current.viewportHeight
                 let shouldClose =
                     current.isUsable && !current.sawScrub && !isScrubbing
-                    && value.translation.height > Self.closeDistance
                     && value.translation.height > abs(value.translation.width)
+                    && (progress > Self.closeProgress || value.velocity.height > Self.closeVelocity)
                 if shouldClose {
                     finishClose()
                 } else if phase == .following {
