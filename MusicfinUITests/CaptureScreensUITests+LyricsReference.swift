@@ -9,7 +9,21 @@ extension CaptureScreensUITests {
     /// 現在行の y と行ピッチを物理参照の実測値に対して検証し、同じ状態を撮影する。
     @MainActor
     func testLyricsReferenceBaselineLayout() throws {
+        try captureLyricsReferenceLayout(assertPhysicalAnchor: true)
+    }
+
+    /// 下端の描画を変えても、行タップ後の現在行と行間が動かないことを同じ曲で確認する。
+    @MainActor
+    func testLyricsBottomEdgeKeepsRowLayout() throws {
+        try captureLyricsReferenceLayout(assertPhysicalAnchor: false)
+    }
+
+    @MainActor
+    private func captureLyricsReferenceLayout(assertPhysicalAnchor: Bool) throws {
         guard isIPadCapture else { throw XCTSkip("iPad の参照比較") }
+        if ProcessInfo.processInfo.environment["MUSICFIN_CONFIGURE_FULL_SCREEN"] == "1" {
+            try configureReleaseIPadFullScreen()
+        }
         launchApp()
         ensureSignedIn()
 
@@ -85,7 +99,9 @@ extension CaptureScreensUITests {
         XCTAssertEqual(XCTWaiter.wait(for: [firstSelected], timeout: 10), .completed)
         settle()
         reportLyricRows(state: "active-0")
-        assertActiveRowLayout(0)
+        // 実機の固定座標との比較は既存テストに残し、描画変更の回帰は同じ環境内での位置の安定を測る。
+        let expectedActiveY: CGFloat = assertPhysicalAnchor ? 348 : firstRow.frame.minY
+        assertActiveRowLayout(0, expectedActiveY: expectedActiveY)
         capture("lyrics-reference-active-0")
 
         // 行タップは seek になるが、曲の時刻データや再生内容は変えない。
@@ -101,7 +117,7 @@ extension CaptureScreensUITests {
             pauseIfPlaying(transport)
             settle()
             reportLyricRows(state: "active-\(index)")
-            assertActiveRowLayout(index)
+            assertActiveRowLayout(index, expectedActiveY: expectedActiveY)
             capture("lyrics-reference-active-\(index)")
         }
         XCTAssertEqual(title.value as? String, Self.lyricsReferenceItemID)
@@ -110,14 +126,14 @@ extension CaptureScreensUITests {
     /// 参照の AX 実測：現在行の minY は 348 pt、行ピッチは 97.5 pt（行 57.5 pt ＋ 間隔 40 pt）。
     /// 狭い表示とは値が違うので、横長になる 1366x1024 でだけ検証する。
     @MainActor
-    private func assertActiveRowLayout(_ index: Int) {
+    private func assertActiveRowLayout(_ index: Int, expectedActiveY: CGFloat) {
         let window = app.windows.firstMatch.frame
         XCTAssertEqual(window.width, 1366, accuracy: 1, "1366x1024 の iPad で実行する必要がある")
         XCTAssertEqual(window.height, 1024, accuracy: 1, "1366x1024 の iPad で実行する必要がある")
         let current = lyricLineElement(index)
         let next = lyricLineElement(index + 1)
         XCTAssertTrue(current.exists && next.exists, "\(index) 行目と次の行が見つからなかった")
-        XCTAssertEqual(current.frame.minY, 348, accuracy: 1, "\(index) 行目の現在行の y が参照とずれた")
+        XCTAssertEqual(current.frame.minY, expectedActiveY, accuracy: 1, "\(index) 行目の現在行の y が基準とずれた")
         XCTAssertEqual(next.frame.minY - current.frame.minY, 97.5, accuracy: 1, "行ピッチが参照とずれた")
     }
 
