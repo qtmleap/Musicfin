@@ -430,8 +430,11 @@ struct LyricsView: View {
             // 先頭行にも同じ比率（横長は 0.3455、狭い表示は 0.15）の位置を渡せるだけのスクロール可能な余白を作る。
             // 外側へ padding すると本文の見える上端まで下がるので、内容側だけを延ばす。
             .padding(.top, max(0, viewportHeight - bottomExtension) * activeLineTopRatio)
-            // 下の 24 pt は最終行が操作帯へ貼り付かないための余白なので残す。
-            .padding(.bottom, 24)
+            // 時刻付き歌詞は最終行も上端寄りの現在行の位置へ送れるよう、下に器の高さぶんの余白を足す。
+            // 操作帯を隠すと ScrollView は `bottomExtension` ぶん実際に高くなるため、差し引かず器の全高を使う。
+            // 厳密な必要量は (1 − 比率) × (器の高さ − 最終行の高さ) で、全高はその上限なので行の高さを測らずに済む。
+            // 時刻の無い歌詞は追従しないので、最終行が操作帯へ貼り付かないための 24 pt だけ残す。
+            .padding(.bottom, isSynced ? max(24, viewportHeight * (1 - activeLineTopRatio)) : 24)
             // 同じ画面の小アートワークや曲名と同じ左右 32 pt に載せる（仕様 5 章）。外側の 24 pt との差。
             .padding(.horizontal, 8)
         }

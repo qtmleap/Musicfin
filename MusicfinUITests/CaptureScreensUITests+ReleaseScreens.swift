@@ -99,7 +99,7 @@ extension CaptureScreensUITests {
             "デモサーバーの音声が再生されなかった")
         try captureReleaseScreen("04-now-playing")
 
-        let queueButton = app.buttons[configuration.label("次に再生", "Play Next")].firstMatch
+        let queueButton = app.buttons["nowplaying.mode.queue"]
         try tapReleaseElement(queueButton, message: "再生中画面のキューを開けなかった")
         let upcoming = app.buttons.matching(
             NSPredicate(format: "identifier BEGINSWITH %@", "queue.upcoming.")
@@ -176,7 +176,7 @@ extension CaptureScreensUITests {
     }
 
     @MainActor
-    private func configureReleaseIPadFullScreen() throws {
+    func configureReleaseIPadFullScreen() throws {
         // マルチタスクのウインドウ枠を提出画像へ含めないため、新規 iPad の全画面設定を揃える。
         let settings = XCUIApplication(bundleIdentifier: "com.apple.Preferences")
         settings.launchArguments = ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]

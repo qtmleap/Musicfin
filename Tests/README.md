@@ -41,6 +41,8 @@ Home の iPad アルバム遷移は、UI テスト `testPadHomeAlbumKeepsMiniPla
 
 iPad フルプレイヤーの終了領域は、通常表示・歌詞とキューの左列・狭い幅のヘッダー・シークと音量の除外枠を単体スイートで検証する。
 `testPadFullPlayerDismissRegions` は実際の下スワイプ、左右をまたぐ操作、右本文、シーク始点の保護を確認する。
+終了の判定は iPhone と同じ「器の高さの 33 % 超、または下向き 800 pt/s 超」で、回帰として 150 pt と画面高の 20 % をゆっくり保持して離すと戻り、約 40 % では閉じることを見る。
+歌詞は時刻付きの最終行が中ほどの行と同じ位置（アンカー）へ届くことを見る。
 `testPadSidebarSingleTapTargets` は行のアイコンと空白を単押しし、再選択時のアルバム終了も確認する。
 `testPadPlaylistSwitchReloadsShuffleSource` は API で確認した異なる曲を持つ 2 作品を切り替え、曲一覧・現在曲・キューに前の作品が混入しないことを検証する。
 
@@ -65,9 +67,10 @@ iPad フルプレイヤーの終了領域は、通常表示・歌詞とキュー
 `TEST_RUNNER_MUSICFIN_REGRESSION_PLAYLIST=1` は左メニューのプレイリストを対象にする。
 開始前に既存端末を記録し、成功・失敗にかかわらず作成した端末を終了・削除する。結果バンドルのスクリーンショットは残す。
 
-`testPadFullPlayerInteractiveDrag` は 40 pt の短い引きと 300 pt の引きを、それぞれ指を離す前に 2 秒保持する。
+`testPadFullPlayerInteractiveDrag` は 40 pt、150 pt、画面高の 20 % と 40 % の引きを、それぞれ指を離す前に 2 秒保持する。
 短い引きの復帰、長い引きの終了、歌詞・キューの右側とシークからの操作除外を検証する。
 `TEST_RUNNER_MUSICFIN_PLAYER_DRAG_ORIENTATION=portrait` で縦向きも確認できる。
+使い捨ての端末を新規作成した実行だけは `TEST_RUNNER_MUSICFIN_CONFIGURE_FULL_SCREEN=1` で全画面に設定できる。共有端末では指定しない。
 保持中の追従は終了後の XCTest の frame だけでは検出できないため、同時に画面録画を行い、
 ログの `PLAYER-DRAG epoch=` と照合して、指を保持した区間のタイトル・画像が移動していることを確認する。
 全フレームを使い、短い引きの保持中は約 40 pt 動き、離すと元へ戻ることと、終了時に位置が飛ばないことを見る。
