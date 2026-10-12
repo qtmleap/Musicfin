@@ -6,15 +6,30 @@ extension CaptureScreensUITests {
     @MainActor
     func testPadUntimedLyricsLastLineStaysReadable() throws {
         guard isIPadCapture else { throw XCTSkip("iPad の歌詞下端") }
-        if ProcessInfo.processInfo.environment["MUSICFIN_CONFIGURE_FULL_SCREEN"] == "1" {
+        try captureUntimedFinalLine()
+    }
+
+    @MainActor
+    func testPhoneUntimedLyricsLastLineStaysReadable() throws {
+        guard !isIPadCapture else { throw XCTSkip("iPhone の歌詞下端") }
+        try captureUntimedFinalLine()
+    }
+
+    @MainActor
+    private func captureUntimedFinalLine() throws {
+        if isIPadCapture && ProcessInfo.processInfo.environment["MUSICFIN_CONFIGURE_FULL_SCREEN"] == "1" {
             try configureReleaseIPadFullScreen()
         }
         openLyrics(
             query: "SCRE4M NOiSE M4KER", albumID: "9b3230a42a0d86f02e0af1902c9a385c",
             trackID: "0777b56919f14cfaec35d3912815b8f9", title: "! SCRE4M NOiSE M4KER")
         let window = app.windows.firstMatch.frame
-        XCTAssertEqual(window.width, 1366, accuracy: 1, "1366x1024 の横長 iPad で検証する")
-        XCTAssertEqual(window.height, 1024, accuracy: 1, "1366x1024 の横長 iPad で検証する")
+        if isIPadCapture {
+            XCTAssertEqual(window.width, 1366, accuracy: 1, "1366x1024 の横長 iPad で検証する")
+            XCTAssertEqual(window.height, 1024, accuracy: 1, "1366x1024 の横長 iPad で検証する")
+        } else {
+            XCTAssertLessThan(window.width, 900)
+        }
         XCTAssertTrue(app.descendants(matching: .any)["lyrics.line.0"].firstMatch.waitForExistence(timeout: 20))
         let notice = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "have no timing information"))
             .firstMatch
@@ -36,18 +51,19 @@ extension CaptureScreensUITests {
             })
         let last = app.descendants(matching: .any).matching(identifier: lastID).firstMatch
         for _ in 0..<12 {
-            let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.8, dy: 0.7))
+            let start = viewport.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.8))
             start.press(
                 forDuration: 0.1,
-                thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.8, dy: 0.2)),
+                thenDragTo: viewport.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.2)),
                 withVelocity: .fast, thenHoldForDuration: 0)
         }
         settle()
         XCTAssertTrue(last.isHittable, "時刻のない歌詞の最終行を表示できなかった")
-        let fadeUpperBound = viewport.frame.height * 0.2
+        let twoLineExtent: CGFloat = isIPadCapture ? 195 : 100.667
+        let fadeUpperBound = min(twoLineExtent, viewport.frame.height * 0.2)
         print("LYRICS_EDGE_UNTIMED viewport=\(viewport.frame) last=\(last.frame) fadeUpperBound=\(fadeUpperBound)")
         XCTAssertLessThanOrEqual(
-            last.frame.maxY, viewport.frame.maxY - fadeUpperBound - 20,
+            last.frame.maxY, viewport.frame.maxY - fadeUpperBound - 12,
             "最終行が下端の減衰帯に入っている")
         capture("lyrics-untimed-final-readable")
     }

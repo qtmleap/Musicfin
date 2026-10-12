@@ -119,16 +119,16 @@ struct LyricsView: View {
     private var bodySize: Double { usesWideMetrics ? wideLyricSize : lyricSize }
     /// 横長の文字は 32 pt の基準より大きいので、ぼかしも文字と同じ比率（既定 1.5 倍）で伸ばす。
     private var blurScale: Double { usesWideMetrics ? wideLyricSize / lyricSize : 1 }
-    /// 下端の減衰を掛けるか。横長の右列だけで、狭い表示の見た目は変えない。
+    /// 端末の大きさに関係なく切り口を隠し、読みやすさを優先する設定では外す。
     private var usesBottomEdgeFade: Bool {
-        usesWideMetrics && !reduceTransparency && !dynamicTypeSize.isAccessibilitySize
+        !reduceTransparency && !dynamicTypeSize.isAccessibilitySize
     }
     /// 下端の減衰の高さ。Musicfin の暫定値で、Apple 実機の実測値ではない。
-    /// 字面ピッチ（57.5 pt の行 ＋ 行間）2 行ぶんを文字と一緒に伸ばし、器の 20% を超えないよう抑える。
+    /// 本文の文字サイズと行間に合わせた 2 行ぶんを使い、器の 20% を超えないよう抑える。
     /// 器が低すぎて減衰が数 pt になると縁がただの暗がりに見えるので、16 pt 未満は掛けない。
     private func bottomFadeExtent(viewportHeight: CGFloat) -> CGFloat {
         guard usesBottomEdgeFade else { return 0 }
-        let pitch = wideLyricSize * 57.5 / 48 + wideLyricSpacing
+        let pitch = bodySize * 57.5 / 48 + lyricSpacing
         let extent = min(pitch * 2, viewportHeight * 0.2)
         return extent >= 16 ? extent : 0
     }
@@ -487,7 +487,7 @@ struct LyricsView: View {
             // 操作帯を隠すと ScrollView は `bottomExtension` ぶん実際に高くなるため、差し引かず器の全高を使う。
             // 厳密な必要量は (1 − 比率) × (器の高さ − 最終行の高さ) で、全高はその上限なので行の高さを測らずに済む。
             // 時刻の無い歌詞は追従しないので、最終行が操作帯へ貼り付かないための 24 pt だけ残す。
-            // 横長で減衰を掛けるときは、止まった最終行が減衰帯に掛からないよう減衰の高さを足す。
+            // 減衰を掛けるときは、止まった最終行が減衰帯に掛からないよう減衰の高さを足す。
             .padding(
                 .bottom,
                 isSynced
