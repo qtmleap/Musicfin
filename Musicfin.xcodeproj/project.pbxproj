@@ -275,6 +275,7 @@
 				INFOPLIST_FILE = Config/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Musicfin;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				LM_SKIP_METADATA_EXTRACTION = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -302,6 +303,7 @@
 				INFOPLIST_FILE = Config/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Musicfin;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				LM_SKIP_METADATA_EXTRACTION = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",

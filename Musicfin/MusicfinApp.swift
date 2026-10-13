@@ -10,7 +10,7 @@ struct MusicfinApp: App {
         WindowGroup {
             Group {
                 if auth.isSignedIn {
-                    NavigationStack { SearchView() }
+                    RootView()
                 } else {
                     LoginView()
                 }

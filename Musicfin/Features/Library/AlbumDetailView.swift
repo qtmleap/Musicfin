@@ -87,6 +87,9 @@ struct AlbumDetailView: View {
             }
         }
         .buttonStyle(.glassProminent)
+        // glassProminent は Label のアイコンだけを tint 色で描くため背景に溶けてしまい、
+        // 文字がアイコンの幅ぶん右へずれて見える。文字と同じ白に固定する。
+        .foregroundStyle(.white)
         .disabled(tracks.isEmpty)
         .padding(.horizontal, 32)
         .padding(.top, 4)
