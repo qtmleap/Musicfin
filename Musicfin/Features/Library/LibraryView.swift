@@ -827,6 +827,7 @@ private struct SongListRow: View {
                 trailing: horizontalMargin
             )
         )
+        .modifier(TrackPlayNextSwipeAction { player.playNext([track]) })
     }
 }
 
@@ -896,16 +897,7 @@ struct FavoriteTracksView: View {
                         trailing: horizontalMargin
                     )
                 )
-                .swipeActions {
-                    Button {
-                        Task { await library.toggleFavorite(track) }
-                    } label: {
-                        Label(
-                            track.isFavorite ? "お気に入りから削除" : "お気に入りに追加",
-                            systemImage: track.isFavorite ? "heart.slash" : "heart")
-                    }
-                    .tint(.pink)
-                }
+                .modifier(TrackPlayNextSwipeAction { player.playNext([track]) })
             }
             if query.isEmpty { LibraryFeedLoader(feed: feed).listRowSeparator(.hidden) }
         }
