@@ -428,22 +428,7 @@ struct AlbumDetailView: View {
         }
         // 右端も既定の 16 pt ではなく、行の右端（左右 20 pt）に揃える。
         .alignmentGuide(.listRowSeparatorTrailing) { $0[.trailing] }
-        .swipeActions(edge: .leading) {
-            Button {
-                player.playNext([track])
-            } label: {
-                Label("次に再生", systemImage: "text.line.first.and.arrowtriangle.forward")
-            }
-            .tint(.orange)
-        }
-        .swipeActions(edge: .trailing) {
-            Button {
-                Task { await library.toggleFavorite(track) }
-            } label: {
-                Label("お気に入り", systemImage: track.isFavorite ? "heart.slash" : "heart")
-            }
-            .tint(.pink)
-        }
+        .modifier(TrackPlayNextSwipeAction { player.playNext([track]) })
     }
 
     @ToolbarContentBuilder

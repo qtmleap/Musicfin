@@ -241,6 +241,21 @@ struct ContainerRow: View {
     }
 }
 
+// 表示は記号だけにし、読み上げには操作名を残す。行の動きは List の標準動作に任せる。
+struct TrackPlayNextSwipeAction: ViewModifier {
+    let playNext: () -> Void
+
+    func body(content: Content) -> some View {
+        content.swipeActions(edge: .leading) {
+            Button(action: playNext) {
+                Label("次に再生", systemImage: "text.line.first.and.arrowtriangle.forward")
+                    .labelStyle(.iconOnly)
+            }
+            .tint(.indigo)
+        }
+    }
+}
+
 /// 行末の「…」メニュー。中身が空のときは余白も作らない。
 struct RowMenu<Content: View>: View {
     @ViewBuilder var content: Content
