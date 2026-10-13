@@ -16,6 +16,8 @@ xcuserdata/
 .swiftpm/
 Packages/
 Package.resolved
+# 依存の固定は再現ビルドに必要なので、プロジェクト内のこの 1 ファイルだけ追跡する。
+!Musicfin.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
 
 ## 署名情報・秘密情報
 *.p12

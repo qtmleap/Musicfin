@@ -21,7 +21,7 @@ concurrency:
 
 jobs:
   deploy:
-    runs-on: macos-26
+    runs-on: [self-hosted, macos, arm64, xcode-27]
     timeout-minutes: 45
     env:
       ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
@@ -30,6 +30,12 @@ jobs:
       MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
     steps:
       - uses: actions/checkout@v5
+      - name: Require Xcode 27
+        run: xcodebuild -version | grep -q '^Xcode 27' || { echo "::error::Xcode 27 is required"; exit 1; }
+      - name: QuantumLeap package access
+        uses: ./.github/actions/quantumleap-auth
+        with:
+          token: ${{ secrets.QUANTUMLEAP_READ_TOKEN }}
       - uses: ruby/setup-ruby@v1
         with:
           ruby-version: '3.3'

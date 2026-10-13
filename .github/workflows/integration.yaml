@@ -88,13 +88,21 @@ jobs:
 
   build:
     name: Build
-    runs-on: macos-26
+    # 同一リポジトリの PR だけ。fork からの PR にはランナー上の資格情報を渡さない。
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, macos, arm64, xcode-27]
     steps:
       - uses: actions/checkout@v5
+      - name: QuantumLeap package access
+        uses: ./.github/actions/quantumleap-auth
+        with:
+          token: ${{ secrets.QUANTUMLEAP_READ_TOKEN }}
 
       - name: Show toolchain
         run: |
           xcodebuild -version
+          # ランナーのラベルと実際の Xcode がずれていたら、ビルドせずに止める。
+          xcodebuild -version | grep -q '^Xcode 27' || { echo "::error::Xcode 27 is required"; exit 1; }
           xcodebuild -showsdks | grep -i "iOS"
 
       - name: Build for iOS Simulator
@@ -145,9 +153,12 @@ jobs:
 
   unit-tests:
     name: Unit Tests
-    runs-on: macos-26
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, macos, arm64, xcode-27]
     steps:
       - uses: actions/checkout@v5
+      - name: Require Xcode 27
+        run: xcodebuild -version | grep -q '^Xcode 27' || { echo "::error::Xcode 27 is required"; exit 1; }
       - name: Run unit tests
         run: ./scripts/run-unit-tests.sh
 

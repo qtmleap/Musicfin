@@ -140,6 +140,19 @@ def build_for_appstore(api_key:, build_number:)
     FileUtils.cp(pbxproj_backup, pbxproj_path)
     FileUtils.rm_f(pbxproj_backup)
   end
+
+  verify_signed_ipa(lane_context[SharedValues::IPA_OUTPUT_PATH], build_number)
+end
+
+# アップロード前に、署名済み IPA の bundle ID・版・最低 OS・プラットフォーム・チーム・
+# プロファイルを確かめる。版は pbxproj から読む。
+def verify_signed_ipa(ipa, build_number)
+  version = get_version_number(xcodeproj: XCODEPROJ, target: SCHEME)
+  sh(
+    "python3", File.join(REPO_ROOT, "scripts", "verify-ipa.py"), ipa,
+    "--bundle-id", APP_IDENTIFIER, "--version", version, "--build", build_number.to_s,
+    "--min-os", "26.0", "--platform", "ios", "--families", "1,2", "--team", TEAM_ID
+  )
 end
 
 desc "Bundle ID 登録 + App Store Connect アプリレコード作成 + iOS プロファイル生成。初回のみ手動で叩く"

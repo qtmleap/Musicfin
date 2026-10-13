@@ -1,3 +1,4 @@
+import QuantumLeapUpdates
 import SwiftUI
 
 @main
@@ -20,6 +21,7 @@ struct MusicfinApp: App {
             .environment(library)
             .environment(player)
             .environment(settings)
+            .quantumLeapUpdates(countryCode: "JP")
             .task {
                 // 音質は回線種別と組み合わせて曲ごとに決めるので、設定オブジェクトごとエンジンに渡す。
                 player.configure(settings: settings)

@@ -6,6 +6,10 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		BF3B152A04E0FF9C7C3556DA /* QuantumLeapUpdates in Frameworks */ = {isa = PBXBuildFile; productRef = FC253AB22113327258E247C0 /* QuantumLeapUpdates */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
 		1A00000000000000000000A3 /* Musicfin.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Musicfin.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		1A00000000000000000000C1 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
@@ -22,6 +26,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				BF3B152A04E0FF9C7C3556DA /* QuantumLeapUpdates in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -81,6 +86,9 @@
 				1A00000000000000000000A6 /* Musicfin */,
 			);
 			name = Musicfin;
+			packageProductDependencies = (
+				FC253AB22113327258E247C0 /* QuantumLeapUpdates */,
+			);
 			productName = Musicfin;
 			productReference = 1A00000000000000000000A3 /* Musicfin.app */;
 			productType = "com.apple.product-type.application";
@@ -153,6 +161,9 @@
 			);
 			mainGroup = 1A00000000000000000000A4;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				1DCC22D3EDB93FBD467EEFAC /* XCRemoteSwiftPackageReference "QuantumLeap" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 1A00000000000000000000A5 /* Products */;
 			projectDirPath = "";
@@ -391,6 +402,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		1DCC22D3EDB93FBD467EEFAC /* XCRemoteSwiftPackageReference "QuantumLeap" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/qtmleap/QuantumLeap.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.0.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		FC253AB22113327258E247C0 /* QuantumLeapUpdates */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 1DCC22D3EDB93FBD467EEFAC /* XCRemoteSwiftPackageReference "QuantumLeap" */;
+			productName = QuantumLeapUpdates;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 1A00000000000000000000A1 /* Project object */;
 }
