@@ -67,7 +67,7 @@ extension CaptureScreensUITests {
         continueAfterFailure = false
         launchApp()
         ensureSignedIn()
-        selectTab("Radio")
+        selectTab("Mixes")
         assertObservedItems(prefix: "radio.track.", exceeds: 30)
     }
 

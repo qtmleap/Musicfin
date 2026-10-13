@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 import XCTest
 
 // MARK: - ログイン後の画面
@@ -97,8 +98,63 @@ extension CaptureScreensUITests {
     }
 
     @MainActor
+    func testPadLibraryTitlesStayAboveSearch() throws {
+        continueAfterFailure = false
+        guard isIPadCapture else { throw XCTSkip("iPad 専用の検証") }
+        try configureReleaseIPadFullScreen()
+        launchApp()
+        ensureSignedIn()
+
+        for destination in [
+            ("artists", "Artists"), ("playlists", "Playlists"), ("songs", "Songs"),
+            ("favorites", "Favorite Songs"), ("albums", "Albums"), ("recentlyAdded", "Recently Added"),
+        ] {
+            try assertPadLibraryTitle(
+                route: destination.0, title: destination.1, screen: "\(destination.0)-title-search")
+        }
+
+        // 再ログインで不具合を隠さないよう、認証の復元を要求してから見出しを確認する。
+        for rotates in [false, true] {
+            app.terminate()
+            if rotates { launchApp() } else { app.launch() }
+            XCTAssertTrue(element(.button, "アカウント").waitForExistence(timeout: 20), "保存済みの認証が復元されなかった")
+            XCTAssertFalse(element(.button, "接続").exists)
+            try assertPadLibraryTitle(
+                route: "artists", title: "Artists",
+                screen: rotates ? "artists-title-search-relaunch-rotated" : "artists-title-search-relaunch")
+        }
+    }
+
+    @MainActor
+    private func assertPadLibraryTitle(route: String, title expectedTitle: String, screen: String) throws {
+        let row = padSidebarRow("sidebar.\(route)")
+        XCTAssertTrue(row.waitForExistence(timeout: 10))
+        row.tap()
+        settle()
+        // 復元直後は文字の label が古いまま返るため、バーの識別子と実画像の文字で画面名を確認する。
+        let bar = app.navigationBars[expectedTitle].firstMatch
+        XCTAssertTrue(bar.waitForExistence(timeout: 10))
+        let title = bar.staticTexts.firstMatch
+        let field = listSearchField
+        capture(screen)
+        XCTAssertTrue(title.waitForExistence(timeout: 10))
+        XCTAssertTrue(field.waitForExistence(timeout: 10))
+        settle()
+        // 存在だけでは黒い検索欄に覆われた見出しを見逃すため、描画領域も分離していることを測る。
+        XCTAssertGreaterThan(title.frame.height, 30)
+        XCTAssertLessThanOrEqual(title.frame.maxY, field.frame.minY, "見出しが検索欄に隠れている")
+        let directory = try XCTUnwrap(ProcessInfo.processInfo.environment["MUSICFIN_SHOT_DIR"])
+        let screenshot = try XCTUnwrap(UIImage(contentsOfFile: "\(directory)/\(screen).png"))
+        assertNavigationTitleIsDrawn(in: title.frame, screenshot: screenshot, expectedTitle: expectedTitle)
+        XCTAssertGreaterThanOrEqual(field.frame.height, 44)
+    }
+
+    @MainActor
     func testPadArtistSearchHasUsableHeight() throws {
         guard isIPadCapture else { throw XCTSkip("iPad 専用の検証") }
+        if ProcessInfo.processInfo.environment["MUSICFIN_CONFIGURE_FULL_SCREEN"] == "1" {
+            try configureReleaseIPadFullScreen()
+        }
         launchApp()
         ensureSignedIn()
         capturePadSidebarChild(identifier: "sidebar.artists", title: "アーティスト", screen: "artists-height")
@@ -347,7 +403,9 @@ extension CaptureScreensUITests {
             return
         }
         sidebar.tap()
-        guard element(.navigationBar, title).waitForExistence(timeout: 20) else {
+        // iPad の見出しは toolbar にあるため、空の標準タイトルではなく表示中の文字で到達を判定する。
+        let titleLabel = ["アーティスト": "Artists", "プレイリスト": "Playlists", "曲": "Songs"][title] ?? title
+        guard app.navigationBars.staticTexts[titleLabel].firstMatch.waitForExistence(timeout: 20) else {
             skippedScreens.append(screen)
             return
         }

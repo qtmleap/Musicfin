@@ -11,7 +11,7 @@ struct RadioView: View {
     var body: some View {
         Group {
             if catalog.isLoading, mix.isEmpty {
-                ProgressView("ステーションを作成中…")
+                ProgressView("ミックスを作成中…")
                     .accessibilityIdentifier("radio.loading")
             } else if let errorMessage = catalog.errorMessage, mix.isEmpty {
                 LoadErrorView(message: errorMessage) { await refresh() }
@@ -19,9 +19,9 @@ struct RadioView: View {
             } else if mix.isEmpty {
                 VStack {
                     ContentUnavailableView(
-                        "再生できるステーションがありません",
-                        systemImage: "dot.radiowaves.left.and.right",
-                        description: Text("ライブラリに音楽を追加すると、ステーションを作成できます。")
+                        "再生できるミックスがありません",
+                        systemImage: "shuffle",
+                        description: Text("ライブラリに音楽を追加すると、ミックスを作成できます。")
                     )
                     .accessibilityIdentifier("radio.empty")
                     if catalog.needsManualContinuation { continuation }
@@ -46,7 +46,7 @@ struct RadioView: View {
             }
         }
         .background(AppBackdrop())
-        .tabNavigationTitle(Text("ラジオ"))
+        .tabNavigationTitle(Text("ミックス"))
         .task(id: auth.client) {
             catalog.reset()
             await loadHomeAndMix()
