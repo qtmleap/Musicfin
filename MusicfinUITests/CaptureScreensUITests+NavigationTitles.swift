@@ -1,4 +1,6 @@
 import Foundation
+import UIKit
+import Vision
 import XCTest
 
 extension CaptureScreensUITests {
@@ -11,13 +13,13 @@ extension CaptureScreensUITests {
         try XCTSkipIf(app.tabBars.count == 0, "4 タブの比較はタブバーを使う端末が対象")
         var expectedTitle: CGRect?
 
-        for destination in [("Home", "home"), ("New", "new"), ("Radio", "radio"), ("Library", "library")] {
+        for destination in [("Home", "home"), ("New", "new"), ("Mixes", "radio"), ("Library", "library")] {
             selectNavigationTitleTab(destination.0)
             let title = app.navigationBars.staticTexts[destination.0].firstMatch
             XCTAssertTrue(title.waitForExistence(timeout: 10))
             let initialTitle = title.frame
             XCTAssertGreaterThan(initialTitle.height, 30)
-            let expectedIconCount = destination.1 == "new" ? 2 : destination.1 == "radio" ? 0 : 1
+            let expectedIconCount = destination.1 == "radio" ? 0 : 1
             let icons = app.navigationBars.buttons.allElementsBoundByIndex
             // Menu は同じ操作を二重の要素として返すため、画面上の操作位置で余計なボタンを検出する。
             let iconPositions = Set(icons.map { "\(Int($0.frame.midX.rounded())):\(Int($0.frame.midY.rounded()))" })
@@ -40,7 +42,7 @@ extension CaptureScreensUITests {
                 let track = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "radio.track."))
                     .firstMatch
                 XCTAssertTrue(track.waitForExistence(timeout: 30))
-                XCTAssertLessThan(track.frame.minY - initialTitle.maxY, 36, "Radio の上部に余計な隙間があった")
+                XCTAssertLessThan(track.frame.minY - initialTitle.maxY, 36, "Mixes の上部に余計な隙間があった")
             }
             XCTAssertFalse(app.searchFields.firstMatch.isHittable, "検索欄がタブの入口を押し下げていた")
             attachNavigationTitleScreenshot("\(destination.1)-native-top")
@@ -89,8 +91,8 @@ extension CaptureScreensUITests {
         let usesSidebar = app.tabBars.count == 0
         let destinations: [(title: String, route: String)] =
             usesSidebar
-            ? [("Home", "home"), ("New", "new"), ("Radio", "radio"), ("Search", "search")]
-            : [("Home", "home"), ("New", "new"), ("Radio", "radio"), ("Library", "library"), ("Search", "search")]
+            ? [("Home", "home"), ("New", "new"), ("Mixes", "radio"), ("Search", "search")]
+            : [("Home", "home"), ("New", "new"), ("Mixes", "radio"), ("Library", "library"), ("Search", "search")]
 
         for destination in destinations {
             if usesSidebar {
@@ -172,11 +174,21 @@ extension CaptureScreensUITests {
     }
 
     @MainActor
-    private func assertNavigationTitleIsDrawn(in frame: CGRect) {
+    func assertNavigationTitleIsDrawn(in frame: CGRect, screenshot: UIImage? = nil, expectedTitle: String? = nil) {
         // アクセシビリティの矩形が残っていても、固定領域に覆われたタイトルは画像に描かれない。
-        let screenshot = app.screenshot().image
-        guard let source = screenshot.cgImage else {
+        let image = screenshot ?? app.screenshot().image
+        guard let raw = image.cgImage else {
             XCTFail("タイトルの描画を確認する画像が無かった")
+            return
+        }
+        // 横向きの CGImage は縦のまま返るため、UIImage の向きを適用してから画面座標へ合わせる。
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = sqrt(CGFloat(raw.width * raw.height) / (app.frame.width * app.frame.height))
+        let upright = UIGraphicsImageRenderer(size: app.frame.size, format: format).image { _ in
+            image.draw(in: CGRect(origin: .zero, size: app.frame.size))
+        }
+        guard let source = upright.cgImage else {
+            XCTFail("タイトルの画像を画面座標へ変換できなかった")
             return
         }
         let scale = CGFloat(source.width) / app.frame.width
@@ -189,19 +201,39 @@ extension CaptureScreensUITests {
         let width = crop.width
         let height = crop.height
         var pixels = [UInt8](repeating: 0, count: width * height * 4)
-        let count = pixels.withUnsafeMutableBytes { bytes -> Int in
+        let ink = pixels.withUnsafeMutableBytes { bytes -> (count: Int, height: Int) in
             guard
                 let context = CGContext(
                     data: bytes.baseAddress, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
                     space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
-            else { return 0 }
+            else { return (0, 0) }
             context.draw(crop, in: CGRect(x: 0, y: 0, width: width, height: height))
             let values = bytes.bindMemory(to: UInt8.self)
-            return stride(from: 0, to: values.count, by: 4).filter {
+            let lightPixels = stride(from: 0, to: values.count, by: 4).filter {
                 values[$0] > 180 && values[$0 + 1] > 180 && values[$0 + 2] > 180
-            }.count
+            }
+            let rows = lightPixels.map { ($0 / 4) / width }
+            return (lightPixels.count, rows.isEmpty ? 0 : rows.max()! - rows.min()! + 1)
         }
-        XCTAssertGreaterThan(count, 20, "標準タイトルが他の領域に覆われて描画されていなかった")
+        XCTAssertGreaterThan(ink.count, 20, "標準タイトルが他の領域に覆われて描画されていなかった")
+        // toolbar の省略ボタンの点も白いため、文字の背丈が残っていることまで確認する。
+        XCTAssertGreaterThan(CGFloat(ink.height), CGFloat(height) * 0.35, "タイトルが省略ボタンに置き換わっていた")
+        if let expectedTitle {
+            let request = VNRecognizeTextRequest()
+            request.recognitionLevel = .accurate
+            request.recognitionLanguages = ["en-US"]
+            request.usesLanguageCorrection = false
+            do {
+                try VNImageRequestHandler(cgImage: crop).perform([request])
+                let recognized =
+                    request.results?.compactMap { $0.topCandidates(1).first?.string }
+                    .joined(separator: " ") ?? ""
+                // 文字の背丈だけでは前の画面名を見逃すため、native PNG の見出しそのものを読む。
+                XCTAssertEqual(recognized.lowercased(), expectedTitle.lowercased(), "画像の見出しが選択先と異なっていた")
+            } catch {
+                XCTFail("画像の見出しを読み取れなかった: \(error)")
+            }
+        }
     }
 
     @MainActor
@@ -221,7 +253,7 @@ extension CaptureScreensUITests {
         if !tab.exists {
             // 先頭で引き下げても offset は変わらないため、縮んだタブバーは選択中の丸薬を押して戻す。
             let compact = app.buttons.allElementsBoundByIndex.first {
-                ["Home", "New", "Radio", "Library"].contains($0.label)
+                ["Home", "New", "Mixes", "Library"].contains($0.label)
                     && $0.isHittable && $0.frame.minY > app.frame.height * 0.75
             }
             compact?.tap()

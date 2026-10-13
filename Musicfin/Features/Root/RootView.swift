@@ -23,7 +23,7 @@ struct RootView: View {
         static let sidebarRowInset: CGFloat = 16.5
         /// 作品画像を出す行の高さ。参照は記号だけの行より高く、行送りの実測から 51 pt になる。
         static let sidebarArtworkRowHeight: CGFloat = 51
-        /// 一覧の上余白。参照の検索行の中心 234 px（117 pt）に合わせた実測値。
+        /// 一覧の上余白。最初の行（検索）が板の上端や角に詰まらないための余白。
         static let sidebarListTopMargin: CGFloat = 21
         /// 板の中だけで使う accent。基準画像の記号の純色は実測 RGB(230, 67, 78) で、
         /// 他の画面が使う `Color.pink` より暗く赤寄り。板の外の tint はこれに合わせない。
@@ -200,7 +200,7 @@ struct RootView: View {
                     AlbumGridView(title: String(localized: "新着"), albums: library.recentlyAdded, isTabRoot: true)
                 }
             }
-            Tab("ラジオ", systemImage: "dot.radiowaves.left.and.right", value: .radio) {
+            Tab("ミックス", systemImage: "shuffle", value: .radio) {
                 NavigationStack { RadioView() }
             }
             Tab("ライブラリ", systemImage: "square.stack", value: .library) {
@@ -288,25 +288,14 @@ struct RootView: View {
     }
 
     private var padSidebar: some View {
-        // 参照の板は bar を持たず、「編集」が板の左上に直に載る。`NavigationStack` を噛ませると
-        // 窓の safe area ぶんだけ下がり、板の中で位置が合わなくなるので、見出しは自分で並べる。
+        // 参照の板は bar を持たないので、`NavigationStack` は噛ませず一覧だけを置く。
         VStack(spacing: 0) {
-            HStack {
-                Button("編集") {}
-                    .font(.title3.weight(.semibold))
-                    .foregroundStyle(Color.primary)
-                Spacer()
-            }
-            .padding(.horizontal, 20)
-            .padding(.top, 12)
-            .padding(.bottom, 6)
-
             List(selection: padSidebarSelection) {
                 padSidebarRow("検索", systemImage: "magnifyingglass", destination: .search)
                 padSidebarRow("ホーム", systemImage: "house", destination: .home, accentsIcon: true)
                 padSidebarRow("新着", systemImage: "square.grid.2x2", destination: .new)
                 padSidebarRow(
-                    "ラジオ", systemImage: "dot.radiowaves.left.and.right", destination: .radio,
+                    "ミックス", systemImage: "shuffle", destination: .radio,
                     accentsIcon: true)
                 Section(isExpanded: $showsLibrarySection) {
                     padPinsSidebarRow
@@ -346,7 +335,7 @@ struct RootView: View {
             .listSectionSpacing(.custom(8.5))
             // 板の material を見せるため、一覧が持つ地は外す。
             .scrollContentBackground(.hidden)
-            // 一覧の既定の上余白ぶんだけ「編集」から離れるので、板の中では自分で詰める。
+            // 見出しを置かないので、最初の行が板の角に詰まらない余白だけを確保する。
             .contentMargins(.top, PadShell.sidebarListTopMargin, for: .scrollContent)
             // 基準の account 行は地を持たず、一覧の末尾がぼかし越しに透ける。`safeAreaInset` は
             // 場所を空けるだけで端の効果はそこまで伸びないので、帯として渡して効果の対象にする。

@@ -269,25 +269,15 @@ struct AlbumGridView: View {
         }
         .background(AppBackdrop())
         .prefetchArtwork(source, size: 200)
-        .modifier(
-            AlbumGridChildNavigationTitle(title: title, usesPadPresentation: usesPadPresentation, isTabRoot: isTabRoot)
-        )
+        .searchableListTitle(Text(title), isEnabled: !isTabRoot)
         .librarySearchable(
             text: $query,
             prompt: "検索",
             horizontalMargin: usesPadPresentation ? 34.5 : 20,
             isEnabled: !isTabRoot
         )
-        .libraryNavigationMargins(usesPadPresentation ? 34.5 : 20)
         .toolbar {
             if usesPadPresentation {
-                if !isTabRoot {
-                    ToolbarItem(placement: .topBarLeading) {
-                        Text(title)
-                            .font(.largeTitle.bold())
-                            .accessibilityAddTraits(.isHeader)
-                    }
-                }
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     if !isTabRoot {
                         Button {
@@ -450,20 +440,38 @@ struct AlbumGridView: View {
     }
 }
 
-private struct AlbumGridChildNavigationTitle: ViewModifier {
-    let title: String
-    let usesPadPresentation: Bool
-    let isTabRoot: Bool
+/// 検索欄つきの一覧の画面名。iPhone は標準の largeTitle のまま。
+/// iPad は largeTitle の領域を検索欄が覆うため、標準の inlineLarge で同じバー内に収める。
+private struct SearchableListTitle: ViewModifier {
+    let title: Text
+
+    private var usesPadPresentation: Bool { UIDevice.current.userInterfaceIdiom == .pad }
 
     @ViewBuilder
     func body(content: Content) -> some View {
-        if isTabRoot {
-            // 子画面の inline 指定を重ねると、タブ共通の大見出しまで小さく中央に寄ってしまう。
+        if usesPadPresentation {
             content
+                .navigationTitle(title)
+                .toolbarTitleDisplayMode(.inlineLarge)
+                .libraryNavigationMargins(34.5)
         } else {
+            // 一覧の画面名は左寄せの largeTitle（仕様 1.1 章）。中央インラインにはしない。
             content
-                .navigationTitle(usesPadPresentation ? "" : title)
-                .navigationBarTitleDisplayMode(usesPadPresentation ? .inline : .large)
+                .navigationTitle(title)
+                .navigationBarTitleDisplayMode(.large)
+                .libraryNavigationMargins()
+        }
+    }
+}
+
+extension View {
+    @ViewBuilder
+    fileprivate func searchableListTitle(_ title: Text, isEnabled: Bool = true) -> some View {
+        if isEnabled {
+            modifier(SearchableListTitle(title: title))
+        } else {
+            // タブの入口には既存の共通タイトルを適用し、一覧用の指定を重ねない。
+            self
         }
     }
 }
@@ -588,11 +596,8 @@ struct LibraryCollectionView: View {
         .scrollContentBackground(.hidden)
         .background(AppBackdrop())
         .prefetchArtwork(source, size: 64)
-        .navigationTitle(title)
-        // 一覧の画面名は左寄せの largeTitle（仕様 1.1 章）。中央インラインにはしない。
-        .navigationBarTitleDisplayMode(.large)
+        .searchableListTitle(Text(title))
         .librarySearchable(text: $query, prompt: "検索", horizontalMargin: horizontalMargin)
-        .libraryNavigationMargins(horizontalMargin)
         .toolbar {
             if kind == .artists {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -678,11 +683,8 @@ struct SongsView: View {
         }
         .background(AppBackdrop())
         .prefetchArtwork(library.tracks, size: 48)
-        .navigationTitle("曲")
-        // 一覧の画面名は左寄せの largeTitle（仕様 1.1 章）。中央インラインにはしない。
-        .navigationBarTitleDisplayMode(.large)
+        .searchableListTitle(Text("曲"))
         .librarySearchable(text: $query, prompt: "検索", horizontalMargin: horizontalMargin)
-        .libraryNavigationMargins(horizontalMargin)
         .overlay { status }
         .task { await library.loadTracks() }
     }
@@ -911,11 +913,8 @@ struct FavoriteTracksView: View {
         .scrollContentBackground(.hidden)
         .background(AppBackdrop())
         .prefetchArtwork(source, size: 48)
-        .navigationTitle(title)
-        // 一覧の画面名は左寄せの largeTitle（仕様 1.1 章）。中央インラインにはしない。
-        .navigationBarTitleDisplayMode(.large)
+        .searchableListTitle(Text(title))
         .librarySearchable(text: $query, prompt: "検索", horizontalMargin: horizontalMargin)
-        .libraryNavigationMargins(horizontalMargin)
         .overlay {
             if !source.isEmpty, tracks.isEmpty {
                 ContentUnavailableView.search(text: query)
