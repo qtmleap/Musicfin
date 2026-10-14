@@ -233,6 +233,7 @@ def fastfile_sandbox(dir)
   instance.define_singleton_method(:next_build_number) { |_| 42 }
   instance.define_singleton_method(:get_version_number) { |**_| "1.2.3" }
   instance.define_singleton_method(:build_for_appstore) { |**_| }
+  instance.define_singleton_method(:upload_crashlytics_symbols) { }
   # 配信の許可判定は deployment_policy_test.rb で実 lane と独立して検証する。
   instance.define_singleton_method(:authorize_deployment) { |_| TestflightNotes.head_sha(dir) }
   instance.define_singleton_method(:verify_deployment_target) { |_| }

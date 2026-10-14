@@ -446,13 +446,82 @@ check "the lane prepares a CI keychain after authorization and before signing" d
     lane.define_singleton_method(:asc_api_key) { calls << :credentials; :test_key }
     lane.define_singleton_method(:next_build_number) { |_| 49 }
     lane.define_singleton_method(:whats_new_notes) { "Test notes" }
-    lane.define_singleton_method(:build_for_appstore) { |**_| calls << :archive }
+    lane.define_singleton_method(:build_for_appstore) do |**options|
+      assert options[:telemetry] == true, "distributed archive did not enable telemetry"
+      calls << :archive
+    end
     lane.define_singleton_method(:verify_deployment_target) { |_| calls << :revalidate }
+    lane.define_singleton_method(:upload_crashlytics_symbols) { calls << :symbols }
     lane.define_singleton_method(:upload_to_testflight) { |**_| calls << :upload }
     lane.run(:beta)
-    assert calls == [:authorize, :signing, :keychain, :credentials, :archive, :revalidate, :upload], calls.inspect
+    assert calls == [:authorize, :signing, :keychain, :credentials, :archive, :revalidate, :symbols, :revalidate, :upload], calls.inspect
     record = JSON.parse(File.read(File.join(dir, "fastlane/testflight/last_shipped.json")))
     assert record["sha"] == MERGED_SHA && record["build"] == 49, record.inspect
+  end
+end
+
+check "a symbol upload failure stops TestFlight upload and the shipped record" do
+  Dir.mktmpdir do |dir|
+    lane, = production_lane
+    lane.class.send(:remove_const, :REPO_ROOT)
+    lane.class.const_set(:REPO_ROOT, dir)
+    calls = []
+    lane.define_singleton_method(:authorize_deployment) { |_| MERGED_SHA }
+    lane.define_singleton_method(:prepare_ci_signing) { }
+    lane.define_singleton_method(:setup_ci) { |**_| }
+    lane.define_singleton_method(:asc_api_key) { :test_key }
+    lane.define_singleton_method(:next_build_number) { |_| 49 }
+    lane.define_singleton_method(:whats_new_notes) { "Test notes" }
+    lane.define_singleton_method(:build_for_appstore) { |**_| calls << :archive }
+    lane.define_singleton_method(:verify_deployment_target) { |_| calls << :revalidate }
+    lane.define_singleton_method(:upload_crashlytics_symbols) do
+      calls << :symbols
+      raise CrashlyticsSymbols::Error, "symbol upload failed"
+    end
+    lane.define_singleton_method(:upload_to_testflight) { |**_| calls << :upload }
+    error = begin
+      lane.run(:beta)
+      nil
+    rescue CrashlyticsSymbols::Error => failure
+      failure
+    end
+    assert error, "symbol upload failure was ignored"
+    assert calls == [:archive, :revalidate, :symbols], calls.inspect
+    assert !File.exist?(File.join(dir, "fastlane/testflight/last_shipped.json")), "failed symbols advanced the record"
+  end
+end
+
+check "the deployment branch advancing during symbol upload stops TestFlight" do
+  Dir.mktmpdir do |dir|
+    lane, = production_lane
+    lane.class.send(:remove_const, :REPO_ROOT)
+    lane.class.const_set(:REPO_ROOT, dir)
+    calls = []
+    branch_sha = MERGED_SHA
+    lane.define_singleton_method(:authorize_deployment) { |_| MERGED_SHA }
+    lane.define_singleton_method(:prepare_ci_signing) { }
+    lane.define_singleton_method(:setup_ci) { |**_| }
+    lane.define_singleton_method(:asc_api_key) { :test_key }
+    lane.define_singleton_method(:next_build_number) { |_| 49 }
+    lane.define_singleton_method(:whats_new_notes) { "Test notes" }
+    lane.define_singleton_method(:build_for_appstore) { |**_| calls << :archive }
+    lane.define_singleton_method(:verify_deployment_target) do |sha|
+      DeploymentPolicy.current!(sha: sha, head_sha: sha, branch_sha: branch_sha, dirty_count: 0)
+    end
+    lane.define_singleton_method(:upload_crashlytics_symbols) do
+      calls << :symbols
+      branch_sha = OTHER_SHA
+    end
+    lane.define_singleton_method(:upload_to_testflight) { |**_| calls << :upload }
+    error = begin
+      lane.run(:beta)
+      nil
+    rescue DeploymentPolicy::Error => failure
+      failure
+    end
+    assert error, "obsolete archive was uploaded after symbol upload"
+    assert calls == [:archive, :symbols], calls.inspect
+    assert !File.exist?(File.join(dir, "fastlane/testflight/last_shipped.json")), "obsolete upload advanced the record"
   end
 end
 

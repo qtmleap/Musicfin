@@ -1,7 +1,12 @@
+import FirebaseAnalytics
+import FirebaseCore
+import FirebaseCrashlytics
 import SwiftUI
+import UIKit
 
 @main
 struct MusicfinApp: App {
+    @UIApplicationDelegateAdaptor(MusicfinAppDelegate.self) private var appDelegate
     @State private var auth = AuthStore()
     @State private var library = LibraryStore()
     @State private var player = PlaybackEngine()
@@ -30,5 +35,25 @@ struct MusicfinApp: App {
                 player.configure(client: client)
             }
         }
+    }
+}
+
+private final class MusicfinAppDelegate: NSObject, UIApplicationDelegate {
+    func application(
+        _ application: UIApplication,
+        didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
+    ) -> Bool {
+        guard TelemetryConfiguration.isEnabled(in: Bundle.main.infoDictionary ?? [:]) else { return true }
+
+        FirebaseApp.configure()
+        Analytics.setConsent([
+            .analyticsStorage: .granted,
+            .adStorage: .denied,
+            .adUserData: .denied,
+            .adPersonalization: .denied,
+        ])
+        Analytics.setAnalyticsCollectionEnabled(true)
+        Crashlytics.crashlytics().setCrashlyticsCollectionEnabled(true)
+        return true
     }
 }
