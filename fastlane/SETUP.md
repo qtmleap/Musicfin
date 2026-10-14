@@ -373,8 +373,13 @@ xcargs で渡し、生成される Info.plist に反映させる方式にして�
 
 ### Firebase の収集内容と公開前の確認
 
-配信 CI の `beta` で作った Release のみ Firebase を起動する。通常の Debug、UI テスト、
-ローカル Release は起動しない。`FirebaseAnalyticsCore` を使い、IDFA 関連の製品をリンクしない。
+配信 CI の `beta` で作った Release でも、利用者が「利用状況と不具合情報を共有」を許可するまで
+Firebase を起動しない。新規インストールとビルド 68 からの更新では初期状態を OFF にする。
+ログイン前のプライバシー画面とアカウント設定から選択を変更でき、拒否しても再生機能を制限しない。
+撤回時は Analytics の収集を無効にする。Crashlytics の停止は次回起動から反映され、
+送信中の報告は完了する場合があり、送信済みデータの削除は行わない。
+通常の Debug、UI テスト、ローカル Release は保存済みの同意にかかわらず収集しない。
+`FirebaseAnalyticsCore` を使い、IDFA 関連の製品をリンクしない。
 IDFV、広告目的の保存・利用・パーソナライズも無効にする。
 独自イベント、Jellyfin のユーザー ID、サーバー URL、トークン、曲名、`NSError.userInfo` を追加しない。
 SDK の標準レポートはアプリのインスタンス ID、セッション、端末・OS 情報、クラッシュ時の状態を含むため、
@@ -387,9 +392,10 @@ SDK 自体の privacy manifest もアーカイブに含まれる。公開前に 
 [Firebase のデータ収集説明](https://firebase.google.com/docs/ios/app-store-data-collection)、
 [Analytics の説明](https://support.google.com/analytics/answer/10285841)を照合する。
 
-App Store Connect の既存「データ収集なし」はこの配信から実態と一致しなくなる。
-上記カテゴリの申告と、公開プライバシーポリシー `https://qleap.jp/term/privacy_policy` の更新を準備し、
-提出前に開発者が内容を確認して公開する。この PR 自体では App Store の申告の公開や提出をしない。
+収集が任意でも App Store Connect の「データ収集なし」は実態と一致しない。
+上記カテゴリを申告し、SDK の合算に合わせて「その他の診断データ」に分析の目的も含める。
+提出前に申告と公開プライバシーポリシー `https://qleap.jp/term/privacy_policy` を更新し、
+アプリ内の説明、配信ビルドの設定、実際に公開された回答を照合する。
 Firebase Console の `musicfin` プロジェクトで Analytics の連携と Crashlytics を確認し、
 最初の配信後にイベント受信・クラッシュのシンボル解決を確認する。
 `GoogleService-Info.plist` の `IS_ANALYTICS_ENABLED` は SDK が読まない項目であり、

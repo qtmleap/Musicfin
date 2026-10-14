@@ -74,3 +74,9 @@ iPad フルプレイヤーの終了領域は、通常表示・歌詞とキュー
 保持中の追従は終了後の XCTest の frame だけでは検出できないため、同時に画面録画を行い、
 ログの `PLAYER-DRAG epoch=` と照合して、指を保持した区間のタイトル・画像が移動していることを確認する。
 全フレームを使い、短い引きの保持中は約 40 pt 動き、離すと元へ戻ることと、終了時に位置が飛ばないことを見る。
+
+計測の同意は既定で OFF とし、`TelemetryConfiguration` は配信フラグと利用者の同意が両方そろったときだけ有効にする。
+`TelemetryConsent` は保存した選択、起動時の一度きりの開始、OFF での停止、同じインスタンスでの再 ON、
+配信ビルド以外での無効化を、本物の `UserDefaults` と SDK の代わりの記録用 `TelemetryBackend` で検証する。
+Firebase 自体は呼ばず、リリース構成と `-D DEBUG` の両方を `./scripts/run-unit-tests.sh` で実行する。
+画面側は UI テスト `TelemetryPrivacyUITests` が、接続前のプライバシー入口・OFF の既定・ポリシーへのリンクを確認する。

@@ -23,6 +23,7 @@ struct AccountView: View {
                 accountSurface
                 qualitySurface(wifi: $settings.wifiQuality, cellular: $settings.cellularQuality)
                 playerSurface
+                PrivacySettingsSection()
                 signOutSurface
             }
             .padding(.horizontal, 16)
@@ -240,4 +241,5 @@ private struct PlayerStylePicker: View {
     AccountView()
         .environment(AuthStore())
         .environment(PlaybackSettings())
+        .environment(TelemetryConsent.live)
 }

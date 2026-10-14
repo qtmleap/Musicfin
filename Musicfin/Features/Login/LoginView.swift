@@ -11,6 +11,7 @@ struct LoginView: View {
     @State private var isWorking = false
     // コード取得前も待機中として扱い、認証方式の同時実行を防ぐ。
     @State private var isQuickConnecting = false
+    @State private var showsPrivacy = false
     @FocusState private var focusedField: LoginField?
 
     private enum LoginField {
@@ -43,6 +44,13 @@ struct LoginView: View {
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
+                    // サーバーに接続する前でも、計測の選択と方針を確認できる入口を残す。
+                    Button("プライバシー", systemImage: "hand.raised") { showsPrivacy = true }
+                        .font(.footnote)
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                        .accessibilityIdentifier("privacy-settings-button")
                 }
             }
             .frame(maxWidth: 480)
@@ -55,6 +63,7 @@ struct LoginView: View {
         .tint(.pink)
         .scrollDismissesKeyboard(.interactively)
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: isConnected)
+        .sheet(isPresented: $showsPrivacy) { PrivacySettingsView() }
         .onChange(of: auth.lastError) { _, error in
             if error != nil && isQuickConnecting { cancelQuickConnect() }
         }
@@ -256,4 +265,5 @@ struct LoginView: View {
 #Preview {
     LoginView()
         .environment(AuthStore())
+        .environment(TelemetryConsent.live)
 }

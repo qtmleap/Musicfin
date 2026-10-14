@@ -164,3 +164,10 @@
 "artist.separator" = ", ";
 
 "再生待ち一覧" = "Up Next";
+
+"プライバシー" = "Privacy";
+"利用状況と不具合情報を共有" = "Share Usage and Crash Data";
+"使いやすさと安定性の改善のため、オンにすると、Google の Firebase を使って、アプリの利用状況、インストールごとの識別子、おおよその地域や端末の情報、クラッシュ・動作速度・診断情報を開発者が受け取ります。Jellyfin の認証情報や再生内容を独自の計測情報として送信しません。オフのままでもすべての機能を使えます。" = "To improve usability and stability, when on, the developer receives, through Google Firebase, app usage, a per-installation identifier, approximate region and device information, and crash, performance and diagnostic data. We do not send Jellyfin credentials or playback content as custom telemetry. Every feature works with this off.";
+"このビルドでは開発用のため、設定にかかわらず情報を収集しません。" = "This is a development build, so no data is collected regardless of this setting.";
+"プライバシーポリシー" = "Privacy Policy";
+"オフにすると、解析の収集を無効にします。クラッシュ情報の停止は次回の起動から完全に反映されます。送信中の情報は届く場合があり、送信済みの情報は削除されません。" = "Turning this off disables analytics collection. Crash reporting stops completely from the next launch. Uploads already in progress may finish, and data already sent is not deleted.";
