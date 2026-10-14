@@ -12,6 +12,7 @@ require "tmpdir"
 require_relative "lib/testflight_notes"
 require_relative "lib/tester_notification"
 require_relative "lib/deployment_policy"
+require_relative "lib/crashlytics_symbols"
 
 opt_out_usage
 
@@ -84,15 +85,16 @@ def next_build_number(api_key)
   latest + 1
 end
 
-# Manual 署名は app target だけに一時適用する。今は SPM 依存が無いが、
-# 将来足したときに xcargs のグローバル指定だと依存側が「署名不要」と
-# ARCHIVE FAILED になるので、最初から target 限定にしておく。
+# Manual 署名は app target だけに一時適用する。Firebase など SPM 依存があるので、
+# xcargs のグローバル指定だと依存側が「署名不要」と
+# ARCHIVE FAILED になるので、target 限定にしている。
 #
 # pbxproj は build 前に丸ごとバックアップして ensure で復元する。
 # update_code_signing_settings は CODE_SIGN_STYLE を戻せても
 # PROVISIONING_PROFILE_SPECIFIER 等の残留を綺麗にしないので、ファイル単位で
 # 巻き戻すのが確実 (build がクラッシュしても pbxproj が汚れない)。
-def build_for_appstore(api_key:, build_number:)
+# telemetry は配信ビルド（CI の beta）だけ true にする。verify など他の経路では常に無効。
+def build_for_appstore(api_key:, build_number:, telemetry: false)
   unlock_login_keychain
   match(
     api_key: api_key,
@@ -130,10 +132,16 @@ def build_for_appstore(api_key:, build_number:)
         configuration: "Release",
         destination: "generic/platform=iOS",
         export_method: "app-store",
+        # 解決済みバージョン以外を取りに行かせず、upload-symbols の checkout 場所も固定する。
         xcargs: [
           "CURRENT_PROJECT_VERSION=#{build_number}",
-          "-skipMacroValidation"
+          *(telemetry ? ["MUSICFIN_TELEMETRY_ENABLED=YES"] : []),
+          "-skipMacroValidation",
+          "-disableAutomaticPackageResolution",
+          "-onlyUsePackageVersionsFromResolvedFile"
         ].join(" "),
+        derived_data_path: ".build/release",
+        cloned_source_packages_path: ".build/SourcePackages",
         export_options: {
           signingStyle: "manual",
           provisioningProfiles: { APP_IDENTIFIER => profile_name }
@@ -228,6 +236,22 @@ rescue DeploymentPolicy::Error => error
   UI.user_error!(error.message)
 end
 
+# TestFlight より前に、今アーカイブした dSYM を同期的に送る。失敗したら lane ごと止める。
+# アップローダに ASC・署名の資格情報は不要なので外す。
+def upload_crashlytics_symbols
+  uploader = File.join(REPO_ROOT, ".build/SourcePackages/checkouts/firebase-ios-sdk/Crashlytics/upload-symbols")
+  message = DeploymentPolicy.without_credentials do
+    CrashlyticsSymbols.upload!(
+      archive: lane_context[SharedValues::XCODEBUILD_ARCHIVE],
+      uploader: uploader,
+      scheme: SCHEME
+    )
+  end
+  UI.success(message)
+rescue CrashlyticsSymbols::Error => error
+  UI.user_error!(error.message)
+end
+
 def prepare_ci_signing
   # CI の beta は短命の App token だけを使い、SSH 鍵にはフォールバックしない。
   DeploymentPolicy.signing_environment!(env: ENV, ssh: false)
@@ -258,7 +282,10 @@ lane :beta do
   notes = whats_new_notes
   UI.message("テスト内容:\n#{notes}")
 
-  build_for_appstore(api_key: api_key, build_number: build)
+  build_for_appstore(api_key: api_key, build_number: build, telemetry: true)
+  verify_deployment_target(shipped_sha)
+  upload_crashlytics_symbols
+  # シンボル送信の通信中にブランチが進んだ場合も、古いアーカイブを配信しない。
   verify_deployment_target(shipped_sha)
 
   # localized_build_info は ASC の処理が終わらないと書き込めないので、ここだけ待つ。

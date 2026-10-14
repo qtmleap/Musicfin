@@ -6,6 +6,12 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		1A00000000000000000000F1 /* FirebaseCore in Frameworks */ = {isa = PBXBuildFile; productRef = 1A00000000000000000000F4 /* FirebaseCore */; };
+		1A00000000000000000000F2 /* FirebaseCrashlytics in Frameworks */ = {isa = PBXBuildFile; productRef = 1A00000000000000000000F5 /* FirebaseCrashlytics */; };
+		1A00000000000000000000F3 /* FirebaseAnalyticsCore in Frameworks */ = {isa = PBXBuildFile; productRef = 1A00000000000000000000F6 /* FirebaseAnalyticsCore */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
 		1A00000000000000000000A3 /* Musicfin.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Musicfin.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		1A00000000000000000000C1 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
@@ -22,6 +28,9 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				1A00000000000000000000F1 /* FirebaseCore in Frameworks */,
+				1A00000000000000000000F2 /* FirebaseCrashlytics in Frameworks */,
+				1A00000000000000000000F3 /* FirebaseAnalyticsCore in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -81,6 +90,11 @@
 				1A00000000000000000000A6 /* Musicfin */,
 			);
 			name = Musicfin;
+			packageProductDependencies = (
+				1A00000000000000000000F4 /* FirebaseCore */,
+				1A00000000000000000000F5 /* FirebaseCrashlytics */,
+				1A00000000000000000000F6 /* FirebaseAnalyticsCore */,
+			);
 			productName = Musicfin;
 			productReference = 1A00000000000000000000A3 /* Musicfin.app */;
 			productType = "com.apple.product-type.application";
@@ -153,6 +167,9 @@
 			);
 			mainGroup = 1A00000000000000000000A4;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				1A00000000000000000000F7 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 1A00000000000000000000A5 /* Products */;
 			projectDirPath = "";
@@ -285,6 +302,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 0.1.0;
+				MUSICFIN_TELEMETRY_ENABLED = NO;
 				PRODUCT_BUNDLE_IDENTIFIER = jp.qleap.musicfin;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -313,6 +331,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 0.1.0;
+				MUSICFIN_TELEMETRY_ENABLED = NO;
 				PRODUCT_BUNDLE_IDENTIFIER = jp.qleap.musicfin;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -330,6 +349,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				LM_SKIP_METADATA_EXTRACTION = YES;
 				MARKETING_VERSION = 0.1.0;
+				MUSICFIN_TELEMETRY_ENABLED = NO;
 				PRODUCT_BUNDLE_IDENTIFIER = jp.qleap.musicfinUITests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -349,6 +369,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				LM_SKIP_METADATA_EXTRACTION = YES;
 				MARKETING_VERSION = 0.1.0;
+				MUSICFIN_TELEMETRY_ENABLED = NO;
 				PRODUCT_BUNDLE_IDENTIFIER = jp.qleap.musicfinUITests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -391,6 +412,35 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+/* Begin XCRemoteSwiftPackageReference section */
+		1A00000000000000000000F7 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/firebase/firebase-ios-sdk.git";
+			requirement = {
+				kind = exactVersion;
+				version = 13.0.1;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		1A00000000000000000000F4 /* FirebaseCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 1A00000000000000000000F7 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseCore;
+		};
+		1A00000000000000000000F5 /* FirebaseCrashlytics */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 1A00000000000000000000F7 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseCrashlytics;
+		};
+		1A00000000000000000000F6 /* FirebaseAnalyticsCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 1A00000000000000000000F7 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseAnalyticsCore;
+		};
+/* End XCSwiftPackageProductDependency section */
+
 	};
 	rootObject = 1A00000000000000000000A1 /* Project object */;
 }

@@ -363,3 +363,34 @@ xcargs で渡し、生成される Info.plist に反映させる方式にして�
 **lane 内の `match` は常に `readonly: true`。**
 証明書の再発行は他アプリの署名を巻き添えに壊すため、lane からは起きないようにしてある。
 書き込みは `setup_profiles` だけ。
+
+**Crashlytics の dSYM は beta lane が TestFlight の前に同期アップロードする。**
+`build_for_appstore(telemetry: true)` は beta だけが指定し、`MUSICFIN_TELEMETRY_ENABLED=YES` を渡す。
+アーカイブ後、`lib/crashlytics_symbols.rb` が Firebase app ID・bundle ID・バイナリと dSYM の UUID を
+検証してから `.build/SourcePackages/checkouts/firebase-ios-sdk/Crashlytics/upload-symbols` を直接実行する。
+どれか一つでも食い違うか uploader が失敗すれば lane は TestFlight に進まず失敗する。
+ローカルや手動 lane からのアップロードは無い。
+
+### Firebase の収集内容と公開前の確認
+
+配信 CI の `beta` で作った Release のみ Firebase を起動する。通常の Debug、UI テスト、
+ローカル Release は起動しない。`FirebaseAnalyticsCore` を使い、IDFA 関連の製品をリンクしない。
+IDFV、広告目的の保存・利用・パーソナライズも無効にする。
+独自イベント、Jellyfin のユーザー ID、サーバー URL、トークン、曲名、`NSError.userInfo` を追加しない。
+SDK の標準レポートはアプリのインスタンス ID、セッション、端末・OS 情報、クラッシュ時の状態を含むため、
+完全な匿名収集とは扱わない。
+
+Google Analytics は IP アドレスから概略の地域を導く。アプリの `PrivacyInfo.xcprivacy` には
+インスタンス識別子、利用状況、概略位置、クラッシュ、パフォーマンス・その他の診断を記載する。
+インスタンス・セッションに結び付く項目は linked とし、tracking は行わない。
+SDK 自体の privacy manifest もアーカイブに含まれる。公開前に Xcode の privacy report と
+[Firebase のデータ収集説明](https://firebase.google.com/docs/ios/app-store-data-collection)、
+[Analytics の説明](https://support.google.com/analytics/answer/10285841)を照合する。
+
+App Store Connect の既存「データ収集なし」はこの配信から実態と一致しなくなる。
+上記カテゴリの申告と、公開プライバシーポリシー `https://qleap.jp/term/privacy_policy` の更新を準備し、
+提出前に開発者が内容を確認して公開する。この PR 自体では App Store の申告の公開や提出をしない。
+Firebase Console の `musicfin` プロジェクトで Analytics の連携と Crashlytics を確認し、
+最初の配信後にイベント受信・クラッシュのシンボル解決を確認する。
+`GoogleService-Info.plist` の `IS_ANALYTICS_ENABLED` は SDK が読まない項目であり、
+この値だけで連携や受信の成否を判定しない。

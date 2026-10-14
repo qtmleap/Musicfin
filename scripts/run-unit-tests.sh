@@ -73,3 +73,16 @@ xcrun swiftc -parse-as-library -swift-version 6 -default-isolation MainActor \
 "$test_dir/player-dismiss-region-tests"
 
 bash scripts/run-localization-tests.sh
+
+# 配信の明示指定だけを許し、Debug は同じ指定があっても計測しない。
+for telemetry_configuration in release debug; do
+  telemetry_flags=(-parse-as-library)
+  if [ "$telemetry_configuration" = debug ]; then
+    telemetry_flags+=(-D DEBUG)
+  fi
+  xcrun swiftc -swift-version 6 -default-isolation MainActor \
+    "${telemetry_flags[@]}" \
+    Musicfin/TelemetryConfiguration.swift Tests/TelemetryConfigurationTests.swift \
+    -o "$test_dir/telemetry-$telemetry_configuration-tests"
+  "$test_dir/telemetry-$telemetry_configuration-tests"
+done
