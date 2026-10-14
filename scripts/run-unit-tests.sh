@@ -74,7 +74,8 @@ xcrun swiftc -parse-as-library -swift-version 6 -default-isolation MainActor \
 
 bash scripts/run-localization-tests.sh
 
-# 配信の明示指定だけを許し、Debug は同じ指定があっても計測しない。
+# 配信の明示指定と利用者の同意が揃ったときだけ許し、Debug は同意があっても計測しない。
+# 同意モデルは SDK を持たない境界(TelemetryBackend)だけに依存するので、Firebase なしで両構成を検証する。
 for telemetry_configuration in release debug; do
   telemetry_flags=(-parse-as-library)
   if [ "$telemetry_configuration" = debug ]; then
@@ -85,4 +86,10 @@ for telemetry_configuration in release debug; do
     Musicfin/TelemetryConfiguration.swift Tests/TelemetryConfigurationTests.swift \
     -o "$test_dir/telemetry-$telemetry_configuration-tests"
   "$test_dir/telemetry-$telemetry_configuration-tests"
+
+  xcrun swiftc -swift-version 6 -default-isolation MainActor \
+    "${telemetry_flags[@]}" \
+    Musicfin/TelemetryConsent.swift Tests/TelemetryConsentTests.swift \
+    -o "$test_dir/telemetry-consent-$telemetry_configuration-tests"
+  "$test_dir/telemetry-consent-$telemetry_configuration-tests"
 done

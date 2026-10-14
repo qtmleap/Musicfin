@@ -1,6 +1,3 @@
-import FirebaseAnalytics
-import FirebaseCore
-import FirebaseCrashlytics
 import SwiftUI
 import UIKit
 
@@ -11,6 +8,7 @@ struct MusicfinApp: App {
     @State private var library = LibraryStore()
     @State private var player = PlaybackEngine()
     @State private var settings = PlaybackSettings()
+    @State private var telemetry = TelemetryConsent.live
 
     var body: some Scene {
         WindowGroup {
@@ -25,6 +23,7 @@ struct MusicfinApp: App {
             .environment(library)
             .environment(player)
             .environment(settings)
+            .environment(telemetry)
             .task {
                 // 音質は回線種別と組み合わせて曲ごとに決めるので、設定オブジェクトごとエンジンに渡す。
                 player.configure(settings: settings)
@@ -43,17 +42,8 @@ private final class MusicfinAppDelegate: NSObject, UIApplicationDelegate {
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
-        guard TelemetryConfiguration.isEnabled(in: Bundle.main.infoDictionary ?? [:]) else { return true }
-
-        FirebaseApp.configure()
-        Analytics.setConsent([
-            .analyticsStorage: .granted,
-            .adStorage: .denied,
-            .adUserData: .denied,
-            .adPersonalization: .denied,
-        ])
-        Analytics.setAnalyticsCollectionEnabled(true)
-        Crashlytics.crashlytics().setCrashlyticsCollectionEnabled(true)
+        // 同意が ON のときだけ SDK を開始する。判断は TelemetryConsent に集約する。
+        TelemetryConsent.live.bootstrap()
         return true
     }
 }
