@@ -1,7 +1,7 @@
 # Shared iOS development routine in Musicfin
 
-Adopted from [qtmleap/devcontainers](https://github.com/qtmleap/devcontainers/tree/a23986a98a51b7d71a28d39801c70c4c18c1e64c)
-at `a23986a98a51b7d71a28d39801c70c4c18c1e64c`. The four files under `.agents/skills/ios-development/` are copied
+Adopted from [qtmleap/devcontainers](https://github.com/qtmleap/devcontainers/tree/0ffa75dec05570817c499452ac6faf1c3413006c)
+at `0ffa75dec05570817c499452ac6faf1c3413006c`. The four files under `.agents/skills/ios-development/` are copied
 without modification. Future refreshes compare that directory and merge the
 marked `development-orchestration` block in root `AGENTS.md`, preserving local
 rules. Adoption does not install tools or grant additional release authority.
@@ -43,3 +43,12 @@ for retained captures, matching references and baseline review on every selected
 UI-test run.
 
 This app is iOS 26 only: use compatible 26.x native baselines and mark 18 not applicable. Existing design-mock comparison remains distinct from OS-matched regression comparison.
+
+## Remote screenshot sharing
+
+When UI screenshots are captured remotely, follow the
+[sharing workflow](../../.agents/skills/ios-development/references/testing-policy.md#sharing-remote-screenshots).
+Return actual tailnet image/viewer links, including baseline/current/diff when
+comparing, and report client reachability and viewer expiry separately from
+visual-test outcomes. Existing platform, release and access-control rules remain
+in force. This adoption starts no viewer and claims no live URL.
