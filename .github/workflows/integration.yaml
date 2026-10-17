@@ -15,6 +15,15 @@ env:
   SCHEME: Musicfin
 
 jobs:
+  ci-change-scope:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/ci-change-scope.yaml
+    with:
+      doc-paths: '[".agents/skills/ios-development/SKILL.md",".agents/skills/ios-development/references/app-review-followup.md",".agents/skills/ios-development/references/release-policy.md",".agents/skills/ios-development/references/testing-policy.md","AGENTS.md","CLAUDE.md","docs/development/ci-change-scope.md","docs/development/ios-development-routine.md","docs/impl-brief.md","docs/superpowers/plans/2026-09-10-remaining-ui.md","docs/superpowers/plans/2026-10-06-recovery-and-develop-ci.md","docs/superpowers/plans/2026-10-11-album-overlay-continuity.md","docs/ui-consult-prompt.md","docs/ui-spec.md"]'
+      doc-prefixes: '[]'
+      runner: '["self-hosted","ubuntu-latest"]'
+
   commitlint:
     name: Commit Lint
     runs-on: [self-hosted, Linux, X64, ubuntu-latest, docker]
@@ -101,15 +110,18 @@ jobs:
             Musicfin MusicfinUITests Tests
 
   build:
+    needs: ["ci-change-scope"]
     name: Build
-    runs-on: [self-hosted, macos-26]
-    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ${{ fromJSON((needs['ci-change-scope'].result == 'success' && needs['ci-change-scope'].outputs.docs_only == 'true') && '["self-hosted","ubuntu-latest"]' || '["self-hosted","macos-26"]') }}
+    if: ${{ !cancelled() && (true) && (github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository) }}
     steps:
       - uses: actions/checkout@v5
+        if: ${{ (needs['ci-change-scope'].result != 'success' || needs['ci-change-scope'].outputs.docs_only != 'true') }}
         with:
           persist-credentials: false
 
       - name: Show toolchain
+        if: ${{ (needs['ci-change-scope'].result != 'success' || needs['ci-change-scope'].outputs.docs_only != 'true') }}
         run: |
           xcodebuild -version
           xcodebuild -showsdks | grep -i "iOS"
@@ -117,6 +129,7 @@ jobs:
       - name: Build for iOS Simulator
         # 具体的な端末名ではなく generic 宛にビルドする。実機やシミュレータのランタイム構成に
         # 依存しないため、ランナーイメージが更新されても壊れない。
+        if: ${{ (needs['ci-change-scope'].result != 'success' || needs['ci-change-scope'].outputs.docs_only != 'true') }}
         run: |
           set -o pipefail
           xcodebuild build-for-testing \
@@ -131,7 +144,7 @@ jobs:
             | tee build.log
 
       - name: Summarize warnings
-        if: always()
+        if: ${{ (needs['ci-change-scope'].result != 'success' || needs['ci-change-scope'].outputs.docs_only != 'true') && (always()) }}
         run: |
           # appintentsmetadataprocessor は AppIntents 未使用時に必ず出る無害な警告なので数えない。
           warnings=$(grep "warning:" build.log \
@@ -154,7 +167,7 @@ jobs:
           exit 0
 
       - name: Upload build log
-        if: failure() && env.ACT != 'true'
+        if: ${{ (needs['ci-change-scope'].result != 'success' || needs['ci-change-scope'].outputs.docs_only != 'true') && (failure() && env.ACT != 'true') }}
         uses: actions/upload-artifact@v4
         with:
           name: build-log-${{ github.sha }}
@@ -162,17 +175,36 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
+      - name: Docs-only exemption
+        if: ${{ needs['ci-change-scope'].result == 'success' && needs['ci-change-scope'].outputs.docs_only == 'true' }}
+        shell: bash
+        working-directory: .
+        env:
+          CI_CHANGE_REASON: ${{ needs['ci-change-scope'].outputs.reason }}
+        run: |
+          printf '%s\n' "$CI_CHANGE_REASON" >> "$GITHUB_STEP_SUMMARY"
   unit-tests:
+    needs: ["ci-change-scope"]
     name: Unit Tests
-    runs-on: [self-hosted, macos-26]
-    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ${{ fromJSON((needs['ci-change-scope'].result == 'success' && needs['ci-change-scope'].outputs.docs_only == 'true') && '["self-hosted","ubuntu-latest"]' || '["self-hosted","macos-26"]') }}
+    if: ${{ !cancelled() && (true) && (github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository) }}
     steps:
       - uses: actions/checkout@v5
+        if: ${{ (needs['ci-change-scope'].result != 'success' || needs['ci-change-scope'].outputs.docs_only != 'true') }}
         with:
           persist-credentials: false
       - name: Run unit tests
+        if: ${{ (needs['ci-change-scope'].result != 'success' || needs['ci-change-scope'].outputs.docs_only != 'true') }}
         run: ./scripts/run-unit-tests.sh
 
+      - name: Docs-only exemption
+        if: ${{ needs['ci-change-scope'].result == 'success' && needs['ci-change-scope'].outputs.docs_only == 'true' }}
+        shell: bash
+        working-directory: .
+        env:
+          CI_CHANGE_REASON: ${{ needs['ci-change-scope'].outputs.reason }}
+        run: |
+          printf '%s\n' "$CI_CHANGE_REASON" >> "$GITHUB_STEP_SUMMARY"
   actionlint:
     name: actionlint
     runs-on: [self-hosted, Linux, X64, ubuntu-latest, docker]
