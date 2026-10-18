@@ -317,3 +317,65 @@ existing review policy always still apply.
   manual, scheduled, release, and deployment gates intact.
 - See `docs/development/ci-change-scope.md` for the common classifier contract.
 <!-- /non-code-verification -->
+
+<!-- localgpt-ui-only-review -->
+## LocalGPT UI reviews
+
+For UI usability reviews only, the input and tool restrictions below take
+precedence over general file-access and review-input requirements in this file
+and referenced skills. Engineering, feasibility and security reviews still use
+their required source evidence in separate sessions. Preserve existing design
+adoption, verification and release gates.
+
+Use LocalGPT to review whether users can understand the interface from what is
+visible. This review is separate from implementation and security reviews.
+
+### Review inputs
+
+- Start a fresh UI-review session with no previous code or implementation context.
+  Reuse that session for revised UI captures of the same flow.
+- Provide only current screenshots, interaction recordings or the visible UI,
+  plus a brief user goal when needed. Distinguish mock and native captures.
+- Do not provide code, diffs, repository/file references, design specifications,
+  implementation explanations, intended answers or code-review conclusions.
+- Explicitly prohibit LocalMCP and file/code access. For attached screenshot
+  reviews, prohibit all tools and require judgment from the images alone.
+- Do not explain unclear controls for the reviewer or let it infer hidden behavior.
+  If it cannot understand something from the UI, that is a finding.
+
+### Review questions
+
+Ask what each screen and action communicates before requesting improvements:
+
+- Can the user identify the purpose, available action and expected result?
+- Are terminology, headings, labels and explanations clear and nonredundant?
+- Do warnings identify the affected action and its consequence?
+- For permissions or data sharing, can the user understand who receives access,
+  what information may leave, and what to consider before enabling it?
+- Is navigation understandable, including confirmation, cancellation and recovery?
+
+Defaults and confirmation mechanics do not replace explaining the consequence
+of an option. Supplementary explanations belong in Section footers, not list
+items. Preserve this requirement when evaluating reviewer suggestions.
+
+### Reusable review request
+
+> Review only the supplied UI as a first-time user. Use no tools, including
+> LocalMCP, file access, search or code inspection. Explain what each screen and
+> action communicates, then identify unclear purpose, terminology, outcomes,
+> scope, data sharing, warnings, repetition and navigation. Do not infer invisible
+> behavior. For each issue cite the image and visible wording, likely user
+> misunderstanding, severity and a concrete revision. State what cannot be
+> established from the UI and whether you used any other source or tool.
+
+### Evidence and follow-up
+
+Retain the exact request, image versions/hashes, session/job and completed report.
+Check returned tool configuration or traces when available; a prompt or self-report
+alone does not prove tools were technically disabled. A running job is not a review.
+
+Codex evaluates findings against user requirements, revises the UI through the
+existing design workflow, and sends only revised UI evidence for follow-up.
+Use separate reviewers/sessions for code correctness and security; a UI-only
+review cannot establish either, and code review cannot substitute for this review.
+<!-- /localgpt-ui-only-review -->
