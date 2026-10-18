@@ -7,6 +7,20 @@ on:
     branches: [develop, master]
     paths-ignore:
       - fastlane/testflight/last_shipped.json
+      - .agents/skills/ios-development/SKILL.md
+      - .agents/skills/ios-development/references/app-review-followup.md
+      - .agents/skills/ios-development/references/release-policy.md
+      - .agents/skills/ios-development/references/testing-policy.md
+      - AGENTS.md
+      - CLAUDE.md
+      - docs/development/ci-change-scope.md
+      - docs/development/ios-development-routine.md
+      - docs/impl-brief.md
+      - docs/superpowers/plans/2026-09-10-remaining-ui.md
+      - docs/superpowers/plans/2026-10-06-recovery-and-develop-ci.md
+      - docs/superpowers/plans/2026-10-11-album-overlay-continuity.md
+      - docs/ui-consult-prompt.md
+      - docs/ui-spec.md
 
 permissions:
   contents: read

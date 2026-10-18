@@ -16,7 +16,7 @@ class AdapterTest < Minitest::Test
       FileUtils.mkdir_p(File.join(root, "fastlane/lib"))
       FileUtils.mkdir_p(File.join(root, ".github"))
       FileUtils.cp(File.join(ROOT, "fastlane/adapter.rb"), File.join(root, "fastlane/adapter.rb"))
-      %w[ci_cleanup deployment_policy shared_actions_loader testflight_notes].each do |name|
+      %w[ci_cleanup deployment_policy non_release_documents shared_actions_loader testflight_notes].each do |name|
         FileUtils.cp(File.join(ROOT, "fastlane/lib/#{name}.rb"), File.join(root, "fastlane/lib/#{name}.rb"))
       end
       FileUtils.cp(File.join(ROOT, ".github/shared-actions.lock.json"), File.join(root, ".github/shared-actions.lock.json"))
