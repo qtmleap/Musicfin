@@ -69,6 +69,7 @@ end
 end
 
 require_relative "../lib/deployment_policy"
+require_relative "../lib/non_release_documents"
 
 MERGED_SHA = "a" * 40
 BEFORE_SHA = "c" * 40
@@ -193,6 +194,8 @@ cases = {
   "dirty checkout" => ->(f) { f[:dirty_count] = 1 },
   "unknown checkout status" => ->(f) { f[:dirty_count] = nil },
   "record-only merge" => ->(f) { f[:changed_paths] = ["fastlane/testflight/last_shipped.json"] },
+  "documents-only merge" => ->(f) { f[:changed_paths] = NonReleaseDocuments::PATHS.dup },
+  "documents and record only" => ->(f) { f[:changed_paths] = NonReleaseDocuments::PATHS + ["fastlane/testflight/last_shipped.json"] },
   "empty diff" => ->(f) { f[:changed_paths] = [] },
   "unknown diff" => ->(f) { f[:changed_paths] = nil },
   "invalid diff paths" => ->(f) { f[:changed_paths] = [nil] },
@@ -219,7 +222,8 @@ def with_git_fixture(branch)
       when ["rev-parse", "--verify", "#{MERGED_SHA}^1^{commit}"]
         puts #{BEFORE_SHA.inspect}
       when ["status", "--porcelain", "-z", "--untracked-files=all"]
-      when ["diff", "--name-only", "-z", "#{MERGED_SHA}^1", #{MERGED_SHA.inspect}, "--"]
+      when ["diff", "--no-renames", "--name-only", "-z", "#{MERGED_SHA}^1", #{MERGED_SHA.inspect}, "--"]
+        warn "warning: inexact rename detection was skipped"
         print "Musicfin/App/RootView.swift\\0"
       when ["ls-remote", "--exit-code", "origin", "refs/heads/develop"],
            ["ls-remote", "--exit-code", "origin", "refs/heads/master"]
@@ -310,6 +314,18 @@ end
       end
     end
   end
+end
+
+check "a merge containing code and documents is accepted" do
+  fixture = allowed_fixture
+  fixture[:changed_paths] = ["Musicfin/App/RootView.swift", *NonReleaseDocuments::PATHS]
+  assert DeploymentPolicy.validate!(**fixture) == MERGED_SHA
+end
+
+check "a documentation-like path outside the exact list is release-relevant" do
+  fixture = allowed_fixture
+  fixture[:changed_paths] = ["Musicfin/Resources/Terms.md", "docs/unlisted.md"]
+  assert DeploymentPolicy.validate!(**fixture) == MERGED_SHA
 end
 
 check "a merge containing code and the shipped record is accepted" do

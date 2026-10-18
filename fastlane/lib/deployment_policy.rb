@@ -2,6 +2,7 @@
 require "json"
 require "open3"
 require_relative "testflight_notes"
+require_relative "non_release_documents"
 
 module DeploymentPolicy
   class Error < StandardError; end
@@ -116,14 +117,15 @@ module DeploymentPolicy
     current!(sha: sha, head_sha: head_sha, branch_sha: branch_sha, dirty_count: dirty_count)
     raise Error, "直接 push など、first parent が push の before と一致しないため配信しません。" unless first_parent == before
     unless changed_paths.is_a?(Array) && changed_paths.all? { |path| path.is_a?(String) && !path.empty? } &&
-           changed_paths.any? { |path| path != SHIPPED_RECORD }
-      raise Error, "配信記録だけの変更、または変更の無いマージは配信しません。"
+           changed_paths.any? { |path| path != SHIPPED_RECORD && !NonReleaseDocuments::PATHS.include?(path) }
+      raise Error, "配信記録・ドキュメントだけの変更、または変更の無いマージは配信しません。"
     end
     sha
   end
 
   def git_output(repo_root, *arguments)
-    output, status = Open3.capture2e("git", "-C", repo_root, *arguments)
+    # 警告などの stderr が出力に混ざってパスや SHA を壊さないよう、stdout だけを使う。
+    output, _error, status = Open3.capture3("git", "-C", repo_root, *arguments)
     raise Error, "配信対象の Git 情報を取得できません。" unless status.success?
     output
   rescue SystemCallError
@@ -154,7 +156,7 @@ module DeploymentPolicy
     event = read_event(env)
     sha, = context!(lane: lane, env: env, event: event)
     parent = git_output(repo_root, "rev-parse", "--verify", "#{sha}^1^{commit}").strip
-    paths = git_output(repo_root, "diff", "--name-only", "-z", "#{sha}^1", sha, "--").split("\0")
+    paths = git_output(repo_root, "diff", "--no-renames", "--name-only", "-z", "#{sha}^1", sha, "--").split("\0")
     validate!(
       lane: lane, env: env, event: event,
       head_sha: TestflightNotes.head_sha(repo_root),

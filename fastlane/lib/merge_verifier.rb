@@ -6,6 +6,7 @@
 require "json"
 require_relative "shared_actions_loader"
 require_relative "deployment_policy"
+require_relative "non_release_documents"
 SharedActionsLoader.load!(app_root: File.expand_path("../..", __dir__))
 require File.join(ENV.fetch("QTMLEAP_ACTIONS_ROOT"), "runtime/compatibility")
 
@@ -20,9 +21,12 @@ MergeVerifier = SharedCI.merge_wrapper(
     ],
     ".github/workflows/release_validation.yaml" => ["Validate marketing version"]
   }.freeze,
-    record_only_paths: [DeploymentPolicy::SHIPPED_RECORD]
+    record_only_paths: [DeploymentPolicy::SHIPPED_RECORD, *NonReleaseDocuments::PATHS].freeze
   }
 )
+
+# 実際の Git だけに rename 検出なしの diff を使わせる (注入された偽 Git は影響を受けない)。
+MergeVerifier::Git.prepend(NonReleaseDocuments::RenameSafeDiff)
 
 if __FILE__ == $PROGRAM_NAME
   begin
